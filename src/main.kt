@@ -2,12 +2,14 @@ package com.pgsystem.employee.requirement.tracker
 
 import io.ktor.server.application.Application
 import io.ktor.server.engine.embeddedServer
+import io.ktor.server.netty.Netty
 
-fun main(args: Array<String>) {
+fun main() {
+    val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
     embeddedServer(
-        factory = io.ktor.server.netty.Netty,
-        port = 8080,
+        factory = Netty,
+        port = port,
         host = "0.0.0.0",
-        module = Application::rootModule
+        module = Application::rootModule,
     ).start(wait = true)
 }

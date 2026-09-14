@@ -12,14 +12,18 @@ dependencies:
   - $ktor.server.metrics.micrometer
   - $ktor.server.netty
   - $ktor.server.openapi
-  - $ktor.server.routingOpenapi
   - $ktor.server.sessions
   - $ktor.server.statusPages
   - $ktor.server.swagger
+  - $libs.ktor.serverRoutingOpenapi
+  - $libs.bcrypt
   - $libs.exposed.core
+  - $libs.exposed.jdbc
+  - $libs.exposed.javaTime
   - $libs.exposed.r2dbc
   - $libs.h2database.h2
   - $libs.h2database.r2dbc
+  - $libs.hikaricp
   - $libs.koin.ktor
   - $libs.koin.loggerSlf4j
   - $libs.logback.classic
@@ -28,9 +32,13 @@ dependencies:
 
 test-dependencies:
   - $ktor.server.testHost
+  - $libs.kotest.assertionsCore
+  - $libs.kotlinx.coroutinesTest
+  - $libs.mockk
 
 settings:
-  ktor: enabled
+  ktor:
+    enabled: true
+    version: 3.5.2
   kotlin:
     serialization: enabled
-
