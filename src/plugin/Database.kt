@@ -73,5 +73,11 @@ private fun Application.migrate(config: DatabaseConfig) {
         .load()
         .migrate()
 
-    log.info("Flyway: ${result.migrationsExecuted} migration(s) applied; schema at ${result.targetSchemaVersion ?: "baseline"}.")
+    // targetSchemaVersion is null when nothing was applied, which is not the same as "no schema" --
+    // say so plainly rather than printing a version that reads as a baseline.
+    if (result.migrationsExecuted == 0) {
+        log.info("Flyway: schema already up to date; no migration applied.")
+    } else {
+        log.info("Flyway: applied ${result.migrationsExecuted} migration(s); schema now at ${result.targetSchemaVersion}.")
+    }
 }
