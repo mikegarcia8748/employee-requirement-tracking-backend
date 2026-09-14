@@ -21,6 +21,8 @@ dependencies:
   - $libs.exposed.jdbc
   - $libs.exposed.javaTime
   - $libs.exposed.r2dbc
+  - $libs.flyway.core
+  - $libs.flyway.databasePostgresql
   - $libs.h2database.h2
   - $libs.h2database.r2dbc
   - $libs.hikaricp

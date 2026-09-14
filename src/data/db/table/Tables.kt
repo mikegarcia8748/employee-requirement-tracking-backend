@@ -140,6 +140,14 @@ object UploadLinks : UUIDTable("upload_links") {
 
 object PortalSessions : UUIDTable("portal_sessions") {
     val uploadLinkId = reference("upload_link_id", UploadLinks)
+
+    /**
+     * The session cookie's value, hashed. Not in PRD 11: without it the cookie would have to carry
+     * the primary key, which makes the row id a live bearer token in plaintext. Hashed like the
+     * link token and the PIN -- only the digest is ever stored.
+     */
+    val tokenHash = varchar("token_hash", 256).uniqueIndex()
+
     val startedAt = timestamp("started_at")
     val expiresAt = timestamp("expires_at")
     val ip = varchar("ip", 64)
