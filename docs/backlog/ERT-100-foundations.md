@@ -1,0 +1,530 @@
+# ERT-100 · Epic: Runtime foundations
+
+| | |
+|---|---|
+| **Type** | Epic |
+| **Phase** | 0 |
+| **Status** | Not started |
+| **Depends on** | — |
+| **PRD** | §6.4, §8.10, §11 |
+| **Architecture** | §7, §11, §14 |
+
+**Description**
+
+The application boots without a database. [`DatabaseFactory.connect()`](../../src/data/db/DatabaseFactory.kt)
+is never called from anywhere, `allTables` at [Tables.kt:185](../../src/data/db/table/Tables.kt)
+is referenced by nothing, and there is no migration tooling in `module.yaml` or
+`libs.versions.toml`. The Exposed table definitions are therefore decorative: no schema is ever
+created, so the first repository written would fail at runtime rather than at wiring time.
+
+Two smaller gaps sit alongside. [`StatusPages.kt`](../../src/plugin/StatusPages.kt) maps only
+`Throwable` to a generic 500, so a route has no way to turn an `AppError` into a status code — every
+Phase 1 route needs that mapping before it can return a domain failure. And
+[`Monitoring.kt`](../../src/plugin/Monitoring.kt) collects a Prometheus registry that no route
+exposes, so metrics are gathered and unreachable.
+
+Two further items belong here rather than in Phase 1, because both are cheap now and expensive
+after the first slice lands. [`BcryptHasher`](../../src/data/crypto/BcryptHasher.kt) is salted, so
+the same token hashes differently every time — yet
+[`UploadLinkRepository.findByTokenHash`](../../src/domain/port/Repositories.kt) and
+`UploadLinks.tokenHash.uniqueIndex()` both require a **deterministic** digest. As written, no link
+could ever be resolved (ERT-160). And the write-mostly rule has no mechanical guard, so the first
+portal DTO written without one decides the question by accident (ERT-170).
+
+**Goal**
+
+The application connects to a database on start, migrates its schema, has reference data and policy
+defaults to read, can express a domain failure as an HTTP status, can be scraped, resolves a link by
+a deterministic token digest, and fails the build if a portal DTO leaks document content.
+
+**Stories**
+- As an engineer on the next session, I want the schema to exist when the app starts so that I can
+  write a repository without first inventing a bootstrap.
+- As an HR Admin, I want the §6.4 durations to come from the database so that changing one does not
+  need a deployment.
+
+**Out of scope**
+- Any repository implementation, use case, or business endpoint.
+- Replacing the placeholder JWT scheme (gated on Q4).
+
+---
+
+## ERT-110 — Wire `DatabaseFactory` into the application lifecycle
+
+| | |
+|---|---|
+| **Parent** | ERT-100 |
+| **Type** | Ticket |
+| **Phase** | 0 |
+| **Status** | Not started |
+| **Depends on** | — |
+| **PRD** | §11 |
+| **Architecture** | §3, §11, §14 |
+
+**Description**
+
+`DatabaseFactory` is bound in [DataModule.kt:17](../../src/di/DataModule.kt) as a Koin `single`,
+which is lazy. Nothing ever resolves it, so no pool is opened and `lateinit var database` stays
+uninitialised. The class itself is correct — Hikari with `isAutoCommit = false`,
+`TRANSACTION_READ_COMMITTED`, and the `Dispatchers.IO` hop confined to `transaction` so the domain
+never sees a dispatcher. It simply is not called.
+
+The connection must open on application start and close on stop. Ktor's `ApplicationStarted` /
+`ApplicationStopping` monitor events are the hook; `rootModule()` gains one `configureDatabase()`
+call after `configureKoin()`, since the factory comes from the container.
+
+**Goal**
+
+`./kotlin run` opens a connection pool on boot and closes it cleanly on shutdown; a failure to
+connect stops startup loudly rather than surfacing on the first query.
+
+**Stories**
+- As an engineer on the next session, I want a live `Database` by the time routes mount so that a
+  repository call works without per-call connection handling.
+- As an operator, I want a bad `DATABASE_URL` to fail at startup so that the service does not accept
+  traffic it cannot serve.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given the application starts, then `DatabaseFactory.connect()` has run before any
+      route handles a request
+- [ ] `[derived]` Given the application stops, then the Hikari pool is closed
+- [ ] `[derived]` Given `DATABASE_URL` points at an unreachable server, then startup fails with the
+      underlying cause, and the server does not begin listening
+- [ ] `[derived]` Given no `DATABASE_URL` is set, then the in-memory H2 default is used, so a fresh
+      checkout and the test suite need no external service
+
+**Tests**
+| Level | Test |
+|---|---|
+| Route | `application startup - no DATABASE_URL set - connects to the in-memory default and health responds` |
+| Route | `application shutdown - server stops - the connection pool is closed` |
+
+**Files**
+- create `src/plugin/Database.kt` — `Application.configureDatabase()` using `monitor.subscribe`
+- modify [`src/Application.kt`](../../src/Application.kt) — call it after `configureKoin()`
+- modify [`test/ServerTest.kt`](../../test/ServerTest.kt) — assert the lifecycle
+
+**Out of scope**
+- Schema creation — that is ERT-120.
+- Any change to `DatabaseFactory` itself; it is already correct.
+
+---
+
+## ERT-120 — Flyway baseline migration for the 12 tables, plus a schema-drift test
+
+| | |
+|---|---|
+| **Parent** | ERT-100 |
+| **Type** | Ticket |
+| **Phase** | 0 |
+| **Status** | Not started |
+| **Depends on** | ERT-110 |
+| **PRD** | §11 |
+| **Architecture** | §7, §13 |
+
+**Description**
+
+There is no migration tooling of any kind. Flyway with plain versioned SQL is the choice: Postgres is
+the production target and the dev and test default is H2 in PostgreSQL mode, so one dialect serves
+both. `SchemaUtils.createMissingTablesAndColumns` was rejected — it keeps no version history and
+cannot express a data migration, and architecture §13 promises that Phase 4 "costs a migration, not
+a redesign", which only holds if migrations exist.
+
+Making SQL the source of truth creates a drift risk against [Tables.kt](../../src/data/db/table/Tables.kt).
+Exposed can answer that question directly: after migration,
+`statementsRequiredToActualizeScheme(*allTables)` must return empty. That test is what keeps the two
+definitions honest, and it gives `allTables` its first real use.
+
+Two details the schema must preserve, both load-bearing:
+
+- `portal_access_logs` is **append-only**. Nothing updates or deletes rows there. There is
+  deliberately no `last_accessed_at` column on `upload_links` — a single overwritten timestamp
+  cannot answer who, from where, or how often, which is the first question asked when a fraudulent
+  submission surfaces (SEC-05).
+- `upload_links.token_hash` carries a unique index and is the only lookup path. The plaintext token
+  exists solely in the invitation email.
+
+**Goal**
+
+A fresh database reaches the full 12-table schema by running migrations, and CI fails if
+`Tables.kt` and the SQL disagree.
+
+**Stories**
+- As an engineer on the next session, I want a versioned schema so that I can add a column in Phase 2
+  without hand-editing anyone's database.
+- As an engineer, I want drift between the Exposed definitions and the SQL to fail the build so that
+  the two cannot quietly diverge.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given an empty database, when the application starts, then all 12 tables in
+      `allTables` exist
+- [ ] `[derived]` Given `portal_sessions`, then it carries a unique `token_hash` column. The table as
+      defined today has none, so a session cookie would have to carry the primary key — storing live
+      session bearer tokens in plaintext. Adding the column now is free; adding it later is a
+      migration plus a forced logout of everyone mid-upload.
+- [ ] `[derived]` Given migrations have already run, when the application starts again, then no
+      migration is re-applied and startup succeeds
+- [ ] `[derived]` Given migrations have run, then
+      `statementsRequiredToActualizeScheme(*allTables)` is empty
+- [ ] `[derived]` Given the same migration SQL, then it applies cleanly on both H2 in PostgreSQL mode
+      and PostgreSQL
+- [ ] Given the schema, then `upload_links` has no `last_accessed_at` column (§11, SEC-05)
+- [ ] `[derived]` Given the schema, then `upload_links.token_hash` is uniquely indexed
+
+**Tests**
+| Level | Test |
+|---|---|
+| Repository | `schema migration - a fresh database - creates every table in allTables` |
+| Repository | `schema migration - run twice - applies nothing the second time` |
+| Repository | `schema drift - migrations have run - Exposed reports no pending statements` |
+| Repository | `access trail schema - upload_links - has no last_accessed_at column` |
+
+**Files**
+- modify [`libs.versions.toml`](../../libs.versions.toml) — add `flyway-core`, and
+  `flyway-database-postgresql`
+- modify [`module.yaml`](../../module.yaml) — declare them
+- create `resources/db/migration/V1__baseline.sql` — the 12 tables, indexes and foreign keys
+- modify `src/plugin/Database.kt` — run Flyway before the pool is handed out
+- create `test/data/db/MigrationTest.kt`
+
+**Out of scope**
+- Seed data — that is ERT-130.
+- Removing the unused `exposed-r2dbc` and `h2database-r2dbc` dependencies. Harmless, and not this
+  ticket's business.
+
+---
+
+## ERT-130 — Seed reference data and `app_setting` defaults with bounds
+
+| | |
+|---|---|
+| **Parent** | ERT-100 |
+| **Type** | Ticket |
+| **Phase** | 0 |
+| **Status** | Not started |
+| **Depends on** | ERT-120 |
+| **PRD** | §6.4, §8.10, §8.11, Appendix A |
+| **Architecture** | §4 |
+
+**Description**
+
+`AppSettingsRepository.linkPolicy()` reads the §6.4 policy from `app_setting` at runtime, and
+`CreateHireUseCase` computes `expiresAt` from it. With an empty table there is nothing to read, so
+the first hire cannot be created. The nine defaults in
+[`LinkPolicy`](../../src/domain/model/LinkPolicy.kt) are the seed values, and each row carries its
+own `min_value` / `max_value` so the bounds live with the data rather than in a validator someone
+forgets to call — §6.4 is explicit that a well-meant edit must not be able to turn a token into a
+permanent credential.
+
+Departments, employment types and the requirement catalogue also need starting rows. The catalogue
+is **Appendix A, which the PRD marks illustrative pending Q2** — seed it, mark it clearly, and keep
+it replaceable as data rather than code.
+
+**Goal**
+
+A migrated database has a readable link policy with enforced bounds, and enough reference data for a
+hire to be created and assigned a requirement set.
+
+**Stories**
+- As an HR Admin, I want the §6.4 durations stored as data so that changing one does not need a
+  deployment.
+- As an engineer on the next session, I want a seeded catalogue so that I can create a hire and watch
+  a requirement set snapshot without inventing fixtures.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given a migrated database, then every `LinkPolicy` field has a corresponding
+      `app_setting` row carrying its default, type, and min/max
+- [ ] Given `link.absolute_expiry_days`, then its stored bounds are 7 to 180 (§6.4)
+- [ ] `[derived]` Given the seed runs twice, then it is idempotent and overwrites nothing an admin
+      has since changed
+- [ ] `[derived]` Given the seed, then the Appendix A catalogue exists with `is_required`, `expires`
+      and `sort_order` populated, and is recorded in the migration as illustrative pending Q2
+- [ ] `[derived]` Given the seed, then at least one department and each employment type exist, with a
+      `template_assignment` row set per employment type
+
+**Tests**
+| Level | Test |
+|---|---|
+| Repository | `policy seed - a migrated database - every LinkPolicy field has a settings row` |
+| Repository | `policy seed - absolute expiry bounds - are stored as 7 to 180` |
+| Repository | `policy seed - applied twice - does not overwrite an admin-changed value` |
+| Repository | `catalogue seed - an employment type - resolves to a non-empty template set` |
+
+**Files**
+- create `resources/db/migration/V2__reference_data.sql`
+- create `resources/db/migration/V3__app_settings.sql`
+
+**Out of scope**
+- The `AppSettingsRepository` adapter that reads these rows — that is ERT-310.
+- Replacing Appendix A with the real checklist. That is a seed change once Q2 is answered.
+
+---
+
+## ERT-140 — Map `AppError` to HTTP status in `StatusPages`
+
+| | |
+|---|---|
+| **Parent** | ERT-100 |
+| **Type** | Ticket |
+| **Phase** | 0 |
+| **Status** | Not started |
+| **Depends on** | — |
+| **PRD** | §8.6, §8.7, §6.6 |
+| **Architecture** | §8, §12 invariant 3 |
+
+**Description**
+
+[`StatusPages.kt`](../../src/plugin/StatusPages.kt) handles `Throwable` only, logging server-side and
+returning a generic code — correct, and deliberately so, since the generator's version echoed
+`"500: $cause"` to clients. But use cases return `DomainResult.Err(AppError)`, not exceptions, and
+there is no shared mapping from an `AppError` to a status. Without it every route invents its own,
+and the routes are supposed to make no decisions.
+
+One mapping is a security control rather than a convenience. `AppError.Denied` deliberately collapses
+a wrong PIN and an unknown token into one case, and it must render **identically** in status, body
+and headers — otherwise the endpoint becomes an oracle for whether a link exists (§6.6, SEC-01).
+`Denied` therefore carries a code but no detail field, and the mapper must not add one.
+
+| `AppError` | Status |
+|---|---|
+| `Validation` | 422 Unprocessable Entity, with the field name |
+| `NotFound` | 404 Not Found |
+| `Conflict` | 409 Conflict — the locked-upload case of §8.7 |
+| `ReasonRequired` | 422, naming the action needing justification |
+| `Denied` | 404 Not Found, body identical in every instance |
+
+**Goal**
+
+A route can return an `AppError` and get the right status with no per-route mapping, and `Denied`
+is indistinguishable across causes.
+
+**Stories**
+- As an engineer on the next session, I want one place that turns a domain failure into a status so
+  that handlers stay free of decisions.
+- As a New Hire, I want a wrong PIN and a mistyped link to look the same so that nobody can use the
+  endpoint to discover whether my link is real.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given a use case returns `Validation`, then the response is 422 and names the field
+- [ ] `[derived]` Given `Conflict`, then the response is 409
+- [ ] Given `Denied` from a wrong PIN and `Denied` from an unknown token, then the two responses are
+      byte-identical in status, body and headers (§6.6)
+- [ ] `[derived]` Given any `AppError`, then the response body carries the stable `code` and no
+      internal detail, stack trace or SQL
+- [ ] `[derived]` Given an unexpected `Throwable`, then the existing behaviour is unchanged — logged
+      server-side, generic code to the client
+
+**Tests**
+| Level | Test |
+|---|---|
+| Route | `error mapping - a validation failure - returns 422 naming the field` |
+| Route | `error mapping - a conflict - returns 409` |
+| Route | `denied response - wrong pin versus unknown token - the two responses are byte-identical` |
+| Route | `error mapping - an unexpected throwable - leaks no detail to the client` |
+
+**Files**
+- modify [`src/plugin/StatusPages.kt`](../../src/plugin/StatusPages.kt)
+- create `src/route/mapper/AppErrorMapper.kt`
+- create `test/route/ErrorMappingTest.kt`
+
+**Out of scope**
+- Rate-limit responses (429) — those arrive with ERT-660.
+
+---
+
+## ERT-150 — Expose the Micrometer registry on a scrape route
+
+| | |
+|---|---|
+| **Parent** | ERT-100 |
+| **Type** | Ticket |
+| **Phase** | 0 |
+| **Status** | Not started |
+| **Depends on** | — |
+| **PRD** | §13 |
+| **Architecture** | §3 |
+
+**Description**
+
+[`Monitoring.kt:33`](../../src/plugin/Monitoring.kt) installs `MicrometerMetrics` with a Prometheus
+registry and stores it in `attributes`, but no route calls `scrape()`. Metrics are collected and
+unreachable. PRD §13 sets leading indicators — PIN entry failure rate, sessions blocked by lockout,
+upload error rate — that need a scrape target to be measurable at all.
+
+The endpoint must not be public. It sits behind the same gate as the Swagger surface: open in dev,
+HR-authenticated otherwise.
+
+**Goal**
+
+Prometheus can scrape the service, and the endpoint is not world-readable outside dev.
+
+**Stories**
+- As an operator, I want a scrape endpoint so that the §13 launch metrics can be measured rather than
+  estimated.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given the app is running in dev, when `/metrics` is requested, then the Prometheus
+      exposition format is returned
+- [ ] `[derived]` Given `APP_ENV` is not dev, when `/metrics` is requested without HR credentials,
+      then it is refused
+- [ ] `[derived]` Given the OpenAPI spec, then `/metrics` is hidden from it — it is an operational
+      surface, not an API
+
+**Tests**
+| Level | Test |
+|---|---|
+| Route | `metrics endpoint - dev mode - returns prometheus exposition format` |
+| Route | `metrics endpoint - outside dev without credentials - is refused` |
+
+**Files**
+- create `src/route/MetricsRoutes.kt` — using `hide()` so it stays out of the spec
+- modify [`src/route/Routing.kt`](../../src/route/Routing.kt)
+
+**Out of scope**
+- Defining custom business metrics. Those land with the use cases that emit them.
+
+---
+
+## ERT-160 — Deterministic token digest, separate from PIN hashing
+
+| | |
+|---|---|
+| **Parent** | ERT-100 |
+| **Type** | Ticket |
+| **Phase** | 0 |
+| **Status** | Not started |
+| **Depends on** | — |
+| **PRD** | §6.6, §12 |
+| **Architecture** | §4, §12 invariant 4, §14 |
+
+**Description**
+
+There is a contradiction in the current code, and it is load-bearing.
+[`BcryptHasher`](../../src/data/crypto/BcryptHasher.kt) uses `BCrypt.withDefaults().hashToString`,
+which generates a **random salt per call** — hashing the same token twice yields two different
+strings. But [`findByTokenHash`](../../src/domain/port/Repositories.kt) resolves a link *by* its
+hash, and `UploadLinks.tokenHash` carries a `uniqueIndex()`. Both only make sense for a
+deterministic digest. As the code stands, no presented token could ever be looked up.
+
+The resolution is that the two credentials need different primitives, for different reasons:
+
+| Credential | Primitive | Why |
+|---|---|---|
+| Link token, session token | HMAC-SHA-256 keyed by a server-side pepper | It is **looked up**, so the digest must be reproducible. 256 bits of entropy has no offline guessing attack worth a work factor. |
+| Access PIN | bcrypt, cost 12 | It is **verified** against one known row, never looked up. The keyspace is 10⁶, which is exactly what a work factor defends — architecture §14 makes this argument and it still holds. |
+
+This has to land in Phase 0. `CreateHireUseCase` writes `tokenHash` and `VerifyPortalPinUseCase`
+reads by it; discovering the problem after either ships means re-issuing every live credential and
+re-inviting every hire — through a bulk send path §8.2 deliberately makes hard.
+
+A consequence worth recording rather than discovering: rotating the pepper invalidates every live
+link. There is no re-issue flow, so rotation is not currently possible. Note it as a known gap.
+
+**Goal**
+
+A `TokenDigest` port produces a reproducible keyed digest for link and session tokens, `Hasher`
+continues to hash PINs only, and the pepper is required outside dev.
+
+**Stories**
+- As an engineer on the next session, I want token lookup and PIN verification to use the right
+  primitive each so that neither the lookup silently fails nor every portal request pays 100ms of
+  bcrypt.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given the same token digested twice, then the two digests are equal, so a link can
+      be resolved by hash
+- [ ] `[derived]` Given two different tokens, then their digests differ
+- [ ] `[derived]` Given no pepper is configured outside dev, then startup fails — matching the
+      existing `JWT_SECRET` behaviour in [Security.kt:32](../../src/plugin/Security.kt)
+- [ ] `[derived]` Given a leaked database, then no stored value yields a usable token or PIN
+- [ ] `[derived]` Given an access PIN, then it is still hashed with bcrypt and not with the digest
+- [ ] `[derived]` Given the documentation, then the pepper-rotation gap is recorded
+
+**Tests**
+| Level | Test |
+|---|---|
+| Use case | `token digest - the same token digested twice - produces the same value so a link resolves by hash` |
+| Use case | `token digest - two different tokens - produce different digests` |
+| Use case | `credential hashing - an access pin - is hashed with a work factor rather than a fast digest` |
+| Route | `token digest - no pepper configured outside dev - startup refuses` |
+
+**Files**
+- create `src/core/crypto/TokenDigest.kt` — the port
+- create `src/data/crypto/HmacTokenDigest.kt`
+- modify [`src/core/crypto/Hasher.kt`](../../src/core/crypto/Hasher.kt) — narrow its doc comment to
+  the PIN; it currently claims to cover the link token
+- modify [`src/data/crypto/BcryptHasher.kt`](../../src/data/crypto/BcryptHasher.kt) — same
+- modify [`src/di/CoreModule.kt`](../../src/di/CoreModule.kt) — bind it
+- create `test/core/crypto/TokenDigestTest.kt`
+
+**Out of scope**
+- A pepper-rotation or credential re-issue flow. Recorded as a gap, not built.
+
+---
+
+## ERT-170 — Architecture guards for the write-mostly rule
+
+| | |
+|---|---|
+| **Parent** | ERT-100 |
+| **Type** | Ticket |
+| **Phase** | 0 |
+| **Status** | Not started |
+| **Depends on** | — |
+| **PRD** | §8.6 |
+| **Architecture** | §2, §12 invariants 1 and 2 |
+
+**Description**
+
+[`ArchitectureTest.kt`](../../test/ArchitectureTest.kt) currently guards imports in `domain/` and
+`core/` and asserts one docstring in `DocumentStorage.kt`. The write-mostly rule has no mechanical
+guard at all.
+
+PRD §15 says deciding that rule late means "unbuilding a preview feature and re-testing every portal
+endpoint". The realistic failure is not someone deliberately adding preview — it is `ChecklistDto`
+gaining a `mimeType` "for the icon" and an upload response echoing `originalFilename` "for the
+confirmation toast". Both read as reasonable in review. A filename leaks content as surely as the
+document does: `NBI_Clearance_DelaCruz_1998.pdf` says everything.
+
+**This guard must exist before the first portal DTO is written.** Afterwards it is an audit, not a
+guard.
+
+Two details matter. The guard scopes to **portal** DTOs only — §8.4 explicitly requires
+`originalFilename`, `sizeBytes` and `mimeType` on the HR side, so a blanket rule would block ERT-820.
+And it needs the anti-vacuity assertion the existing suite already uses: while `route/dto/portal/` is
+empty, a naive guard passes forever.
+
+**Goal**
+
+A portal DTO carrying document content, or a portal route reaching `DocumentStorage`, fails the
+build — and the guard cannot pass vacuously.
+
+**Stories**
+- As an engineer on the next session, I want the write-mostly rule enforced mechanically so that I
+  cannot reintroduce the finding the audit closed without the build telling me.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given a type under `route/dto/portal/`, then it declares no field named `fileKey`,
+      `originalFilename`, `url`, `downloadUrl`, `signedUrl` or `mimeType` (§8.6)
+- [ ] `[derived]` Given any file under `src/route/portal/`, then it does not import `DocumentStorage`
+- [ ] `[derived]` Given any file under `src/route/`, then it does not import
+      `org.jetbrains.exposed` — routes make no direct `data/` access, which is currently unguarded
+- [ ] `[derived]` Given `route/dto/portal/` is empty, then the guard reports vacuous rather than
+      passing
+- [ ] `[derived]` Given an HR DTO carrying `originalFilename`, then the guard does **not** fire —
+      §8.4 requires it
+
+**Tests**
+| Level | Test |
+|---|---|
+| Architecture | `write-mostly portal - a portal dto declares a file key or original filename - the build fails` |
+| Architecture | `write-mostly portal - a portal route imports DocumentStorage - the build fails` |
+| Architecture | `dependency rule - a route imports Exposed directly - the build fails` |
+| Architecture | `guard integrity - the portal dto directory is empty - the guard reports vacuous rather than passing` |
+| Architecture | `write-mostly portal - an HR dto carrying an original filename - does not trip the guard` |
+
+**Files**
+- modify [`test/ArchitectureTest.kt`](../../test/ArchitectureTest.kt)
+
+**Out of scope**
+- A multi-module split. Architecture §14 defers it deliberately.
