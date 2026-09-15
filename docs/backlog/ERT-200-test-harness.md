@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Epic |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | In progress |
 | **Depends on** | ERT-120 |
 | **PRD** | — |
 | **Architecture** | §10 |
@@ -54,7 +54,7 @@ SQL.
 | **Parent** | ERT-200 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | §8.9, §8.12 |
 | **Architecture** | §4, §10, §12 |
@@ -84,16 +84,16 @@ mode.
   one line so that notification rules are cheap to test.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given each of the 10 ports, then a fake exists implementing it fully
-- [ ] `[derived]` Given `FakeNotifier`, then every call is recorded with its arguments, and a test can
+- [x] `[derived]` Given each of the 10 ports, then a fake exists implementing it fully
+- [x] `[derived]` Given `FakeNotifier`, then every call is recorded with its arguments, and a test can
       make any single send return `DeliveryResult.Failed`
-- [ ] `[derived]` Given `FakePortalAccessTrail`, then it exposes no update or delete path, and
+- [x] `[derived]` Given `FakePortalAccessTrail`, then it exposes no update or delete path, and
       `distinctIpsFor` and `countRecentFailures` behave as the real trail will
-- [ ] `[derived]` Given `FakeUploadLinkRepository`, then lookup is by token **hash** only — there is
+- [x] `[derived]` Given `FakeUploadLinkRepository`, then lookup is by token **hash** only — there is
       no by-plaintext path, matching the port
-- [ ] `[derived]` Given `FakeSubmissionRepository`, then `purgeBeyondRetention` and `totalBytesFor`
+- [x] `[derived]` Given `FakeSubmissionRepository`, then `purgeBeyondRetention` and `totalBytesFor`
       behave per §7.1 so the storage-cap rule can be tested before real storage exists
-- [ ] `[derived]` Given any fake, then it is safe to construct without a database, a container, or a
+- [x] `[derived]` Given any fake, then it is safe to construct without a database, a container, or a
       dispatcher
 
 **Tests**
@@ -118,7 +118,7 @@ mode.
 | **Parent** | ERT-200 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | §6.4, §6.6 |
 | **Architecture** | §2, §10 |
@@ -148,16 +148,16 @@ deterministic.
   absolute-expiry rule is a two-line test.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given `FixedClock`, then it returns a set instant and can be advanced by a
+- [x] `[derived]` Given `FixedClock`, then it returns a set instant and can be advanced by a
       `Duration`
-- [ ] `[derived]` Given the deterministic generators, then ids, tokens and PINs are predictable and
+- [x] `[derived]` Given the deterministic generators, then ids, tokens and PINs are predictable and
       repeatable across runs
-- [ ] `[derived]` Given the id generators, then there is one fake per port — a `PersonId` is 8
+- [x] `[derived]` Given the id generators, then there is one fake per port — a `PersonId` is 8
       characters and an `EntityId` is 12, and a fake returning the wrong width must not compile
       into the wrong slot
-- [ ] `[derived]` Given `FixedPinGenerator`, then the PIN it returns satisfies `AccessPin`'s
+- [x] `[derived]` Given `FixedPinGenerator`, then the PIN it returns satisfies `AccessPin`'s
       six-digit validation, so tests exercise the real value object
-- [ ] `[derived]` Given a test needs collision behaviour, then a generator can be made to return the
+- [x] `[derived]` Given a test needs collision behaviour, then a generator can be made to return the
       same value twice
 
 > The collision criterion above is no longer hypothetical. A `PersonId` draws from 62^8, so a
@@ -188,7 +188,7 @@ deterministic.
 | **Parent** | ERT-200 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-220 |
 | **PRD** | §5, §6.1, §6.2, §6.3 |
 | **Architecture** | §10 |
@@ -214,13 +214,13 @@ A test states only the field under test, and the resulting objects are valid.
   sees the rule instead of seventeen irrelevant defaults.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given a builder for each domain model, then every parameter has a default and any
+- [x] `[derived]` Given a builder for each domain model, then every parameter has a default and any
       one can be overridden by name
-- [ ] `[derived]` Given `aRequirementSet(required = 5, approved = 2)`, then the progress arithmetic in
+- [x] `[derived]` Given `aRequirementSet(required = 5, approved = 2)`, then the progress arithmetic in
       [`RequirementSet`](../../src/domain/model/EmployeeRequirement.kt) reports the stated figures
-- [ ] `[derived]` Given the named state shortcuts, then each produces an object consistent with the
+- [x] `[derived]` Given the named state shortcuts, then each produces an object consistent with the
       §6.1–6.3 tables — an expired link is not also `ACTIVE`
-- [ ] `[derived]` Given builders are used with `FixedClock`, then timestamps derive from it rather
+- [x] `[derived]` Given builders are used with `FixedClock`, then timestamps derive from it rather
       than from `Instant.now()`
 
 **Tests**

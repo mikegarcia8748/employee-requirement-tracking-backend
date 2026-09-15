@@ -1,6 +1,6 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-210 — In-memory fakes for the 10 domain ports](backlog/ERT-200-test-harness.md#ert-210--in-memory-fakes-for-the-10-domain-ports)**
+**Next ticket: [ERT-240 — Repository integration-test base against H2 in PostgreSQL mode](backlog/ERT-200-test-harness.md#ert-240--repository-integration-test-base-against-h2-in-postgresql-mode)**
 
 The full board is [docs/backlog/README.md](backlog/README.md). This file holds sequencing, the
 decision register, and the pointer above. Each session updates that pointer on the way out.
@@ -11,8 +11,8 @@ decision register, and the pointer above. Each session updates that pointer on t
 
 | | |
 |---|---|
-| Built | `core/` value objects and error types · 12 domain models with status logic · 11 ports · 12 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** |
-| Empty | `domain/usecase/` · `data/repository/` · `data/mapper/` · `route/hr/` · `route/portal/` · `test/testdata/fake/` |
+| Built | `core/` value objects and error types · 12 domain models with status logic · 11 ports · 12 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model |
+| Empty | `domain/usecase/` · `data/repository/` · `data/mapper/` · `route/hr/` · `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
 | Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics`. PRD Appendix B specifies ~38. |
 
@@ -60,8 +60,39 @@ A third is now on the list: **`StatusPages` logs `call.request.local.uri` unreda
 sites, bypassing the portal-token redaction `Monitoring.kt` applies three files over. Harmless while
 `route/portal/` is empty; a token in a log file the moment it is not.
 
-What remains in Phase 0 is the ERT-200 test harness. **No repository, use case or business route
-exists yet**, so nothing writes rows outside the tests.
+ERT-210, ERT-220 and ERT-230 then built the in-memory half of the test harness: ten fakes, a
+`FixedClock` that advances rather than merely pins, deterministic id, token and PIN generators, and a
+builder per domain model. The three were taken in one session because ERT-210's own tests need six
+`Submission`s, an `Employee` and an `UploadLink` — precisely the fixtures ERT-230 exists to remove,
+and ERT-230 needs ERT-220's clock. The suite went from 153 tests to 279, and the deliberately-failing
+probe was re-run once against a new test to confirm these are discovered rather than silently
+skipped, which under this toolchain is the only way to tell the two apart.
+
+Three fakes carry more than their signature. `FakeNotifier`'s recorded sends mirror the port's own
+shape, so **only the invitation variant can hold an `AccessPin`** and a test cannot claim a rejection
+notice leaked one — there is nowhere for it to have been. `FakePortalAccessTrail` has no update or
+delete path at all, so a use case that tried to amend the trail could not compile against it.
+`FakeSubmissionRepository` purges whenever it is asked and records every call, because the retention
+freeze belongs to the **use case** and not the repository: asserting that `purges` is empty is how
+ERT-734 proves the freeze was honoured, and a fake that checked the flag itself would cover for a use
+case that forgot it entirely.
+
+Two semantics were decided here rather than assumed, and each binds a later ticket:
+
+- **`countRecentFailures` counts `PortalOutcome.DENIED` only.** `LOCKED_OUT` and `SUSPENDED` are
+  consequences of failures already counted, so including them would count one burst twice and
+  auto-suspend a link early; `EXPIRED` is not a credential attempt at all. **ERT-610's SQL adapter
+  must match this**, or the §6.6 suspend threshold fires at a different count in production than in
+  every test that asserts it.
+- **`PortalSessionRepository.findActiveForLink` cannot filter by expiry**, because the port hands it
+  no clock — so "active" there can only mean "not explicitly ended". The P1 control "HR can terminate
+  active portal sessions" reads that list and will show sessions that have quietly lapsed. Recorded
+  rather than papered over: ERT-620 should decide whether the port grows a `now` parameter.
+
+What remains in Phase 0 is ERT-240, the H2-in-PostgreSQL-mode repository base — the half of the
+harness the fakes cannot supply, since fakes prove a use case obeys its rules and prove nothing about
+SQL. **No repository, use case or business route exists yet**, so nothing writes rows outside the
+tests.
 
 ---
 
