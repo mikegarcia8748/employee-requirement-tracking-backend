@@ -318,14 +318,16 @@ spec.
 
 A genuine gap in the port set rather than a missing implementation.
 [`Employee`](../../src/domain/model/Employee.kt) requires `departmentId` and `employmentTypeId` as
-UUIDs, and the `departments` and `employment_types` tables exist — but **no port exposes either**.
+`EntityId`s, and the `departments` and `employment_types` tables exist — but **no port exposes
+either**.
 So HR has no way to discover valid values before creating a hire, and `CreateHireUseCase` has no way
 to reject an id that does not exist.
 
 §8.2 states the rule for CSV import — "given an unrecognized department or employment type, then the
 row is flagged rather than silently creating a new one" — and it is the same rule §8.1 needs one row
-at a time. Left unaddressed, the first hire is created against a fabricated UUID and fails at the
-foreign key, or worse, succeeds against a stale one.
+at a time. Left unaddressed, the first hire is created against a fabricated id and fails at the
+foreign key, or worse, succeeds against a stale one. Note that `EntityId.of` only proves an id is
+well **formed**; proving it **exists** is exactly what this ticket adds.
 
 `RequirementTemplate.kt` already declares `Department` and `EmploymentType` models, so this adds a
 port and an adapter, not new domain types.

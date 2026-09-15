@@ -1,7 +1,7 @@
 package com.pgsystem.employee.requirement.tracker.data.db.table
 
+import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 import org.jetbrains.exposed.v1.core.Table
-import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
 import org.jetbrains.exposed.v1.javatime.timestamp
 
 /**
@@ -19,15 +19,15 @@ import org.jetbrains.exposed.v1.javatime.timestamp
  *    control.
  */
 
-object Departments : UUIDTable("departments") {
+object Departments : EntityIdTable("departments") {
     val name = varchar("name", 128).uniqueIndex()
 }
 
-object EmploymentTypes : UUIDTable("employment_types") {
+object EmploymentTypes : EntityIdTable("employment_types") {
     val name = varchar("name", 128).uniqueIndex()
 }
 
-object RequirementTemplates : UUIDTable("requirement_templates") {
+object RequirementTemplates : EntityIdTable("requirement_templates") {
     val name = varchar("name", 256)
     val instructions = text("instructions")
     val isRequired = bool("is_required")
@@ -44,7 +44,7 @@ object TemplateAssignments : Table("template_assignments") {
     override val primaryKey = PrimaryKey(employmentTypeId, requirementTemplateId)
 }
 
-object Employees : UUIDTable("employees") {
+object Employees : PersonIdTable("employees") {
     val firstName = varchar("first_name", 128)
     val middleInitial = varchar("middle_initial", 8).nullable()
     val lastName = varchar("last_name", 128)
@@ -74,7 +74,7 @@ object Employees : UUIDTable("employees") {
     val createdBy = varchar("created_by", 128)
 }
 
-object EmployeeRequirements : UUIDTable("employee_requirements") {
+object EmployeeRequirements : EntityIdTable("employee_requirements") {
     val employeeId = reference("employee_id", Employees)
     val templateId = reference("template_id", RequirementTemplates)
 
@@ -86,7 +86,7 @@ object EmployeeRequirements : UUIDTable("employee_requirements") {
     val rejectionCount = integer("rejection_count").default(0)
 }
 
-object Submissions : UUIDTable("submissions") {
+object Submissions : EntityIdTable("submissions") {
     val employeeRequirementId = reference("employee_requirement_id", EmployeeRequirements)
     val version = integer("version")
 
@@ -111,7 +111,7 @@ object Submissions : UUIDTable("submissions") {
     val isCurrent = bool("is_current").default(true)
 }
 
-object UploadLinks : UUIDTable("upload_links") {
+object UploadLinks : EntityIdTable("upload_links") {
     val employeeId = reference("employee_id", Employees)
 
     /** Both credentials stored hashed; neither plaintext is recoverable (PRD 12). */
@@ -138,13 +138,15 @@ object UploadLinks : UUIDTable("upload_links") {
     val revokedReason = text("revoked_reason").nullable()
 }
 
-object PortalSessions : UUIDTable("portal_sessions") {
+object PortalSessions : EntityIdTable("portal_sessions") {
     val uploadLinkId = reference("upload_link_id", UploadLinks)
 
     /**
      * The session cookie's value, hashed. Not in PRD 11: without it the cookie would have to carry
-     * the primary key, which makes the row id a live bearer token in plaintext. Hashed like the
-     * link token and the PIN -- only the digest is ever stored.
+     * the primary key, which makes the row id a live bearer token in plaintext. That argument is
+     * sharper than it looks -- a 12-character id carries roughly 71 bits against this token's 256,
+     * so the id is not merely the wrong thing to present, it is a weak one. Hashed like the link
+     * token and the PIN -- only the digest is ever stored.
      */
     val tokenHash = varchar("token_hash", 256).uniqueIndex()
 
@@ -156,7 +158,7 @@ object PortalSessions : UUIDTable("portal_sessions") {
 }
 
 /** Append-only. Nothing updates or deletes rows here. */
-object PortalAccessLogs : UUIDTable("portal_access_logs") {
+object PortalAccessLogs : EntityIdTable("portal_access_logs") {
     val uploadLinkId = reference("upload_link_id", UploadLinks)
     val sessionId = reference("session_id", PortalSessions).nullable()
     val timestamp = timestamp("timestamp")
@@ -179,11 +181,16 @@ object AppSettings : Table("app_settings") {
     override val primaryKey = PrimaryKey(key)
 }
 
-object AuditLogs : UUIDTable("audit_logs") {
+object AuditLogs : EntityIdTable("audit_logs") {
     val actor = varchar("actor", 128)
     val action = varchar("action", 64)
     val entity = varchar("entity", 64)
-    val entityId = uuid("entity_id").index()
+    /**
+     * Polymorphic: an 8-character person id or a 12-character entity id, sized to the wider of
+     * the two. No foreign key, deliberately -- it points at ten different tables, and an audit
+     * row must outlive the row it describes.
+     */
+    val entityId = varchar("entity_id", EntityId.LENGTH).index()
     val timestamp = timestamp("timestamp")
 
     /** JSON. Carries reasons and verification methods — never credentials. */

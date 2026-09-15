@@ -1,5 +1,7 @@
 package com.pgsystem.employee.requirement.tracker.data.db
 
+import com.pgsystem.employee.requirement.tracker.core.error.DomainResult
+import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.ints.shouldBeGreaterThan
@@ -126,6 +128,30 @@ class SeedDataTest {
 
         sql shouldContain "ILLUSTRATIVE ONLY, PENDING OPEN QUESTION 2"
     }
+
+    @Test
+    fun `catalogue seed - every seeded id - is a well formed entity id`() = withFreshDatabase { db ->
+        migrate(db.config)
+
+        // Without this, someone regenerating V2 from an older copy can paste a UUID back in and
+        // nothing fails until the first insert against the narrower column.
+        val malformed = listOf("departments", "employment_types", "requirement_templates")
+            .flatMap { table -> db.seededIds(table).map { table to it } }
+            .filter { (_, id) -> EntityId.of(id) is DomainResult.Err }
+
+        malformed.shouldBeEmpty()
+    }
+
+    @Test
+    fun `catalogue seed - the id sweep above - reads all nineteen seeded rows`() =
+        withFreshDatabase { db ->
+            migrate(db.config)
+
+            val counted = listOf("departments", "employment_types", "requirement_templates")
+                .sumOf { db.seededIds(it).size }
+
+            counted shouldBe 19
+        }
 }
 
 internal data class Setting(val value: String, val type: String, val min: String?, val max: String?)
@@ -188,6 +214,9 @@ internal fun TestDatabase.replay(fileName: String) {
         .filter { it.isNotEmpty() }
         .forEach { exec(it) }
 }
+
+internal fun TestDatabase.seededIds(table: String): List<String> =
+    strings("select id from $table")
 
 private fun TestDatabase.strings(sql: String): List<String> = runBlocking {
     factory.transaction {

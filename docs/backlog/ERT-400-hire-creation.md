@@ -91,11 +91,23 @@ the active-email lookup honours its scope.
       and `attestation` is null on re-read
 - [ ] `[derived]` Given `requirementsOf`, then a `RequirementSet` is returned whose progress
       arithmetic matches the stored rows
+- [ ] `[derived]` Given a generated `PersonId` that collides with an existing row, when the insert is
+      attempted, then a fresh id is drawn and the save succeeds rather than surfacing the conflict
+- [ ] `[derived]` Given repeated collisions, then the retry gives up after a bounded number of
+      attempts and fails loudly rather than looping
+
+> **Why a retry is needed here and nowhere else.** A `PersonId` draws from 62^8, so the primary key
+> is the collision backstop and a duplicate draw fails the insert. This matters most under §8.2 CSV
+> bulk import, which creates many hires in one action and reports created, skipped and failed counts
+> — a collision must be retried silently, never reported to HR as a failed row. An `EntityId` draws
+> from 62^12, where a collision is negligible, so those inserts need no retry. `SecurePersonIdGenerator`
+> cannot do this itself: a value object cannot know what the database already holds.
 
 **Tests**
 | Level | Test |
 |---|---|
 | Repository | `employee persistence - a fully populated hire - round-trips unchanged` |
+| Repository | `id collision - the generated id is already taken - a fresh id is drawn and the save succeeds` |
 | Repository | `active email lookup - a completed hire sharing the address - is not returned` |
 | Repository | `anomaly flags - two flags stored - round-trip and report retention frozen` |
 | Repository | `attestation mapping - an unattested packet - round-trips as null` |

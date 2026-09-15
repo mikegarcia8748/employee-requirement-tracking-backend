@@ -12,9 +12,11 @@
 -- ON CONFLICT (col) DO NOTHING is a syntax error on H2 in PostgreSQL mode, and MERGE INTO ... KEY
 -- is not valid PostgreSQL. INSERT ... SELECT ... WHERE NOT EXISTS is the only portable form.
 --
--- UUIDs are hardcoded rather than generated: there is no portable deterministic generator, and
+-- Ids are hardcoded rather than generated: there is no portable deterministic generator, and
 -- per-environment ids would defeat the point of a seed you can reason about.
--- Scheme: d... departments, e... employment types, c... catalogue templates.
+-- Scheme: d... departments, e... employment types, c... catalogue templates, each padded to the
+-- 12 characters an entity id requires. They are deliberately legible rather than random -- a seed
+-- row is reference data you look up by hand, not something anyone should have to guess at.
 --
 -- Formatting rule: no semicolon inside any string literal. SeedDataTest replays this file by
 -- splitting it on semicolons.
@@ -22,23 +24,23 @@
 -- One placeholder department. Department names are company data the PRD never enumerates, and
 -- inventing an org chart here would be fiction that later gets treated as fact.
 insert into departments (id, "name")
-select cast('d0000000-0000-4000-8000-000000000001' as uuid), 'Unassigned'
+select 'd00000000001', 'Unassigned'
 where not exists (select 1 from departments where "name" = 'Unassigned');
 
 insert into employment_types (id, "name")
-select cast('e0000000-0000-4000-8000-000000000001' as uuid), 'Regular'
+select 'e00000000001', 'Regular'
 where not exists (select 1 from employment_types where "name" = 'Regular');
 
 insert into employment_types (id, "name")
-select cast('e0000000-0000-4000-8000-000000000002' as uuid), 'Probationary'
+select 'e00000000002', 'Probationary'
 where not exists (select 1 from employment_types where "name" = 'Probationary');
 
 insert into employment_types (id, "name")
-select cast('e0000000-0000-4000-8000-000000000003' as uuid), 'Project-based'
+select 'e00000000003', 'Project-based'
 where not exists (select 1 from employment_types where "name" = 'Project-based');
 
 insert into employment_types (id, "name")
-select cast('e0000000-0000-4000-8000-000000000004' as uuid), 'Part-time'
+select 'e00000000004', 'Part-time'
 where not exists (select 1 from employment_types where "name" = 'Part-time');
 
 -- PRD Appendix A, in order. sort_order follows the appendix.
@@ -50,88 +52,88 @@ where not exists (select 1 from employment_types where "name" = 'Part-time');
 -- Not fixable without a model change. Flagged against Q2.
 
 insert into requirement_templates (id, "name", instructions, is_required, expires, validity_months, renewal_lead_days, is_active, sort_order)
-select cast('c0000000-0000-4000-8000-000000000001' as uuid), 'Government-issued ID',
+select 'c00000000001', 'Government-issued ID',
        'Upload a clear photo or scan of a valid government-issued ID, front and back.',
        true, true, cast(null as int), 60, true, 1
 where not exists (select 1 from requirement_templates where "name" = 'Government-issued ID');
 
 insert into requirement_templates (id, "name", instructions, is_required, expires, validity_months, renewal_lead_days, is_active, sort_order)
-select cast('c0000000-0000-4000-8000-000000000002' as uuid), 'Birth certificate',
+select 'c00000000002', 'Birth certificate',
        'Upload the PSA-issued birth certificate. All corners must be visible and the text legible.',
        true, false, cast(null as int), cast(null as int), true, 2
 where not exists (select 1 from requirement_templates where "name" = 'Birth certificate');
 
 insert into requirement_templates (id, "name", instructions, is_required, expires, validity_months, renewal_lead_days, is_active, sort_order)
-select cast('c0000000-0000-4000-8000-000000000003' as uuid), 'Tax identification number',
+select 'c00000000003', 'Tax identification number',
        'Upload the card or any official document showing your tax identification number.',
        true, false, cast(null as int), cast(null as int), true, 3
 where not exists (select 1 from requirement_templates where "name" = 'Tax identification number');
 
 insert into requirement_templates (id, "name", instructions, is_required, expires, validity_months, renewal_lead_days, is_active, sort_order)
-select cast('c0000000-0000-4000-8000-000000000004' as uuid), 'Social security number',
+select 'c00000000004', 'Social security number',
        'Upload the card or any official document showing your social security number.',
        true, false, cast(null as int), cast(null as int), true, 4
 where not exists (select 1 from requirement_templates where "name" = 'Social security number');
 
 insert into requirement_templates (id, "name", instructions, is_required, expires, validity_months, renewal_lead_days, is_active, sort_order)
-select cast('c0000000-0000-4000-8000-000000000005' as uuid), 'Health insurance number',
+select 'c00000000005', 'Health insurance number',
        'Upload the card or any official document showing your health insurance number.',
        true, false, cast(null as int), cast(null as int), true, 5
 where not exists (select 1 from requirement_templates where "name" = 'Health insurance number');
 
 insert into requirement_templates (id, "name", instructions, is_required, expires, validity_months, renewal_lead_days, is_active, sort_order)
-select cast('c0000000-0000-4000-8000-000000000006' as uuid), 'Housing fund number',
+select 'c00000000006', 'Housing fund number',
        'Upload the card or any official document showing your housing fund number.',
        true, false, cast(null as int), cast(null as int), true, 6
 where not exists (select 1 from requirement_templates where "name" = 'Housing fund number');
 
 -- Appendix A: "typically 1 year".
 insert into requirement_templates (id, "name", instructions, is_required, expires, validity_months, renewal_lead_days, is_active, sort_order)
-select cast('c0000000-0000-4000-8000-000000000007' as uuid), 'Police / background clearance',
+select 'c00000000007', 'Police / background clearance',
        'Upload your police or background clearance. It must be dated within the last year.',
        true, true, 12, 60, true, 7
 where not exists (select 1 from requirement_templates where "name" = 'Police / background clearance');
 
 -- Appendix A: "typically 6-12 months". 12 is seeded; narrow it once Q2 is answered.
 insert into requirement_templates (id, "name", instructions, is_required, expires, validity_months, renewal_lead_days, is_active, sort_order)
-select cast('c0000000-0000-4000-8000-000000000008' as uuid), 'Pre-employment medical result',
+select 'c00000000008', 'Pre-employment medical result',
        'Upload the full result from your pre-employment medical examination.',
        true, true, 12, 30, true, 8
 where not exists (select 1 from requirement_templates where "name" = 'Pre-employment medical result');
 
 insert into requirement_templates (id, "name", instructions, is_required, expires, validity_months, renewal_lead_days, is_active, sort_order)
-select cast('c0000000-0000-4000-8000-000000000009' as uuid), 'Transcript of records or diploma',
+select 'c00000000009', 'Transcript of records or diploma',
        'Upload your transcript of records or your diploma. Either is accepted.',
        true, false, cast(null as int), cast(null as int), true, 9
 where not exists (select 1 from requirement_templates where "name" = 'Transcript of records or diploma');
 
 -- Conditional in Appendix A. See the note above about the Boolean collapse.
 insert into requirement_templates (id, "name", instructions, is_required, expires, validity_months, renewal_lead_days, is_active, sort_order)
-select cast('c0000000-0000-4000-8000-00000000000a' as uuid), 'Certificate of employment (previous employer)',
+select 'c00000000010', 'Certificate of employment (previous employer)',
        'Required only if you have previous employment. Upload the certificate from your last employer.',
        false, false, cast(null as int), cast(null as int), true, 10
 where not exists (select 1 from requirement_templates where "name" = 'Certificate of employment (previous employer)');
 
 insert into requirement_templates (id, "name", instructions, is_required, expires, validity_months, renewal_lead_days, is_active, sort_order)
-select cast('c0000000-0000-4000-8000-00000000000b' as uuid), 'Tax form from previous employer',
+select 'c00000000011', 'Tax form from previous employer',
        'Required only if you were employed within the current tax year.',
        false, false, cast(null as int), cast(null as int), true, 11
 where not exists (select 1 from requirement_templates where "name" = 'Tax form from previous employer');
 
 insert into requirement_templates (id, "name", instructions, is_required, expires, validity_months, renewal_lead_days, is_active, sort_order)
-select cast('c0000000-0000-4000-8000-00000000000c' as uuid), 'ID photos',
+select 'c00000000012', 'ID photos',
        'Upload recent ID photographs against a plain background.',
        true, false, cast(null as int), cast(null as int), true, 12
 where not exists (select 1 from requirement_templates where "name" = 'ID photos');
 
 insert into requirement_templates (id, "name", instructions, is_required, expires, validity_months, renewal_lead_days, is_active, sort_order)
-select cast('c0000000-0000-4000-8000-00000000000d' as uuid), 'Marriage certificate',
+select 'c00000000013', 'Marriage certificate',
        'Optional. Upload only if married and claiming a dependent spouse.',
        false, false, cast(null as int), cast(null as int), true, 13
 where not exists (select 1 from requirement_templates where "name" = 'Marriage certificate');
 
 insert into requirement_templates (id, "name", instructions, is_required, expires, validity_months, renewal_lead_days, is_active, sort_order)
-select cast('c0000000-0000-4000-8000-00000000000e' as uuid), 'Dependents'' birth certificates',
+select 'c00000000014', 'Dependents'' birth certificates',
        'Optional. Upload only if claiming dependents.',
        false, false, cast(null as int), cast(null as int), true, 14
 where not exists (select 1 from requirement_templates where "name" = 'Dependents'' birth certificates');

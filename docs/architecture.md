@@ -81,9 +81,9 @@ src/
   core/                   cross-cutting, framework-free
     error/                AppError, DomainResult — failures as data, not exceptions
     time/                 Clock port
-    id/                   IdGenerator, TokenGenerator, PinGenerator ports
+    id/                   EntityIdGenerator, PersonIdGenerator, TokenGenerator, PinGenerator
     crypto/               Hasher port
-    value/                EmailAddress, AccessPin — validating value objects
+    value/                EmailAddress, AccessPin, PersonId, EntityId — validating value objects
 
   domain/                 the rules. Pure Kotlin.
     model/                entities, status enums, LinkPolicy
@@ -126,7 +126,7 @@ its own dispatcher and the use case never sees one.
 | `PortalAccessTrail` | append-only portal attempts, distinct IPs, failure counts | *(pending)* |
 | `Notifier` | the seven notification kinds | *(pending)* |
 | `DocumentStorage` | object storage; signed URLs **HR-side only** | *(pending)* |
-| `Clock`, `IdGenerator`, `TokenGenerator`, `PinGenerator`, `Hasher` | infrastructure | **bound** |
+| `Clock`, `EntityIdGenerator`, `PersonIdGenerator`, `TokenGenerator`, `PinGenerator`, `Hasher` | infrastructure | **bound** |
 
 Three of these encode a rule in their *shape* rather than their documentation:
 

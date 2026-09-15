@@ -56,7 +56,7 @@ a deterministic token digest, and fails the build if a portal DTO leaks document
 | **Parent** | ERT-100 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | §11 |
 | **Architecture** | §3, §11, §14 |
@@ -117,7 +117,7 @@ connect stops startup loudly rather than surfacing on the first query.
 | **Parent** | ERT-100 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-110 |
 | **PRD** | §11 |
 | **Architecture** | §7, §13 |
@@ -201,7 +201,7 @@ A fresh database reaches the full 12-table schema by running migrations, and CI 
 | **Parent** | ERT-100 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-120 |
 | **PRD** | §6.4, §8.10, §8.11, Appendix A |
 | **Architecture** | §4 |
@@ -292,6 +292,18 @@ and headers — otherwise the endpoint becomes an oracle for whether a link exis
 | `Conflict` | 409 Conflict — the locked-upload case of §8.7 |
 | `ReasonRequired` | 422, naming the action needing justification |
 | `Denied` | 404 Not Found, body identical in every instance |
+
+**Identifier parse failures need a deliberate decision, not a default.** `PersonId.of` and
+`EntityId.of` return `AppError.Validation`, which the table above maps to 422. That is right for a
+request body, but a malformed id in a *path* is arguably a 404 — the resource named cannot exist. The
+decision matters most on portal routes: answering 422 `person_id.invalid_format` for a malformed id
+and 404 for a well-formed unknown one turns the endpoint into an enumeration oracle, which is exactly
+what §6.6 and the `Denied` row above exist to prevent. Whatever is chosen, a portal route must give
+the **same** answer for malformed, unknown and not-yours.
+
+Note also that this closes a live trap: before ids became value objects, an unguarded
+`UUID.fromString` on a path segment threw `IllegalArgumentException`, and `StatusPages` has only an
+`exception<Throwable>` branch — so a typo in a URL returned **500**.
 
 **Goal**
 
@@ -528,3 +540,141 @@ build — and the guard cannot pass vacuously.
 
 **Out of scope**
 - A multi-module split. Architecture §14 defers it deliberately.
+
+---
+
+## ERT-180 — Short alphanumeric identifiers replace UUIDs
+
+| | |
+|---|---|
+| **Parent** | ERT-100 |
+| **Type** | Ticket |
+| **Phase** | 0 |
+| **Status** | Done |
+| **Depends on** | ERT-120, ERT-130 |
+| **PRD** | §11 |
+| **Architecture** | §2, §12 |
+
+**Description**
+
+Every identifier was a 36-character `java.util.UUID`. They are now two validated value objects:
+`PersonId`, 8 characters, for `employees.id` and the foreign keys pointing at it, and `EntityId`,
+12 characters, for everything else. Both draw from `A-Z a-z 0-9`.
+
+Done in Phase 0 because it is the last cheap moment. `IdGenerator.newId()` had **zero** call sites,
+`domain/usecase/`, `data/repository/`, `data/mapper/` and both route packages were empty, and nothing
+had ever persisted. The same change after Phase 1 is a rewrite of every mapper and route against a
+live schema.
+
+The widths are deliberately **disjoint**, which is what lets `Identifier.of` resolve a stored id to
+its kind by length — needed for `audit_logs.entity_id`, the one column that can hold either.
+
+Three things were deliberately left alone, none of them an entity identifier: the dev-mode JWT
+signing key in `Security.kt`, the in-memory database name in `MigrationTest.kt`, and the random
+suffix in ERT-700's storage key scheme. All three are secrets or opacity devices, and shortening a
+secret weakens it.
+
+**Goal**
+
+An identifier is a validated value object of a known width, a malformed one cannot reach a query, and
+every insert names its own id.
+
+**Stories**
+- As an engineer on the next session, I want `findById` to take a `PersonId` rather than a `UUID` so
+  that I cannot pass an employment-type id to it by mistake.
+
+**Acceptance criteria**
+- [x] `[derived]` Given a value of the wrong length, charset or with surrounding whitespace, then
+      `PersonId.of` / `EntityId.of` return `AppError.Validation` rather than a value
+- [x] `[derived]` Given a stored id, then `Identifier.of` resolves it to the right kind by length,
+      and rejects any length that is neither
+- [x] `[derived]` Given the generators, then every character is an independent unbiased draw from the
+      shared alphabet, proved against a counting random rather than by sampling
+- [x] `[derived]` Given the migrated schema, then every id and foreign-key column is `varchar` of the
+      width its type declares
+- [x] `[derived]` Given any keyed table, then it declares **no** client default, so an insert that
+      omits the id fails instead of silently receiving one
+- [x] `[derived]` Given `src/domain` or `src/core`, then no file imports `java.util.UUID`
+- [x] `[derived]` Given the seed migration, then every seeded id satisfies the `EntityId` rule
+
+**Tests**
+| Level | Test |
+|---|---|
+| Use case | `person id - surrounding whitespace - is rejected rather than being trimmed into shape` |
+| Use case | `identifier resolution - a 10 character id - is rejected because no id kind has that length` |
+| Use case | `person id generation - a random drawing 0 1 2 and so on - maps each index to the matching character` |
+| Repository | `identifier columns - the migrated schema - are the width their id type declares` |
+| Repository | `identifier generation - every keyed table - declares no client default` |
+| Repository | `catalogue seed - every seeded id - is a well formed entity id` |
+| Architecture | `identifier discipline - no domain or core file imports java util UUID - ids are value types` |
+
+**Files**
+- create `src/core/value/Identifier.kt`, `PersonId.kt`, `EntityId.kt`
+- create `src/core/id/EntityIdGenerator.kt`, `PersonIdGenerator.kt`; delete `IdGenerator.kt`
+- create `src/data/db/table/IdTables.kt`
+- create `test/testdata/Ids.kt`
+- modify `src/data/id/SecureRandomGenerators.kt`, `src/di/CoreModule.kt`, the 8 domain models, the 3
+  port files, `src/data/db/table/Tables.kt`
+- regenerate `resources/db/migration/V1__baseline.sql`; rewrite the 19 literals in
+  `V2__reference_data.sql`
+
+**Out of scope**
+- The retry when a generated `PersonId` collides. It belongs with the insert, in ERT-410 — a value
+  object cannot know what the database already holds.
+- HR user accounts. See ERT-190.
+
+> **The schema-drift test cannot catch a wrong identifier width.** H2 reports every `VARCHAR(n)` as
+> equivalent to every `VARCHAR(m)`, and an id column's Exposed type is `EntityIDColumnType` rather
+> than `VarCharColumnType`, so the size comparison is skipped entirely. This was verified by setting
+> `employees.id` to `varchar(36)` against a `varchar(8)` table definition: drift passed, and only the
+> new width test failed. Do not read a green drift test as proof the baseline is correct.
+
+---
+
+## ERT-190 — HR user accounts and the persona model
+
+| | |
+|---|---|
+| **Parent** | ERT-100 |
+| **Type** | Ticket |
+| **Phase** | 0 |
+| **Status** | Blocked |
+| **Depends on** | ERT-180 · **PRD §14 Q4** |
+| **PRD** | §2, §8.13, §14 Q4 |
+| **Architecture** | §14 |
+
+**Description**
+
+There is no user or admin table. `SYSTEM_ADMIN`, `HR_ADMIN`, `HR_OFFICER` and `RECRUITMENT` exist
+only as intended JWT roles, and the people behind them are stored as free text —
+`employees.created_by`, `employees.originals_sighted_by`, `submissions.reviewed_by`,
+`audit_logs.actor` and `app_settings.updated_by`, all `varchar(128)`.
+
+**Blocked on Q4**, not merely unscheduled. Q4 asks who the HR users are, whether they share an
+account, and whether an SSO provider already exists. If identity lives in an IdP, a local `users`
+table is a mirror rather than a source of truth, and building it first means building the wrong
+shape. `Security.kt` says the same thing about the JWT scheme: replace it once Q4 is answered, do not
+extend it.
+
+Note also that PRD §8.13 retains a **single role** for v1 and mitigates it with an exception report,
+and "multiple HR roles with department-scoped permissions" is a P2 future consideration. This ticket
+therefore widens v1 scope and should be taken deliberately, not by default.
+
+When it is built, HR users should reuse `PersonId` rather than introduce a third identifier width —
+that keeps `Identifier.of`'s length dispatch unambiguous. An 8-character value in
+`audit_logs.entity_id` then means "an employee or a user", which is correct, because
+`AuditEntry.entity` already names which.
+
+**Goal**
+
+An HR action is attributable to a row rather than to a typed-in name, without pre-empting Q4.
+
+**Acceptance criteria**
+- [ ] Given Q4 is answered, then this ticket is rewritten against that answer before any code is
+      written
+- [ ] `[derived]` Given a `users` table, then its primary key is a `PersonId`
+- [ ] `[derived]` Given the five actor columns, then each references `users(id)` with `on delete
+      restrict`, so a user who acted cannot be deleted out from under the audit trail
+
+**Out of scope**
+- Department-scoped permissions (PRD P2).

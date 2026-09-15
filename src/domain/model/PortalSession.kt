@@ -1,7 +1,7 @@
 package com.pgsystem.employee.requirement.tracker.domain.model
 
+import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 import java.time.Instant
-import java.util.UUID
 
 /**
  * A short-lived window opened by link + PIN.
@@ -10,8 +10,8 @@ import java.util.UUID
  * shared computer's history from remaining a standing credential for the life of the link.
  */
 data class PortalSession(
-    val id: UUID,
-    val uploadLinkId: UUID,
+    val id: EntityId,
+    val uploadLinkId: EntityId,
     val startedAt: Instant,
     val expiresAt: Instant,
     val ip: String,

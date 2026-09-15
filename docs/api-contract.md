@@ -47,7 +47,7 @@ recorded by a named officer, and it is separate on purpose (§1, SEC-04). Any co
 | Base path | `/api` |
 | Content type | `application/json`, except the upload endpoint (`multipart/form-data`) |
 | Timestamps | ISO-8601 UTC (`2026-09-14T08:30:00Z`) |
-| Ids | UUID v4 strings |
+| Ids | Alphanumeric strings, `A-Z a-z 0-9`. An employee id is **8** characters; every other id is **12**. Case-sensitive, and never to be normalised |
 | HR auth | bearer JWT, scheme `hr-jwt` — **provisional, see below** |
 | Portal auth | server-side session cookie, issued by `verify`. Never the URL token alone |
 

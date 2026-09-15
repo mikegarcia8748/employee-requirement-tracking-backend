@@ -1,12 +1,14 @@
 package com.pgsystem.employee.requirement.tracker.di
 
 import com.pgsystem.employee.requirement.tracker.core.crypto.Hasher
-import com.pgsystem.employee.requirement.tracker.core.id.IdGenerator
+import com.pgsystem.employee.requirement.tracker.core.id.EntityIdGenerator
+import com.pgsystem.employee.requirement.tracker.core.id.PersonIdGenerator
 import com.pgsystem.employee.requirement.tracker.core.id.PinGenerator
 import com.pgsystem.employee.requirement.tracker.core.id.TokenGenerator
 import com.pgsystem.employee.requirement.tracker.core.time.Clock
 import com.pgsystem.employee.requirement.tracker.data.crypto.BcryptHasher
-import com.pgsystem.employee.requirement.tracker.data.id.RandomIdGenerator
+import com.pgsystem.employee.requirement.tracker.data.id.SecureEntityIdGenerator
+import com.pgsystem.employee.requirement.tracker.data.id.SecurePersonIdGenerator
 import com.pgsystem.employee.requirement.tracker.data.id.SecurePinGenerator
 import com.pgsystem.employee.requirement.tracker.data.id.SecureTokenGenerator
 import com.pgsystem.employee.requirement.tracker.data.time.SystemClock
@@ -20,7 +22,8 @@ import org.koin.dsl.module
  */
 val coreModule = module {
     single<Clock> { SystemClock() }
-    single<IdGenerator> { RandomIdGenerator() }
+    single<EntityIdGenerator> { SecureEntityIdGenerator() }
+    single<PersonIdGenerator> { SecurePersonIdGenerator() }
     single<TokenGenerator> { SecureTokenGenerator() }
     single<PinGenerator> { SecurePinGenerator() }
     single<Hasher> { BcryptHasher() }
