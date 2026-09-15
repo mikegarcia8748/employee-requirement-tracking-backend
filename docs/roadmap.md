@@ -1,6 +1,6 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-240 — Repository integration-test base against H2 in PostgreSQL mode](backlog/ERT-200-test-harness.md#ert-240--repository-integration-test-base-against-h2-in-postgresql-mode)**
+**Next ticket: [ERT-310 — `AppSettingsRepository` adapter with §6.4 bounds enforcement](backlog/ERT-300-catalogue-policy.md#ert-310--appsettingsrepository-adapter-with-64-bounds-enforcement)**
 
 The full board is [docs/backlog/README.md](backlog/README.md). This file holds sequencing, the
 decision register, and the pointer above. Each session updates that pointer on the way out.
@@ -11,7 +11,7 @@ decision register, and the pointer above. Each session updates that pointer on t
 
 | | |
 |---|---|
-| Built | `core/` value objects and error types · 12 domain models with status logic · 11 ports · 12 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model |
+| Built | `core/` value objects and error types · 12 domain models with status logic · 11 ports · 12 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test |
 | Empty | `domain/usecase/` · `data/repository/` · `data/mapper/` · `route/hr/` · `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
 | Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics`. PRD Appendix B specifies ~38. |
@@ -89,10 +89,33 @@ Two semantics were decided here rather than assumed, and each binds a later tick
   active portal sessions" reads that list and will show sessions that have quietly lapsed. Recorded
   rather than papered over: ERT-620 should decide whether the port grows a `now` parameter.
 
-What remains in Phase 0 is ERT-240, the H2-in-PostgreSQL-mode repository base — the half of the
-harness the fakes cannot supply, since fakes prove a use case obeys its rules and prove nothing about
-SQL. **No repository, use case or business route exists yet**, so nothing writes rows outside the
-tests.
+ERT-240 then closed Phase 0 apart from ERT-190, which stays blocked on Q4. It is the half of the
+harness the fakes cannot supply: fakes prove a use case obeys its rules and prove nothing about SQL.
+`RepositoryTestBase` hands a subclass a migrated, seeded, isolated database reached through the
+production `DatabaseFactory.transaction`, and it unblocks eight tickets at once — ERT-310, 320, 330,
+350, 410, 420, 610 and 720. **No repository, use case or business route exists yet**, so nothing
+writes rows outside the tests.
+
+Three things there were decided rather than assumed, and a later reader would otherwise reverse the
+first of them:
+
+- **Isolation is a brand-new in-memory database per test, not truncation.** Truncation is faster in
+  principle but would have to know the foreign-key order of every table added from here on, and
+  would have to restore the seeded reference rows that ERT-310's bounds tests deliberately corrupt —
+  and a table forgotten there leaks silently between tests. Measured rather than argued: the suite
+  went 5494 ms for 279 tests to 5936 ms for 288, about **40 ms per migrated database**. Revisit only
+  against a number, not a hunch.
+- **Closing the pool does not release the database.** `DB_CLOSE_DELAY=-1` — which is there so an
+  in-memory schema survives Flyway's own short-lived DataSource — also keeps every test's database
+  resident until the JVM exits. Teardown issues `SHUTDOWN` on a fresh connection.
+- **`Database.connect()` registers every instance in a companion-object map nothing prunes.**
+  Teardown calls `TransactionManager.closeAndUnregister`. Neither leak is visible in a green suite,
+  so both have a named test rather than a comment.
+
+`MigrationTest` and `SeedDataTest` now share the base's `freshDatabase()` and `migrate()` so that
+"how a test gets a database" has one answer, but they deliberately do **not** extend it: they test
+the migration itself and so need a database *before* it is migrated, which is the one state the base
+will not hand out.
 
 ---
 

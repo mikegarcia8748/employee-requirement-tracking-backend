@@ -3,18 +3,19 @@ package com.pgsystem.employee.requirement.tracker.data.db
 import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 import com.pgsystem.employee.requirement.tracker.core.value.PersonId
 import com.pgsystem.employee.requirement.tracker.data.db.table.allTables
+import com.pgsystem.employee.requirement.tracker.data.freshDatabase
+import com.pgsystem.employee.requirement.tracker.data.migrate
+import com.pgsystem.employee.requirement.tracker.data.projectDir
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.runBlocking
-import org.flywaydb.core.Flyway
 import org.jetbrains.exposed.v1.core.dao.id.IdTable
 import org.jetbrains.exposed.v1.jdbc.SchemaUtils
 import org.jetbrains.exposed.v1.jdbc.vendors.currentDialectMetadata
 import java.io.File
-import java.util.UUID
 import kotlin.test.Test
 
 /**
@@ -30,9 +31,9 @@ import kotlin.test.Test
  * genuinely Postgres-specific behaviour will not surface here. A Postgres CI job is worth adding
  * before launch.
  *
- * The private `freshDatabase()` helper below is duplicated in `SeedDataTest`. That is deliberate —
- * ERT-240 owns the shared repository test base, and inventing it a ticket early would pre-empt its
- * design.
+ * These tests do **not** extend `RepositoryTestBase`, and cannot: it hands out a database that is
+ * already migrated, which is the one state a migration test needs to observe the far side of. They
+ * share its `freshDatabase()` and `migrate()` so that "how a test gets a database" has one answer.
  */
 class MigrationTest {
 
@@ -186,26 +187,10 @@ class MigrationTest {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Helpers. Shared with SeedDataTest by duplication until ERT-240 introduces the real base class.
+// Helpers specific to testing the migration itself. `projectDir`, `freshDatabase()` and
+// `migrate()` now live beside `RepositoryTestBase` (ERT-240); what stays here is the part that
+// only a schema test wants -- a database it can inspect *before* and *after* migrating.
 // ---------------------------------------------------------------------------------------------
-
-internal val projectDir: File
-    get() = generateSequence(File(".").absoluteFile) { it.parentFile }
-        .first { File(it, "module.yaml").exists() }
-
-internal fun freshDatabase(): DatabaseConfig = DatabaseConfig(
-    url = "jdbc:h2:mem:ert_${UUID.randomUUID().toString().replace("-", "")};DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
-    user = "sa",
-    password = "",
-    driverClassName = "org.h2.Driver",
-    maxPoolSize = 2,
-)
-
-internal fun migrate(config: DatabaseConfig) = Flyway.configure()
-    .dataSource(config.url, config.user, config.password)
-    .locations("classpath:db/migration")
-    .load()
-    .migrate()
 
 /** A connected factory plus the config it was built from, so a test can hand either to Flyway. */
 internal class TestDatabase(val config: DatabaseConfig, val factory: DatabaseFactory) {

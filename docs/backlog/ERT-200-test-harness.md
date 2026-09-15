@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Epic |
 | **Phase** | 0 |
-| **Status** | In progress |
+| **Status** | Done |
 | **Depends on** | ERT-120 |
 | **PRD** | — |
 | **Architecture** | §10 |
@@ -245,7 +245,7 @@ A test states only the field under test, and the resulting objects are valid.
 | **Parent** | ERT-200 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-120, ERT-130 |
 | **PRD** | §11 |
 | **Architecture** | §10 |
@@ -270,13 +270,13 @@ A repository test declares one base class and gets a migrated, seeded, isolated 
   suite stays fast enough to run on every change.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given a repository test extends the base, then it runs against a migrated schema
+- [x] `[derived]` Given a repository test extends the base, then it runs against a migrated schema
       with ERT-130 seed data present
-- [ ] `[derived]` Given two tests in the same class, then neither sees the other's rows
-- [ ] `[derived]` Given the suite runs, then no test requires Docker or an external service
-- [ ] `[derived]` Given the base, then it exposes the same `DatabaseFactory.transaction` entry point
+- [x] `[derived]` Given two tests in the same class, then neither sees the other's rows
+- [x] `[derived]` Given the suite runs, then no test requires Docker or an external service
+- [x] `[derived]` Given the base, then it exposes the same `DatabaseFactory.transaction` entry point
       production uses, so tests exercise the real transaction path
-- [ ] `[derived]` Given the base class documentation, then the H2-is-not-Postgres limitation is
+- [x] `[derived]` Given the base class documentation, then the H2-is-not-Postgres limitation is
       stated
 
 **Tests**

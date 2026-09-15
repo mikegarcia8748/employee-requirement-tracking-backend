@@ -37,7 +37,7 @@ Phase 0 · depends on ERT-120
 | [ERT-210](ERT-200-test-harness.md#ert-210--in-memory-fakes-for-the-10-domain-ports) | In-memory fakes for the 10 domain ports | Ticket | — | Done |
 | [ERT-220](ERT-200-test-harness.md#ert-220--deterministic-fixedclock-and-id-token-and-pin-generators) | Deterministic `FixedClock` and id, token and PIN generators | Ticket | — | Done |
 | [ERT-230](ERT-200-test-harness.md#ert-230--domain-test-builders) | Domain test builders | Ticket | ERT-220 | Done |
-| [ERT-240](ERT-200-test-harness.md#ert-240--repository-integration-test-base-against-h2-in-postgresql-mode) | Repository integration-test base against H2 in PostgreSQL mode | Ticket | ERT-120, ERT-130 | Not started |
+| [ERT-240](ERT-200-test-harness.md#ert-240--repository-integration-test-base-against-h2-in-postgresql-mode) | Repository integration-test base against H2 in PostgreSQL mode | Ticket | ERT-120, ERT-130 | Done |
 
 ## [ERT-300](ERT-300-catalogue-policy.md) — Requirement catalogue and link policy
 
