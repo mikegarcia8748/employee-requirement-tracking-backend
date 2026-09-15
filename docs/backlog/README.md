@@ -19,7 +19,7 @@ Phase 0 · depends on —
 | [ERT-110](ERT-100-foundations.md#ert-110--wire-databasefactory-into-the-application-lifecycle) | Wire `DatabaseFactory` into the application lifecycle | Ticket | — | Done |
 | [ERT-120](ERT-100-foundations.md#ert-120--flyway-baseline-migration-for-the-12-tables-plus-a-schema-drift-test) | Flyway baseline migration for the 12 tables, plus a schema-drift test | Ticket | ERT-110 | Done |
 | [ERT-130](ERT-100-foundations.md#ert-130--seed-reference-data-and-app_setting-defaults-with-bounds) | Seed reference data and `app_setting` defaults with bounds | Ticket | ERT-120 | Done |
-| [ERT-140](ERT-100-foundations.md#ert-140--map-apperror-to-http-status-in-statuspages) | Map `AppError` to HTTP status in `StatusPages` | Ticket | — | Not started |
+| [ERT-140](ERT-100-foundations.md#ert-140--map-apperror-to-http-status-in-statuspages) | Map `AppError` to HTTP status in `StatusPages` | Ticket | — | Done |
 | [ERT-150](ERT-100-foundations.md#ert-150--expose-the-micrometer-registry-on-a-scrape-route) | Expose the Micrometer registry on a scrape route | Ticket | — | Not started |
 | [ERT-160](ERT-100-foundations.md#ert-160--deterministic-token-digest-separate-from-pin-hashing) | Deterministic token digest, separate from PIN hashing | Ticket | — | Not started |
 | [ERT-170](ERT-100-foundations.md#ert-170--architecture-guards-for-the-write-mostly-rule) | Architecture guards for the write-mostly rule | Ticket | — | Not started |

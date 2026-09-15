@@ -310,7 +310,7 @@ Structural, not incidental. Weakening any of these re-opens a finding the audit 
 |---|---|---|
 | The portal returns document **status** — never content, signed URLs, or original filenames | `DocumentStorage` is HR-side only; `route/dto` never carries `fileKey`/`originalFilename` | §8.6, SEC-02 |
 | A bare link resolves to a PIN prompt and nothing else | `VerifyPortalPinUseCase`, portal DTOs | Appendix B, SEC-01 |
-| Wrong PIN and unknown token are indistinguishable | `AppError.Denied` collapses both; `PortalOutcome.DENIED` does not record which | §6.6 |
+| Wrong PIN and unknown token are indistinguishable | `AppError.Denied` is a **`data object`**, so there is exactly one value and differing bodies are unrepresentable; an unmatched route renders the same body; `PortalOutcome.DENIED` does not record which | §6.6 |
 | Tokens and PINs stored hashed; PIN in the invitation only | `Hasher`; `Notifier` signature | §6.6, §12 |
 | Locked-state upload rejection is server-side | `RequirementStatus.employeeCanUpload`, checked in the use case | §8.7 |
 | Requirement sets and `expiresAt` snapshotted at creation | snapshot columns | §5, §6.4 |

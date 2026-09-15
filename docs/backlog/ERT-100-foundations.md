@@ -267,7 +267,7 @@ hire to be created and assigned a requirement set.
 | **Parent** | ERT-100 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | §8.6, §8.7, §6.6 |
 | **Architecture** | §8, §12 invariant 3 |
@@ -301,6 +301,37 @@ and 404 for a well-formed unknown one turns the endpoint into an enumeration ora
 what §6.6 and the `Denied` row above exist to prevent. Whatever is chosen, a portal route must give
 the **same** answer for malformed, unknown and not-yours.
 
+### Decided
+
+**1. Where the id was read decides the status: a path id is 404, a body id is 422.** A path names a
+resource, and an id that cannot exist names a resource that does not exist. The rule is uniform
+across HR and portal, so no route author decides it again and a portal route cannot become an
+enumeration oracle by picking the wrong helper. `PersonId.of` / `EntityId.of` are unchanged — they
+still return `Validation`, and [`PathIds.kt`](../../src/route/mapper/PathIds.kt) reinterprets it at
+the edge with `orNotFound(entity)` (HR) and `orDenied()` (portal, collapses **every** failure).
+`orDenied` has no caller until ERT-630 on purpose: the rule has to exist before the first portal
+route, for the same reason ERT-170's guard has to exist before the first portal DTO.
+
+**2. `AppError.Denied` is now a `data object`, not a `data class` carrying a code.** As a data class,
+two call sites could construct two different `Denied` values and render two different bodies —
+making invariant 3 a convention someone has to remember. As a data object with a fixed
+`code = "not_found"`, differing responses are *unrepresentable*. Done now because it had **zero**
+call sites (`domain/usecase/` is empty), which is the same "last cheap moment" argument as ERT-180.
+It is a change to a core sealed type and is recorded here as one.
+
+**3. Two additions beyond the table above, both deliberate.** A `BadRequestException` (a malformed
+JSON body) mapped to **422 `request.malformed`** — it previously fell to `exception<Throwable>` and
+told the client the *server* had failed, the same class of trap as the 500 a mistyped path id used to
+return. And a `status(NotFound)` handler giving an **unmatched route the identical body a `Denied`
+produces**, so a mistyped portal sub-path is not distinguishable from a denied one. `401` and `405`
+are deliberately left with Ktor's own handling: a `status(Unauthorized)` handler risks dropping the
+`WWW-Authenticate` challenge, and neither status discloses whether a link exists.
+
+> **`status(...)` handlers overwrite a body the route already sent — verified, not assumed.** With
+> the `MappedErrorKey` guard removed, every mapped `NotFound` collapses into `{"code":"not_found"}`
+> and the HR side loses the code naming the missing entity. Two tests fail when the guard is taken
+> out; do not remove it as redundant.
+
 Note also that this closes a live trap: before ids became value objects, an unguarded
 `UUID.fromString` on a path segment threw `IllegalArgumentException`, and `StatusPages` has only an
 `exception<Throwable>` branch — so a typo in a URL returned **500**.
@@ -317,14 +348,17 @@ is indistinguishable across causes.
   endpoint to discover whether my link is real.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given a use case returns `Validation`, then the response is 422 and names the field
-- [ ] `[derived]` Given `Conflict`, then the response is 409
-- [ ] Given `Denied` from a wrong PIN and `Denied` from an unknown token, then the two responses are
+- [x] `[derived]` Given a use case returns `Validation`, then the response is 422 and names the field
+- [x] `[derived]` Given `Conflict`, then the response is 409
+- [x] Given `Denied` from a wrong PIN and `Denied` from an unknown token, then the two responses are
       byte-identical in status, body and headers (§6.6)
-- [ ] `[derived]` Given any `AppError`, then the response body carries the stable `code` and no
+- [x] `[derived]` Given any `AppError`, then the response body carries the stable `code` and no
       internal detail, stack trace or SQL
-- [ ] `[derived]` Given an unexpected `Throwable`, then the existing behaviour is unchanged — logged
+- [x] `[derived]` Given an unexpected `Throwable`, then the existing behaviour is unchanged — logged
       server-side, generic code to the client
+- [x] `[derived]` Given a malformed id in a path, then the response is indistinguishable from a
+      well-formed unknown one
+- [x] `[derived]` Given an unmatched route, then its body is identical to a `Denied` response
 
 **Tests**
 | Level | Test |
@@ -335,9 +369,13 @@ is indistinguishable across causes.
 | Route | `error mapping - an unexpected throwable - leaks no detail to the client` |
 
 **Files**
-- modify [`src/plugin/StatusPages.kt`](../../src/plugin/StatusPages.kt)
-- create `src/route/mapper/AppErrorMapper.kt`
-- create `test/route/ErrorMappingTest.kt`
+- modify [`src/core/error/AppError.kt`](../../src/core/error/AppError.kt) — `Denied` becomes a
+  `data object`
+- modify [`src/plugin/StatusPages.kt`](../../src/plugin/StatusPages.kt) — envelope is now
+  `{ code, detail?, field? }`, plus the `BadRequestException` and `status(NotFound)` handlers
+- create [`src/route/mapper/AppErrorMapper.kt`](../../src/route/mapper/AppErrorMapper.kt)
+- create [`src/route/mapper/PathIds.kt`](../../src/route/mapper/PathIds.kt)
+- create `test/route/ErrorMappingTest.kt`, `test/route/PathIdsTest.kt` — 18 tests, suite 74 → 92
 
 **Out of scope**
 - Rate-limit responses (429) — those arrive with ERT-660.

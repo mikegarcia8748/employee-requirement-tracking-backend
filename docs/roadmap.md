@@ -1,6 +1,6 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-140 — Map `AppError` to HTTP status in `StatusPages`](backlog/ERT-100-foundations.md#ert-140--map-apperror-to-http-status-in-statuspages)**
+**Next ticket: [ERT-150 — Expose the Micrometer registry on a scrape route](backlog/ERT-100-foundations.md#ert-150--expose-the-micrometer-registry-on-a-scrape-route)**
 
 The full board is [docs/backlog/README.md](backlog/README.md). This file holds sequencing, the
 decision register, and the pointer above. Each session updates that pointer on the way out.
@@ -13,16 +13,19 @@ decision register, and the pointer above. Each session updates that pointer on t
 |---|---|
 | Built | `core/` value objects and error types · 12 domain models with status logic · 10 ports · 12 Exposed tables · bcrypt, clock and secure generators · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation |
 | Empty | `domain/usecase/` · `data/repository/` · `data/mapper/` · `route/hr/` · `route/portal/` · `test/testdata/fake/` |
+| Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
 | Endpoints | `/health`, `/openapi`, `/swagger`. PRD Appendix B specifies ~38. |
 
 The three foundational gaps Phase 0 opened with are closed: `DatabaseFactory.connect()` runs from the
 application lifecycle (ERT-110), Flyway applies a baseline guarded by a drift test (ERT-120), and
 reference data and policy defaults are seeded (ERT-130). ERT-180 then replaced every UUID identifier
-with a validated `PersonId` or `EntityId`.
+with a validated `PersonId` or `EntityId`, and ERT-140 gave the route layer one mapping from an
+`AppError` to a status — with `Denied` made a `data object` so invariant 3 holds by construction, and
+a path id decided to be a 404 rather than a 422.
 
-What remains in Phase 0 is error mapping (ERT-140), metrics (ERT-150), the token digest (ERT-160) and
-the write-mostly guards (ERT-170), then the ERT-200 test harness. **No repository, use case or
-business route exists yet**, so nothing writes rows outside the tests.
+What remains in Phase 0 is metrics (ERT-150), the token digest (ERT-160) and the write-mostly guards
+(ERT-170), then the ERT-200 test harness. **No repository, use case or business route exists yet**,
+so nothing writes rows outside the tests.
 
 ---
 

@@ -67,12 +67,16 @@ ERT-760) already normalised to it.
 Every failure returns the same shape, from `StatusPages`:
 
 ```json
-{ "code": "requirement_locked", "detail": "..." }
+{ "code": "requirement_locked", "detail": "...", "field": "..." }
 ```
 
-`code` is a stable identifier a client may branch on. The body **never** carries a stack trace, a
-SQL fragment, a driver message, a table name or a file path — those name library versions and
-schema internals, so the cause is logged server-side and the client gets a code (PRD §12).
+`code` is a stable identifier a client may branch on. `detail` and `field` are **omitted** when
+absent, never rendered as `null` — so the smallest body is exactly `{"code":"not_found"}`, twenty
+bytes with nothing in them that could differ between two causes.
+
+The body **never** carries a stack trace, a SQL fragment, a driver message, a table name or a file
+path — those name library versions and schema internals, so the cause is logged server-side and the
+client gets a code (PRD §12).
 
 ### `AppError` → HTTP status
 
@@ -85,13 +89,31 @@ into a status so no route invents its own. Defined in ERT-140.
 | `NotFound(code, entity)` | **404** | |
 | `Conflict(code, detail)` | **409** | the locked-upload case of §8.7 |
 | `ReasonRequired(code, action)` | **422** | names the action needing justification |
-| `Denied(code)` | **404** | **body identical in every instance** |
+| `Denied` | **404** | `{"code":"not_found"}`, **identical in every instance** |
+| malformed JSON body | **422** | `request.malformed`, cause logged server-side only |
+| unmatched route | **404** | the **same body** a `Denied` produces |
 | — | **429** | rate limiting, ERT-660 |
 | unexpected `Throwable` | **500** | generic code, cause logged server-side only |
 
-`Denied` carries a code and **no detail field**, deliberately. It collapses a wrong PIN and an
-unknown token into one indistinguishable case, and the mapper must not add a detail that pulls them
-apart — see *Deliberate behaviours* below.
+`Denied` is a **`data object`**, not a case carrying a code. There is exactly one `Denied` value, so
+a wrong PIN and an unknown token cannot render differently — the guarantee is structural rather than
+a convention the mapper has to honour. The mapper adds no detail to it, and an unmatched route
+renders the identical body, so a mistyped portal sub-path is not distinguishable from a denied one.
+
+`401` and `405` keep Ktor's own handling rather than the envelope. A `status(Unauthorized)` handler
+risks dropping the `WWW-Authenticate` challenge, and neither status discloses whether a link exists.
+
+### Where an identifier was read decides its status
+
+| Identifier position | Failure | Why |
+|---|---|---|
+| **path segment** (`/api/employees/{id}`) | **404**, identical to a well-formed unknown id | A path names a resource; an id that cannot exist names one that does not. Answering 422 `person_id.invalid_format` for a malformed id and 404 for a well-formed unknown one tells the caller which guesses were the right *shape* — an enumeration oracle (§6.6) |
+| **request body field** | **422**, naming the field | Nothing is disclosed: the caller already knows what they sent |
+
+`PersonId.of` / `EntityId.of` are unchanged and still return `Validation`. `route/mapper/PathIds.kt`
+reinterprets it at the edge: `orNotFound(entity)` on the HR surface, `orDenied()` on the portal,
+where **every** failure — malformed, unknown, not-yours, expired, wrong PIN — collapses to the one
+`Denied` response.
 
 ---
 
