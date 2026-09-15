@@ -7,6 +7,7 @@ import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.openapi.hide
+import io.ktor.utils.io.ExperimentalKtorApi
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 
 /**
@@ -37,6 +38,13 @@ fun Route.metricsRoutes(registry: PrometheusMeterRegistry, devMode: Boolean, aut
     if (devMode) scrape(registry) else authenticate(authName) { scrape(registry) }
 }
 
+/**
+ * [ExperimentalKtorApi] is opted into rather than left as a build warning, because a standing warning
+ * in an otherwise clean build stops being read. The opt-in is deliberate and narrow: `hide` is the
+ * only experimental API here, and if a future Ktor changes what it does, the two spec tests in
+ * `MetricsRoutesTest` fail rather than `/metrics` quietly appearing in the published document.
+ */
+@OptIn(ExperimentalKtorApi::class)
 private fun Route.scrape(registry: PrometheusMeterRegistry) {
     get("/metrics") {
         call.respondText(registry.scrape(), PROMETHEUS_TEXT)
