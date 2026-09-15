@@ -25,7 +25,14 @@ fun Application.configureSecurity() {
     val issuer = System.getenv("JWT_ISSUER") ?: "http://localhost:8080/"
     val audience = System.getenv("JWT_AUDIENCE") ?: "employee-requirements-tracker"
     val realm = System.getenv("JWT_REALM") ?: "Employee Requirements Tracker"
-    val secret = System.getenv("JWT_SECRET")
+    // `takeUnless(isBlank)`, not a bare read: `== null` below catches an unset variable but not an
+    // empty one, and sourcing a `.env` copied from `.env.example` supplies exactly the empty string.
+    // Without this, JWT_SECRET="" passes the check and the service boots outside dev on an empty
+    // signing key -- the precise failure the check exists to prevent, reached by following the
+    // documentation. `DATABASE_URL` deliberately does *not* get the same treatment: there, an empty
+    // value fails loudly in Hikari's `validate()`, whereas treating it as absent would silently
+    // demote production to a throwaway in-memory database.
+    val secret = System.getenv("JWT_SECRET")?.takeUnless(String::isBlank)
 
     if (secret == null) {
         val devMode = isDevMode()

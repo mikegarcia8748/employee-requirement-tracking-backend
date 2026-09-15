@@ -557,7 +557,7 @@ dropping the parameter would fail nothing loudly — it is pinned by a test inst
 | **Parent** | ERT-100 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | §6.6, §12 |
 | **Architecture** | §4, §12 invariant 4, §14 |
@@ -595,32 +595,79 @@ continues to hash PINs only, and the pepper is required outside dev.
   primitive each so that neither the lookup silently fails nor every portal request pays 100ms of
   bcrypt.
 
+### Decided
+
+**1. Absence is forgiven in dev; weakness never is.** A dev run with no `TOKEN_PEPPER` gets an
+ephemeral pepper, so a fresh checkout works unconfigured — the same trade as the in-memory H2
+default. A pepper that is *present but shorter than 32 characters* fails in every mode, dev included:
+without a floor the "is it configured" check is satisfied by `TOKEN_PEPPER=x`, which adds no work to
+an offline attempt and is configuration theatre.
+
+**2. Blank counts as absent.** `?:` catches `null` but not `""`. Sourcing a `.env` copied from
+`.env.example` supplies exactly the empty string, so without this, following the documentation would
+walk straight past the check. The same one-line fix was applied to `JWT_SECRET`, which had the same
+hole and where the consequence is booting on an empty signing key.
+
+**3. A fresh `Mac` per call.** `javax.crypto.Mac` is stateful and not thread-safe. A shared instance
+field would interleave `update`/`doFinal` across concurrent portal requests and return digests
+belonging to neither caller — a fault that appears only under load and reads as data corruption.
+Construction costs microseconds against the ~100 ms bcrypt call it replaces on the lookup path.
+
+**4. `TokenDigest` is resolved eagerly in `configureKoin()`.** Koin singles are lazy, so a missing
+pepper would otherwise surface on the first portal request rather than at boot — in production, long
+after the deploy looked successful. Same argument `Database.kt` records for calling `connect()` in
+the module body. *(This modifies `di/AppModule.kt`, which the Files list below did not name.)*
+
+**5. It must stay a `single`, never a `factory`.** In dev the pepper is generated per instance, so a
+`factory` would digest a token one way at issue and another at lookup — every dev link issued already
+broken. Pinned by an identity assertion in `ServerTest`.
+
 **Acceptance criteria**
-- [ ] `[derived]` Given the same token digested twice, then the two digests are equal, so a link can
+- [x] `[derived]` Given the same token digested twice, then the two digests are equal, so a link can
       be resolved by hash
-- [ ] `[derived]` Given two different tokens, then their digests differ
-- [ ] `[derived]` Given no pepper is configured outside dev, then startup fails — matching the
+- [x] `[derived]` Given two different tokens, then their digests differ
+- [x] `[derived]` Given no pepper is configured outside dev, then startup fails — matching the
       existing `JWT_SECRET` behaviour in [Security.kt:32](../../src/plugin/Security.kt)
-- [ ] `[derived]` Given a leaked database, then no stored value yields a usable token or PIN
-- [ ] `[derived]` Given an access PIN, then it is still hashed with bcrypt and not with the digest
-- [ ] `[derived]` Given the documentation, then the pepper-rotation gap is recorded
+- [x] `[derived]` Given a leaked database, then no stored value yields a usable token or PIN
+- [x] `[derived]` Given an access PIN, then it is still hashed with bcrypt and not with the digest
+- [x] `[derived]` Given the documentation, then the pepper-rotation gap is recorded — architecture
+      §14 and the `HmacTokenDigest` KDoc
 
 **Tests**
 | Level | Test |
 |---|---|
 | Use case | `token digest - the same token digested twice - produces the same value so a link resolves by hash` |
 | Use case | `token digest - two different tokens - produce different digests` |
+| Use case | `token digest - two different peppers - produce different digests for the same token` |
+| Use case | `token digest - a stored digest - does not contain the token it was made from` |
 | Use case | `credential hashing - an access pin - is hashed with a work factor rather than a fast digest` |
-| Route | `token digest - no pepper configured outside dev - startup refuses` |
+| Use case | `token digest - no pepper configured outside dev - startup refuses` |
+| Use case | `token digest - a blank pepper outside dev - is treated as absent rather than accepted` |
+| Use case | `token digest - a pepper below the minimum length - is refused in dev as well as outside it` |
+| Use case | `token digest - no pepper configured in dev - falls back to an ephemeral pepper that still works` |
+| Route | `token digest wiring - the running application - resolves one shared digest, not one per call` |
+
+> **Scope note on the refusal tests.** This ticket filed them at Route level, meaning a real server
+> boot. A JVM test cannot unset `TOKEN_PEPPER` in its own process, so `fromEnvironment` takes the
+> pepper as a defaulted parameter and the tests drive it directly. **What is proven is that the
+> refusal fires, not that it aborts the boot** — the boot path is covered only by the eager
+> resolution in `configureKoin()` being on the same line as `install(Koin)`. Verify the real thing by
+> hand with `APP_ENV=prod JWT_SECRET=… ./kotlin run`.
 
 **Files**
-- create `src/core/crypto/TokenDigest.kt` — the port
-- create `src/data/crypto/HmacTokenDigest.kt`
-- modify [`src/core/crypto/Hasher.kt`](../../src/core/crypto/Hasher.kt) — narrow its doc comment to
-  the PIN; it currently claims to cover the link token
+- create [`src/core/crypto/TokenDigest.kt`](../../src/core/crypto/TokenDigest.kt) — the port
+- create [`src/data/crypto/HmacTokenDigest.kt`](../../src/data/crypto/HmacTokenDigest.kt)
+- modify [`src/core/crypto/Hasher.kt`](../../src/core/crypto/Hasher.kt) — narrowed to the PIN; it
+  claimed to cover the link token
 - modify [`src/data/crypto/BcryptHasher.kt`](../../src/data/crypto/BcryptHasher.kt) — same
 - modify [`src/di/CoreModule.kt`](../../src/di/CoreModule.kt) — bind it
-- create `test/core/crypto/TokenDigestTest.kt`
+- modify [`src/di/AppModule.kt`](../../src/di/AppModule.kt) — resolve it eagerly; see Decided 4
+- modify [`src/plugin/Security.kt`](../../src/plugin/Security.kt) — blank `JWT_SECRET` now counts as
+  absent; see Decided 2
+- modify `docs/architecture.md` — §14 rewritten (it stated "bcrypt for token and PIN", which this
+  ticket supersedes), §12 invariant row, §3 and §4
+- create `test/core/crypto/TokenDigestTest.kt`, modify `test/ServerTest.kt` — 10 tests, suite
+  109 → 119
 
 **Out of scope**
 - A pepper-rotation or credential re-issue flow. Recorded as a gap, not built.

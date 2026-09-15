@@ -82,7 +82,7 @@ src/
     error/                AppError, DomainResult — failures as data, not exceptions
     time/                 Clock port
     id/                   EntityIdGenerator, PersonIdGenerator, TokenGenerator, PinGenerator
-    crypto/               Hasher port
+    crypto/               Hasher (PIN) and TokenDigest (link/session token) ports
     value/                EmailAddress, AccessPin, PersonId, EntityId — validating value objects
 
   domain/                 the rules. Pure Kotlin.
@@ -126,7 +126,7 @@ its own dispatcher and the use case never sees one.
 | `PortalAccessTrail` | append-only portal attempts, distinct IPs, failure counts | *(pending)* |
 | `Notifier` | the seven notification kinds | *(pending)* |
 | `DocumentStorage` | object storage; signed URLs **HR-side only** | *(pending)* |
-| `Clock`, `EntityIdGenerator`, `PersonIdGenerator`, `TokenGenerator`, `PinGenerator`, `Hasher` | infrastructure | **bound** |
+| `Clock`, `EntityIdGenerator`, `PersonIdGenerator`, `TokenGenerator`, `PinGenerator`, `Hasher`, `TokenDigest` | infrastructure | **bound** |
 
 Three of these encode a rule in their *shape* rather than their documentation:
 
@@ -311,7 +311,7 @@ Structural, not incidental. Weakening any of these re-opens a finding the audit 
 | The portal returns document **status** — never content, signed URLs, or original filenames | `DocumentStorage` is HR-side only; `route/dto` never carries `fileKey`/`originalFilename` | §8.6, SEC-02 |
 | A bare link resolves to a PIN prompt and nothing else | `VerifyPortalPinUseCase`, portal DTOs | Appendix B, SEC-01 |
 | Wrong PIN and unknown token are indistinguishable | `AppError.Denied` is a **`data object`**, so there is exactly one value and differing bodies are unrepresentable; the mapper sends it to one shared envelope constant, so it cannot carry a per-instance message or `details`; an unmatched route renders the same body; `PortalOutcome.DENIED` does not record which | §6.6 |
-| Tokens and PINs stored hashed; PIN in the invitation only | `Hasher`; `Notifier` signature | §6.6, §12 |
+| Tokens and PINs stored hashed; PIN in the invitation only | `TokenDigest` (keyed, reproducible — tokens are looked up by digest); `Hasher` (bcrypt, salted — PINs are verified); `Notifier` signature | §6.6, §12 |
 | Locked-state upload rejection is server-side | `RequirementStatus.employeeCanUpload`, checked in the use case | §8.7 |
 | Requirement sets and `expiresAt` snapshotted at creation | snapshot columns | §5, §6.4 |
 | Every portal access is an append-only record | `PortalAccessLogs`; no `last_accessed_at` | §8.12, SEC-05 |
@@ -347,10 +347,30 @@ the audit trail and access log are transactional writes where maturity matters m
 I/O. `exposed-r2dbc` and `h2database-r2dbc` remain declared in `module.yaml` but are now unused —
 harmless, and left for the owner to remove.
 
-**bcrypt, not a fast digest, for token and PIN.** The PIN keyspace is only 10⁶; a leaked database
-falls to an offline sweep in seconds against SHA-256. A work factor makes each candidate expensive.
-Lockout and auto-suspend bound the *online* attack — different attacks, and neither control
-substitutes for the other.
+**Two credentials, two primitives — bcrypt for the PIN, a keyed digest for the token** (ERT-160,
+superseding the earlier "bcrypt for both"). They are used differently, and one primitive cannot serve
+both:
+
+| Credential | Primitive | Why |
+|---|---|---|
+| Link token, session token | HMAC-SHA-256 keyed by a server-side pepper (`TokenDigest`) | It is **looked up** — `findByTokenHash`, and `upload_links.token_hash` is uniquely indexed — so the digest must be reproducible. bcrypt salts every call, so the original code could never have resolved a presented token. 256 bits of entropy leaves no offline guessing attack for a work factor to slow. |
+| Access PIN | bcrypt, cost 12 (`Hasher`) | It is **verified** against one already-located row, never looked up. The keyspace is 10⁶, which falls to an offline sweep in seconds against a fast digest; a work factor makes each candidate expensive. |
+
+Lockout and auto-suspend bound the *online* attack on the PIN — different attacks, and neither
+control substitutes for the other.
+
+**Known gap: the token pepper cannot be rotated.** Rotating `TOKEN_PEPPER` changes every digest, so
+every live link and session stops resolving at once. There is no credential re-issue flow, so
+recovery means re-inviting every in-flight hire by hand through the bulk path §8.2 deliberately makes
+slow. Treat the pepper as permanent for the life of an environment until a re-issue flow exists.
+
+**`APP_ENV` defaults to dev, and that default is permissive.** `isDevMode()` treats an unset variable
+as development, which is what lets a fresh checkout run with no configuration — the same trade as the
+in-memory H2 default. The cost is that a deployment which forgets to set `APP_ENV` gets open
+`/openapi`, `/swagger` and `/metrics`, an ephemeral JWT signing key **and** an ephemeral token
+pepper, with no error. Four controls now hang off one unset variable. Inverting the default is the
+safer shape and is worth doing; it is recorded here rather than changed in passing because it breaks
+`./kotlin run` on a fresh checkout and belongs with a deployment-configuration ticket.
 
 **Generated OpenAPI.** See §9. Required declaring `io.ktor:ktor-server-routing-openapi` explicitly:
 Amper's Ktor catalog has no key for it.

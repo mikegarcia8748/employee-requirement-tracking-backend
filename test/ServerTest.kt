@@ -1,5 +1,6 @@
 package com.pgsystem.employee.requirement.tracker
 
+import com.pgsystem.employee.requirement.tracker.core.crypto.TokenDigest
 import com.pgsystem.employee.requirement.tracker.data.db.DatabaseFactory
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -82,4 +83,23 @@ class ServerTest {
             failure.stackTraceToString() shouldContain "has been closed"
         }
     }
+
+    @Test
+    fun `token digest wiring - the running application - resolves one shared digest, not one per call`() =
+        testApplication {
+            application { rootModule() }
+
+            client.get("/health").status shouldBe HttpStatusCode.OK
+
+            val koin = application.getKoin()
+            val first = koin.get<TokenDigest>()
+            val second = koin.get<TokenDigest>()
+
+            // Identity, not equality. In dev the pepper is generated per instance, so a `factory`
+            // binding would digest a token one way at issue and another at lookup -- every link
+            // would be issued already broken, and only on a developer machine. Cheap to assert,
+            // invisible otherwise.
+            (first === second) shouldBe true
+            first.digest("a-token") shouldBe second.digest("a-token")
+        }
 }
