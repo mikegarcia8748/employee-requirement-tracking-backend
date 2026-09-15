@@ -473,7 +473,7 @@ has no body type and the front-end has nothing to generate a client from.
 | **Parent** | ERT-100 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | §13 |
 | **Architecture** | §3 |
@@ -496,12 +496,38 @@ Prometheus can scrape the service, and the endpoint is not world-readable outsid
 - As an operator, I want a scrape endpoint so that the §13 launch metrics can be measured rather than
   estimated.
 
+### Decided
+
+**1. `plugin/Monitoring.kt` mounts the route, not `configureRouting()`.** The gate needs `HR_AUTH`
+and `isDevMode()`, both in `plugin/`, and ERT-145 recorded that the dependency runs `plugin` →
+`route` and never the reverse. So `route/MetricsRoutes.kt` holds the route and takes
+`registry`, `devMode` and `authName` as parameters — it imports nothing from `plugin/` — and
+`configureMonitoring()`, which already owns the registry, supplies them.
+[`ApiDocs.kt`](../../src/plugin/ApiDocs.kt) mounts `/openapi` and `/swagger` the same way and for the
+same reason: all three are operational surfaces, gated identically, and none belongs to the `/api`
+contract `configureRouting()` assembles. **`Routing.kt` is therefore untouched**, which is the one
+deviation from the Files list below. `routing { }` is additive, so mounting before
+`configureRouting()` runs is not an ordering hazard.
+
+**2. `devMode` is a parameter rather than an `isDevMode()` call inside the route.** A JVM test cannot
+unset `APP_ENV` in its own process, so without the parameter the refused-outside-dev criterion is
+unprovable. The same seam is what ERT-160 uses for `TOKEN_PEPPER`.
+
+**3. The content type states `version=0.0.4`,** not bare `text/plain`. Scrapers accept the latter, so
+dropping the parameter would fail nothing loudly — it is pinned by a test instead.
+
+> **`hide()` inside `authenticate { }` was verified, not assumed.** Outside dev the handler is nested
+> one level deeper, and `hide()` attaches to whatever `Route` node `get` returned in *that* tree. Had
+> it attached to the wrong node, `/metrics` would be published in exactly the configuration where it
+> is protected and where nobody looks. Both spec tests fail when `.hide()` is removed, so neither
+> passes vacuously.
+
 **Acceptance criteria**
-- [ ] `[derived]` Given the app is running in dev, when `/metrics` is requested, then the Prometheus
+- [x] `[derived]` Given the app is running in dev, when `/metrics` is requested, then the Prometheus
       exposition format is returned
-- [ ] `[derived]` Given `APP_ENV` is not dev, when `/metrics` is requested without HR credentials,
+- [x] `[derived]` Given `APP_ENV` is not dev, when `/metrics` is requested without HR credentials,
       then it is refused
-- [ ] `[derived]` Given the OpenAPI spec, then `/metrics` is hidden from it — it is an operational
+- [x] `[derived]` Given the OpenAPI spec, then `/metrics` is hidden from it — it is an operational
       surface, not an API
 
 **Tests**
@@ -509,10 +535,15 @@ Prometheus can scrape the service, and the endpoint is not world-readable outsid
 |---|---|
 | Route | `metrics endpoint - dev mode - returns prometheus exposition format` |
 | Route | `metrics endpoint - outside dev without credentials - is refused` |
+| Route | `metrics endpoint - the generated spec - does not publish it` |
+| Route | `metrics endpoint - outside dev behind authentication - is still absent from the generated spec` |
+| Route | `metrics endpoint - the response content type - names the prometheus text format version` |
 
 **Files**
-- create `src/route/MetricsRoutes.kt` — using `hide()` so it stays out of the spec
-- modify [`src/route/Routing.kt`](../../src/route/Routing.kt)
+- create [`src/route/MetricsRoutes.kt`](../../src/route/MetricsRoutes.kt) — using `hide()` so it
+  stays out of the spec
+- modify [`src/plugin/Monitoring.kt`](../../src/plugin/Monitoring.kt) — mounts it; see Decided 1
+- create `test/route/MetricsRoutesTest.kt` — 5 tests, suite 104 → 109
 
 **Out of scope**
 - Defining custom business metrics. Those land with the use cases that emit them.
