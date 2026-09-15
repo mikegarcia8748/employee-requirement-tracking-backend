@@ -1,12 +1,13 @@
 package com.pgsystem.employee.requirement.tracker
 
+import io.kotest.assertions.withClue
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.shouldBe
 import java.io.File
 import kotlin.test.Test
 
 /**
- * The dependency rule, executable.
+ * The dependency rule and the write-mostly rule, executable.
  *
  * Clean Architecture's central constraint is that source dependencies point inward: the domain
  * knows nothing about Ktor, Exposed, Koin or coroutine dispatchers. Written in a document, that rule
@@ -18,6 +19,15 @@ import kotlin.test.Test
  * Why banning `Dispatchers` matters as much as banning Ktor: a use case that picks its own
  * dispatcher cannot be tested on a virtual-time scheduler, and it hides an I/O decision inside a
  * business rule. Dispatcher choice belongs in `DatabaseFactory`, at the edge.
+ *
+ * ### Guards are pure functions, driven two ways (ERT-170)
+ *
+ * Each rule below is a function over `(path, source)` pairs, run against **the real tree** — which is
+ * what fails the build — and against **synthetic sources** that assert the rule itself. The second
+ * half is not redundant. `src/route/dto/portal/` and `src/route/portal/` hold no files yet, so a
+ * real-tree-only guard would pass without examining anything, and would go on passing after someone
+ * broke the rule it is named for. The synthetic cases prove the guard can see a violation today, and
+ * [GuardOutcome.Vacuous] makes "it examined nothing" a visible state rather than a silent pass.
  */
 class ArchitectureTest {
 
@@ -31,6 +41,8 @@ class ArchitectureTest {
         "javax.sql",
         "java.sql",
     )
+
+    // ── The inner layers ────────────────────────────────────────────────────────────────────────
 
     @Test
     fun `identifier discipline - no domain or core file imports java util UUID - ids are value types`() {
@@ -74,6 +86,228 @@ class ArchitectureTest {
         storagePort.readText().contains("HR-side only") shouldBe true
     }
 
+    // ── The route layer ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `dependency rule - a route imports Exposed directly - the build fails`() {
+        // Currently unguarded despite being in the layer table from the start: a route that queries
+        // is a business decision reachable only through a handler. Non-vacuous today -- src/route/
+        // holds real files -- so this is enforcement, not a placeholder.
+        val real = guard(sourcesUnder("src/route")) { forbiddenImports(it, "org.jetbrains.exposed") }
+        real shouldBe GuardOutcome.Checked(scanned = real.scannedOrZero(), violations = emptyList())
+        (real.scannedOrZero() > 0) shouldBe true
+
+        forbiddenImports(
+            listOf(source("src/route/hr/HireRoutes.kt", "import org.jetbrains.exposed.v1.jdbc.selectAll")),
+            "org.jetbrains.exposed",
+        ).size shouldBe 1
+    }
+
+    @Test
+    fun `dependency rule - a route imports plugin - the dependency runs plugin to route not the reverse`() {
+        // ERT-145 made `plugin` depend on `route.mapper` and said the arrow never reverses. That was
+        // recorded in a ticket and nowhere else, so a route author could only learn it by reading
+        // one. It is the rule that decided where ERT-150 mounts /metrics.
+        val real = guard(sourcesUnder("src/route")) { forbiddenImports(it, PLUGIN_PACKAGE) }
+        real shouldBe GuardOutcome.Checked(scanned = real.scannedOrZero(), violations = emptyList())
+
+        forbiddenImports(
+            listOf(source("src/route/MetricsRoutes.kt", "import $PLUGIN_PACKAGE.HR_AUTH")),
+            PLUGIN_PACKAGE,
+        ).size shouldBe 1
+    }
+
+    // ── The write-mostly rule (PRD 8.6, SEC-02) ─────────────────────────────────────────────────
+
+    @Test
+    fun `write-mostly portal - a portal dto declares a file key or original filename - the build fails`() {
+        // The realistic failure is not a deliberate preview feature. It is `mimeType` "for the icon"
+        // and `originalFilename` "for the confirmation toast", both of which read as reasonable in
+        // review. A filename leaks content as surely as the document does:
+        // NBI_Clearance_DelaCruz_1998.pdf says everything.
+        val dto = source(
+            "src/route/dto/portal/ChecklistItemDto.kt",
+            """
+            @Serializable
+            data class ChecklistItemDto(
+                val requirementId: String,
+                val status: String,
+                val originalFilename: String,
+                val mimeType: String,
+            )
+            """.trimIndent(),
+        )
+
+        val violations = documentFieldViolations(listOf(dto))
+
+        violations.size shouldBe 2
+        violations.any { it.contains("originalFilename") } shouldBe true
+        violations.any { it.contains("mimeType") } shouldBe true
+    }
+
+    @Test
+    fun `write-mostly portal - a portal dto names a preview url the ban list never anticipated - the build fails`() {
+        // The named list would not have caught `previewUrl`, which is exactly the shape the next
+        // well-meant addition takes. Any property ending in Url or Filename trips the guard, so the
+        // rule is "no document handles", not "not these six spellings".
+        val violations = documentFieldViolations(
+            listOf(source("src/route/dto/portal/UploadAckDto.kt", "    val previewUrl: String,"))
+        )
+
+        violations.size shouldBe 1
+    }
+
+    @Test
+    fun `write-mostly portal - a portal dto renames the field only on the wire - the build fails`() {
+        // @SerialName is the obvious way around a property-name check, and it is the one that
+        // actually ships the field.
+        val violations = documentFieldViolations(
+            listOf(
+                source(
+                    "src/route/dto/portal/UploadAckDto.kt",
+                    """
+                    @Serializable
+                    data class UploadAckDto(@SerialName("original_filename") val received: String)
+                    """.trimIndent(),
+                )
+            )
+        )
+
+        violations.size shouldBe 1
+    }
+
+    @Test
+    fun `write-mostly portal - an HR dto carrying an original filename - does not trip the guard`() {
+        // PRD 8.4 explicitly requires originalFilename, sizeBytes and mimeType on the HR side. A
+        // blanket rule would block ERT-820, so the guard is scoped by path, not by field name alone.
+        documentFieldViolations(
+            listOf(
+                source(
+                    "src/route/dto/hr/SubmissionDto.kt",
+                    "data class SubmissionDto(val originalFilename: String, val mimeType: String)",
+                )
+            )
+        ).shouldBeEmpty()
+    }
+
+    @Test
+    fun `write-mostly portal - a portal route imports DocumentStorage - the build fails`() {
+        forbiddenImports(
+            listOf(
+                source(
+                    "src/route/portal/ChecklistRoutes.kt",
+                    "import com.pgsystem.employee.requirement.tracker.domain.port.DocumentStorage",
+                )
+            ),
+            "$DOMAIN_PORT_PACKAGE.DocumentStorage",
+        ).size shouldBe 1
+    }
+
+    @Test
+    fun `write-mostly portal - every portal dto in the tree - declares no document field`() {
+        // Two tests rather than one with two assertions: a failing first assertion would otherwise
+        // hide whether the second rule is also broken, and these two fail for different reasons.
+        documentFieldViolations(sourcesUnder(PORTAL_DTO_DIR)).shouldBeEmpty()
+    }
+
+    @Test
+    fun `write-mostly portal - every portal route in the tree - reaches no document storage`() {
+        forbiddenImports(sourcesUnder(PORTAL_ROUTE_DIR), "$DOMAIN_PORT_PACKAGE.DocumentStorage").shouldBeEmpty()
+    }
+
+    @Test
+    fun `guard integrity - the portal dto directory is empty - the guard reports vacuous rather than passing`() {
+        // THIS TEST IS A TRIPWIRE, NOT A BUG.
+        //
+        // The two assertions in the test above examine nothing today, because no portal DTO or
+        // portal route exists yet -- so they pass, and would keep passing if the guard were broken.
+        // Vacuity is asserted here so that state is visible rather than indistinguishable from
+        // enforcement.
+        //
+        // WHEN THIS FAILS: the first portal DTO or portal route has landed and the guard is now
+        // doing real work. That is the goal, not a regression. Change the expectation below to
+        // GuardOutcome.Checked for whichever directory is now populated -- do not delete the test,
+        // and do not delete the assertions it is guarding.
+        val message = "A portal source now exists: flip this expectation to Checked. See the comment above."
+
+        withClue(message) {
+            guard(sourcesUnder(PORTAL_DTO_DIR)) { documentFieldViolations(it) } shouldBe GuardOutcome.Vacuous
+            guard(sourcesUnder(PORTAL_ROUTE_DIR)) {
+                forbiddenImports(it, "$DOMAIN_PORT_PACKAGE.DocumentStorage")
+            } shouldBe GuardOutcome.Vacuous
+        }
+    }
+
+    @Test
+    fun `guard integrity - a populated directory - reports checked so the tripwire above can fire`() {
+        // Proves Vacuous and Checked are actually distinguishable. Without this, a guard that
+        // returned Vacuous unconditionally would satisfy the tripwire forever.
+        guard(listOf(source("src/route/dto/portal/Any.kt", "val status: String"))) {
+            documentFieldViolations(it)
+        } shouldBe GuardOutcome.Checked(scanned = 1, violations = emptyList())
+    }
+
+    // ── Guards ──────────────────────────────────────────────────────────────────────────────────
+
+    private data class SourceFile(val path: String, val text: String)
+
+    private sealed interface GuardOutcome {
+        /** The walk matched no files. The rule was not exercised — do not read this as a pass. */
+        data object Vacuous : GuardOutcome
+        data class Checked(val scanned: Int, val violations: List<String>) : GuardOutcome
+    }
+
+    private fun GuardOutcome.scannedOrZero(): Int = (this as? GuardOutcome.Checked)?.scanned ?: 0
+
+    private fun guard(files: List<SourceFile>, check: (List<SourceFile>) -> List<String>): GuardOutcome =
+        if (files.isEmpty()) GuardOutcome.Vacuous
+        else GuardOutcome.Checked(scanned = files.size, violations = check(files))
+
+    /**
+     * Property names a **portal** DTO may not declare (PRD 8.6, SEC-02).
+     *
+     * Matched on `val`/`var` declarations and on `@SerialName` values, so renaming the field only on
+     * the wire does not slip past. Exact names plus two suffix rules: the suffixes are what catch
+     * the next well-meant addition, which will be called `previewUrl` or `storedFilename` rather
+     * than anything on a list written today. Exact rather than substring matching, so `urlPattern`
+     * is not a violation.
+     *
+     * **The path scope is part of the rule, not of the call site.** PRD 8.4 explicitly requires
+     * `originalFilename`, `sizeBytes` and `mimeType` on the HR side, so a blanket ban would block
+     * ERT-820. Filtering here rather than in the caller means a future call cannot widen the rule to
+     * the HR tree by passing it a broader file list — which is exactly what the first draft of this
+     * guard did, and what the HR test below caught.
+     */
+    private fun documentFieldViolations(files: List<SourceFile>): List<String> =
+        files.filter { it.path.replace('\\', '/').contains(PORTAL_DTO_DIR) }.flatMap { file ->
+            (DECLARATION.findAll(file.text) + SERIAL_NAME.findAll(file.text))
+                .map { it.groupValues[1] }
+                .filter { name ->
+                    name.lowercase() in BANNED_FIELDS ||
+                        BANNED_SUFFIXES.any { name.length > it.length && name.endsWith(it, ignoreCase = true) }
+                }
+                .map { "${file.path}: declares `$it`, which names document content (PRD 8.6)" }
+                .toList()
+        }
+
+    private fun forbiddenImports(files: List<SourceFile>, prefix: String): List<String> =
+        files.flatMap { file ->
+            file.text.lineSequence()
+                .map(String::trim)
+                .filter { it.startsWith("import $prefix") }
+                .map { "${file.path}: $it" }
+                .toList()
+        }
+
+    private fun source(path: String, text: String) = SourceFile(path, text)
+
+    private fun sourcesUnder(dir: String): List<SourceFile> =
+        File(projectDir, dir)
+            .walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .map { SourceFile(it.relativeTo(projectDir).path, it.readText()) }
+            .toList()
+
     private val projectDir: File
         get() = generateSequence(File(".").absoluteFile) { it.parentFile }
             .first { File(it, "module.yaml").exists() }
@@ -82,4 +316,26 @@ class ArchitectureTest {
         listOf("src/domain", "src/core")
             .map { File(projectDir, it) }
             .flatMap { it.walkTopDown().filter { f -> f.isFile && f.extension == "kt" } }
+
+    private companion object {
+        const val PORTAL_DTO_DIR = "src/route/dto/portal"
+        const val PORTAL_ROUTE_DIR = "src/route/portal"
+        const val PLUGIN_PACKAGE = "com.pgsystem.employee.requirement.tracker.plugin"
+        const val DOMAIN_PORT_PACKAGE = "com.pgsystem.employee.requirement.tracker.domain.port"
+
+        val DECLARATION = Regex("""\b(?:val|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*:""")
+        val SERIAL_NAME = Regex("""@SerialName\s*\(\s*"([^"]+)"\s*\)""")
+
+        val BANNED_FIELDS = setOf(
+            "filekey", "file_key",
+            "originalfilename", "original_filename",
+            "url",
+            "downloadurl", "download_url",
+            "signedurl", "signed_url",
+            "mimetype", "mime_type",
+        )
+
+        /** `previewUrl`, `thumbnailUrl`, `storedFilename` — the spellings a ban list never predicts. */
+        val BANNED_SUFFIXES = listOf("url", "filename", "_url", "_filename")
+    }
 }

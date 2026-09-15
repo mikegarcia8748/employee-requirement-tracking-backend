@@ -681,7 +681,7 @@ broken. Pinned by an identity assertion in `ServerTest`.
 | **Parent** | ERT-100 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | §8.6 |
 | **Architecture** | §2, §12 invariants 1 and 2 |
@@ -715,28 +715,77 @@ build — and the guard cannot pass vacuously.
 - As an engineer on the next session, I want the write-mostly rule enforced mechanically so that I
   cannot reintroduce the finding the audit closed without the build telling me.
 
+### Decided
+
+**1. Each guard is a pure function over `(path, source)` pairs, driven two ways.** Against the real
+tree — which is what fails the build — and against **synthetic sources** that assert the rule itself.
+The synthetic half is not redundant: `src/route/dto/portal/` and `src/route/portal/` hold no files,
+so a real-tree-only guard passes without examining anything, and would keep passing after someone
+broke the rule it is named for.
+
+**2. The ban is on document *handles*, not on six spellings.** Exact names (`fileKey`,
+`originalFilename`, `url`, `downloadUrl`, `signedUrl`, `mimeType` and their snake_case forms) plus a
+suffix rule: any property ending in `Url` or `Filename`. The named list would not have caught
+`previewUrl`, which is the shape the next well-meant addition actually takes. `@SerialName` values
+are matched too — renaming the field only on the wire is the obvious way around a property check and
+the one that ships the field.
+
+**3. The path scope lives inside the rule, not at the call site.** §8.4 requires `originalFilename`,
+`sizeBytes` and `mimeType` on the HR side, so a blanket ban would block ERT-820. The first draft
+scoped by what the caller passed in; the HR test caught it, which is the review step working as
+intended.
+
+**4. `GuardOutcome` makes vacuity a visible state.** `Vacuous` when the walk matched nothing,
+`Checked(scanned, violations)` otherwise — so "it examined nothing" cannot be mistaken for "it found
+nothing". A second test asserts a populated directory reports `Checked`, without which a guard that
+returned `Vacuous` unconditionally would satisfy the tripwire forever.
+
+> **The tripwire is deliberate.** `guard integrity - the portal dto directory is empty` asserts
+> `Vacuous` **today**. The day the first portal DTO or portal route lands, it fails — that is the
+> signal, not a regression. Flip the expectation to `Checked`; do not delete the test, and do not
+> delete the two real-tree assertions it is guarding.
+
+**Verified, not assumed: every guard fails the build on a real violation.** A portal DTO declaring
+`originalFilename` and `previewUrl`, a portal route importing `DocumentStorage`, and a route file
+importing `org.jetbrains.exposed` and `…tracker.plugin` were each planted in `src/` and the suite
+re-run. Five tests failed across the four rules, and the vacuity tripwire fired alongside them. The
+sources were then removed.
+
 **Acceptance criteria**
-- [ ] `[derived]` Given a type under `route/dto/portal/`, then it declares no field named `fileKey`,
+- [x] `[derived]` Given a type under `route/dto/portal/`, then it declares no field named `fileKey`,
       `originalFilename`, `url`, `downloadUrl`, `signedUrl` or `mimeType` (§8.6)
-- [ ] `[derived]` Given any file under `src/route/portal/`, then it does not import `DocumentStorage`
-- [ ] `[derived]` Given any file under `src/route/`, then it does not import
+- [x] `[derived]` Given any file under `src/route/portal/`, then it does not import `DocumentStorage`
+- [x] `[derived]` Given any file under `src/route/`, then it does not import
       `org.jetbrains.exposed` — routes make no direct `data/` access, which is currently unguarded
-- [ ] `[derived]` Given `route/dto/portal/` is empty, then the guard reports vacuous rather than
+- [x] `[derived]` Given `route/dto/portal/` is empty, then the guard reports vacuous rather than
       passing
-- [ ] `[derived]` Given an HR DTO carrying `originalFilename`, then the guard does **not** fire —
+- [x] `[derived]` Given an HR DTO carrying `originalFilename`, then the guard does **not** fire —
       §8.4 requires it
 
 **Tests**
 | Level | Test |
 |---|---|
 | Architecture | `write-mostly portal - a portal dto declares a file key or original filename - the build fails` |
-| Architecture | `write-mostly portal - a portal route imports DocumentStorage - the build fails` |
-| Architecture | `dependency rule - a route imports Exposed directly - the build fails` |
-| Architecture | `guard integrity - the portal dto directory is empty - the guard reports vacuous rather than passing` |
+| Architecture | `write-mostly portal - a portal dto names a preview url the ban list never anticipated - the build fails` |
+| Architecture | `write-mostly portal - a portal dto renames the field only on the wire - the build fails` |
 | Architecture | `write-mostly portal - an HR dto carrying an original filename - does not trip the guard` |
+| Architecture | `write-mostly portal - a portal route imports DocumentStorage - the build fails` |
+| Architecture | `write-mostly portal - every portal dto in the tree - declares no document field` |
+| Architecture | `write-mostly portal - every portal route in the tree - reaches no document storage` |
+| Architecture | `dependency rule - a route imports Exposed directly - the build fails` |
+| Architecture | `dependency rule - a route imports plugin - the dependency runs plugin to route not the reverse` |
+| Architecture | `guard integrity - the portal dto directory is empty - the guard reports vacuous rather than passing` |
+| Architecture | `guard integrity - a populated directory - reports checked so the tripwire above can fire` |
 
 **Files**
-- modify [`test/ArchitectureTest.kt`](../../test/ArchitectureTest.kt)
+- modify [`test/ArchitectureTest.kt`](../../test/ArchitectureTest.kt) — 11 tests, suite 119 → 130
+
+**Added beyond the original scope**
+
+`dependency rule - a route imports plugin - …`. ERT-145 decided the arrow runs `plugin` → `route` and
+never the reverse, and recorded it in a ticket and nowhere else — a route author could only learn it
+by reading one. It is the rule that decided where ERT-150 mounts `/metrics`. Same file walk, one
+extra assertion.
 
 **Out of scope**
 - A multi-module split. Architecture §14 defers it deliberately.
