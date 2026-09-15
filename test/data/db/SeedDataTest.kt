@@ -3,6 +3,7 @@ package com.pgsystem.employee.requirement.tracker.data.db
 import com.pgsystem.employee.requirement.tracker.core.error.DomainResult
 import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 import com.pgsystem.employee.requirement.tracker.data.freshDatabase
+import com.pgsystem.employee.requirement.tracker.data.mapper.LinkPolicySetting
 import com.pgsystem.employee.requirement.tracker.data.migrate
 import com.pgsystem.employee.requirement.tracker.data.projectDir
 import io.kotest.matchers.collections.shouldBeEmpty
@@ -26,18 +27,13 @@ import kotlin.test.Test
  */
 class SeedDataTest {
 
-    /** The nine PRD §6.4 settings — one per `LinkPolicy` field. */
-    private val policyKeys = listOf(
-        "link.absolute_expiry_days",
-        "link.idle_expiry_days",
-        "link.extend_on_rejection_days",
-        "link.warn_before_expiry_days",
-        "link.completed_grace_days",
-        "portal.session_minutes",
-        "portal.pin_attempts_before_lockout",
-        "portal.lockout_minutes",
-        "portal.pin_failures_before_suspend",
-    )
+    /**
+     * The nine PRD §6.4 settings — one per `LinkPolicy` field.
+     *
+     * Read from the adapter's own enum rather than copied, so the seed and the reader cannot drift:
+     * a key renamed in one place without the other now fails here (ERT-310).
+     */
+    private val policyKeys = LinkPolicySetting.entries.map { it.key }
 
     @Test
     fun `policy seed - a migrated database - every LinkPolicy field has a settings row`() =

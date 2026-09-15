@@ -44,7 +44,7 @@ entry can be recorded, and HR can list the catalogue over HTTP.
 | **Parent** | ERT-300 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | **Done** |
 | **Depends on** | ERT-130, ERT-240 |
 | **PRD** | §6.4, §8.10 |
 | **Architecture** | §4 |
@@ -52,10 +52,10 @@ entry can be recorded, and HR can list the catalogue over HTTP.
 **Description**
 
 [`AppSettingsRepository`](../../src/domain/port/Repositories.kt) reads the nine §6.4 values out of
-the key-value `app_setting` table and assembles a [`LinkPolicy`](../../src/domain/model/LinkPolicy.kt).
+the key-value `app_settings` table and assembles a [`LinkPolicy`](../../src/domain/model/LinkPolicy.kt).
 Its doc comment states the rule plainly: there is no code path that hardcodes a duration.
 
-The interesting part is failure. `app_setting` stores strings with a declared `value_type`, so a row
+The interesting part is failure. `app_settings` stores strings with a declared `value_type`, so a row
 can be missing, unparseable, or outside its own stored bounds. Falling back to the `LinkPolicy`
 default is the wrong instinct — a corrupted `absolute_expiry_days` silently becoming 90 is exactly
 the "well-meant edit turns a token into a permanent credential" case §6.4 warns about. Refuse loudly
@@ -76,16 +76,16 @@ fails loudly rather than defaulting.
   assembles settings itself.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given a seeded database, when `linkPolicy()` is called, then it returns the nine
+- [x] `[derived]` Given a seeded database, when `linkPolicy()` is called, then it returns the nine
       §6.4 values as stored
-- [ ] Given a value outside the allowed bounds, then it is rejected with a message stating the
+- [x] Given a value outside the allowed bounds, then it is rejected with a message stating the
       permitted range (§8.10)
-- [ ] `[derived]` Given a missing or unparseable row, then the call fails with a `Validation` error
+- [x] `[derived]` Given a missing or unparseable row, then the call fails with a `Validation` error
       naming the key — it does not fall back to a compiled-in default
-- [ ] Given `link.idle_expiry_days` is `0`, then `LinkPolicy.idleClockEnabled` is false and only the
+- [x] Given `link.idle_expiry_days` is `0`, then `LinkPolicy.idleClockEnabled` is false and only the
       absolute ceiling applies (§6.4)
-- [ ] Given any settings change, then it is written to the audit log with the old value, new value,
-      actor and timestamp (§8.10)
+- [x] Given any settings change, then it is written to the audit log with the old value, new value,
+      actor and timestamp (§8.10) — actor and timestamp as **columns**, old and new in `metadata`
 
 **Tests**
 | Level | Test |
@@ -98,9 +98,17 @@ fails loudly rather than defaulting.
 
 **Files**
 - create `src/data/repository/ExposedAppSettingsRepository.kt`
-- create `src/data/mapper/AppSettingMapper.kt`
+- create `src/data/mapper/AppSettingMapper.kt` — also holds `LinkPolicySetting`, the one place the
+  nine key strings are written, and `LINK_POLICY_ID`
+- modify [`src/domain/port/Repositories.kt`](../../src/domain/port/Repositories.kt) — the port now
+  returns `DomainResult`, because there was no channel for "this row cannot be read"
 - modify [`src/di/DataModule.kt`](../../src/di/DataModule.kt) — bind it
 - create `test/data/repository/ExposedAppSettingsRepositoryTest.kt`
+- create `test/data/mapper/AppSettingMapperTest.kt` — the validation matrix, away from SQL
+- create `test/di/DataModuleTest.kt`, `test/testdata/DomainResults.kt`, `test/testdata/SourceFiles.kt`
+- modify `test/testdata/fake/FakeAppSettingsRepository.kt`, `test/testdata/fake/FakesTest.kt`
+- modify [`test/data/db/SeedDataTest.kt`](../../test/data/db/SeedDataTest.kt) — reads
+  `LinkPolicySetting.entries` rather than keeping a second copy of the nine keys
 
 **Out of scope**
 - `GET` / `PATCH /api/settings`. Phase 2.
@@ -180,7 +188,7 @@ reach a new hire.
 | **Parent** | ERT-300 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | **Done** |
 | **Depends on** | ERT-240 |
 | **PRD** | §12, §8.10, §8.13 |
 | **Architecture** | §4 |
@@ -213,14 +221,14 @@ and no route by which a credential reaches the metadata.
   assembles log rows itself.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given an `AuditEntry`, when recorded, then it is readable by `entity_id` with
+- [x] `[derived]` Given an `AuditEntry`, when recorded, then it is readable by `entity_id` with
       actor, action, timestamp and metadata intact
-- [ ] `[derived]` Given entries for one entity, then `findFor` returns them in chronological order
-- [ ] `[derived]` Given the adapter, then it exposes no update or delete path
-- [ ] Given any recorded entry, then its metadata contains no PIN, plaintext token or password
+- [x] `[derived]` Given entries for one entity, then `findFor` returns them in chronological order
+- [x] `[derived]` Given the adapter, then it exposes no update or delete path
+- [x] Given any recorded entry, then its metadata contains no PIN, plaintext token or password
       (§12)
-- [ ] `[derived]` Given the metadata is malformed JSON, then the write fails rather than storing an
-      unreadable row
+- [x] `[derived]` Given the metadata is malformed JSON, then the write fails rather than storing an
+      unreadable row — made *unrepresentable*: the port takes a `Map`, the adapter owns the encoding
 
 **Tests**
 | Level | Test |
@@ -230,10 +238,12 @@ and no route by which a credential reaches the metadata.
 | Repository | `audit log - metadata carrying a pin-shaped value - is refused` |
 
 **Files**
-- create `src/data/repository/ExposedAuditLog.kt`
+- create `src/data/repository/ExposedAuditLog.kt` — also `JdbcTransaction.insertAuditEntry`, the
+  shared writer ERT-310 calls from inside its own transaction
 - create `src/data/mapper/AuditEntryMapper.kt`
 - modify [`src/di/DataModule.kt`](../../src/di/DataModule.kt) — bind it
 - create `test/data/repository/ExposedAuditLogTest.kt`
+- create `test/data/mapper/AuditEntryMapperTest.kt` — the credential refusal and its limits
 
 **Out of scope**
 - Surfacing the audit log in the API. Phase 2.

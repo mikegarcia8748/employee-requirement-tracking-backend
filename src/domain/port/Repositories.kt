@@ -1,5 +1,6 @@
 package com.pgsystem.employee.requirement.tracker.domain.port
 
+import com.pgsystem.employee.requirement.tracker.core.error.DomainResult
 import com.pgsystem.employee.requirement.tracker.core.value.EmailAddress
 import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 import com.pgsystem.employee.requirement.tracker.core.value.PersonId
@@ -82,8 +83,19 @@ interface PortalSessionRepository {
  * The admin-configurable policy of PRD 6.4, stored in the database and read at runtime.
  *
  * There is no code path that hardcodes a duration; changing one must not need a deployment (8.10).
+ *
+ * **The only port here that returns a [DomainResult], because it is the only one whose stored data
+ * can be wrong in a way that matters.** `app_setting` holds strings with a declared `value_type`, so
+ * a row can be missing, unparseable, or outside its own stored bounds — and [LinkPolicy]'s Kotlin
+ * defaults are *identical* to the seeded values, so an adapter that quietly fell back to them would
+ * be indistinguishable from one that read the database. A corrupted `absolute_expiry_days` silently
+ * becoming 90 is precisely the "well-meant edit turns a token into a permanent credential" case 6.4
+ * warns about. The failure is therefore data a caller must handle, not an outcome it can miss.
+ *
+ * A caller must **not** recover by substituting a default. Propagate the error: refusing to issue a
+ * link is the correct response to a policy nobody can read.
  */
 interface AppSettingsRepository {
-    suspend fun linkPolicy(): LinkPolicy
-    suspend fun updateLinkPolicy(policy: LinkPolicy, actor: String)
+    suspend fun linkPolicy(): DomainResult<LinkPolicy>
+    suspend fun updateLinkPolicy(policy: LinkPolicy, actor: String): DomainResult<Unit>
 }

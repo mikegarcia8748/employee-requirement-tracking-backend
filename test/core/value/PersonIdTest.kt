@@ -4,6 +4,8 @@ import com.pgsystem.employee.requirement.tracker.core.error.AppError
 import com.pgsystem.employee.requirement.tracker.core.error.DomainResult
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
+import com.pgsystem.employee.requirement.tracker.testdata.errCode
+import com.pgsystem.employee.requirement.tracker.testdata.ok
 
 /**
  * The 8-character employee identifier.
@@ -85,6 +87,3 @@ class PersonIdTest {
         PersonId.LENGTH shouldBe 8
     }
 }
-
-internal fun <T> DomainResult<T>.ok(): T = (this as DomainResult.Ok<T>).value
-internal fun DomainResult<*>.errCode(): String = (this as DomainResult.Err).error.code

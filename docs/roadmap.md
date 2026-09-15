@@ -1,6 +1,6 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-310 — `AppSettingsRepository` adapter with §6.4 bounds enforcement](backlog/ERT-300-catalogue-policy.md#ert-310--appsettingsrepository-adapter-with-64-bounds-enforcement)**
+**Next ticket: [ERT-320 — `RequirementTemplateRepository` adapter](backlog/ERT-300-catalogue-policy.md#ert-320--requirementtemplaterepository-adapter)**
 
 The full board is [docs/backlog/README.md](backlog/README.md). This file holds sequencing, the
 decision register, and the pointer above. Each session updates that pointer on the way out.
@@ -11,8 +11,8 @@ decision register, and the pointer above. Each session updates that pointer on t
 
 | | |
 |---|---|
-| Built | `core/` value objects and error types · 12 domain models with status logic · 11 ports · 12 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test |
-| Empty | `domain/usecase/` · `data/repository/` · `data/mapper/` · `route/hr/` · `route/portal/` |
+| Built | `core/` value objects and error types · 12 domain models with status logic · 11 ports · 12 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **two Exposed adapters, bound and resolved by a wiring test** — the §6.4 link policy and the append-only audit trail |
+| Empty | `domain/usecase/` · `route/hr/` · `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
 | Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics`. PRD Appendix B specifies ~38. |
 
@@ -116,6 +116,55 @@ first of them:
 "how a test gets a database" has one answer, but they deliberately do **not** extend it: they test
 the migration itself and so need a database *before* it is migrated, which is the one state the base
 will not hand out.
+
+ERT-310 and ERT-330 then opened `data/repository/` and `data/mapper/` and set the pattern the seven
+remaining adapters copy. They were taken together because ERT-310's §8.10 criterion is that a
+settings change is audited, and the epic already says building the audit log alongside the first
+adapters is cheaper than retrofitting it into four later tickets — taken apart, the settings write
+and its audit row would have committed separately. The suite went from 288 tests to 359.
+
+Four things there were decided rather than assumed, and the first two bind later tickets:
+
+- **`AppSettingsRepository` now returns `DomainResult`** — the only repository port that does. It is
+  the only one whose stored data can be wrong in a way that matters, and `LinkPolicy`'s Kotlin
+  defaults are *identical* to the seeded rows, so a silent fallback would return exactly what a
+  correct read returns and no behavioural test could tell them apart. **ERT-433 must handle the
+  `Err`**, not substitute a default: refusing to issue a link is the right answer to a policy nobody
+  can read. `LinkPolicySetting` is now the single source of the nine key strings, and `SeedDataTest`
+  reads it rather than keeping a second copy.
+- **A settings change is one audit row under a singleton id, not nine.** `audit_logs.entity_id` is
+  12 characters and `Identifier.of` recovers an id's kind from that length alone, so a setting key
+  cannot go in it. That forced the better model anyway: the link policy *is* the entity — one domain
+  object stored as nine rows and saved by the Phase 2 screen as one form. `metadata` carries only
+  the keys that moved, with the **raw** old string, because an admin correcting a corrupt value is
+  when the trail matters most. Actor and timestamp stay columns, since §8.13's exception report has
+  to query them.
+- **Exposed retries a failed transaction, re-running the whole block.** Found, not assumed: an audit
+  insert that violated a primary key rolled back, retried, drew a *fresh* id and committed. Anything
+  non-transactional inside a `factory.transaction { }` runs again — an id generator, a clock read.
+  ERT-400 wants exactly this for a duplicate `PersonId`, so it is useful; it is recorded because a
+  test that expects a transaction to fail must make it fail on *every* attempt.
+- **A nested `factory.transaction { }` joins the outer one**, so `updateLinkPolicy` could have
+  written its audit row through the `AuditLog` port and still been atomic. This was checked by
+  making the change and re-running the suite, which stayed green — **no test distinguishes the two
+  designs, and the code says so rather than claiming otherwise.** The adapter writes on the
+  transaction it already holds because the port hop is atomic only while `useNestedTransactions`
+  stays false and the `Dispatchers.IO` hop preserves the transaction's context element, and neither
+  is this codebase's decision.
+
+Two smaller findings, both recorded in place. `app_settings.updated_at` is `timestamp` without a
+time zone, so its raw column text is the JVM default zone's rendering — a test asserting on that
+string passes locally and fails in CI, and the repository test reads it back as an `Instant`
+instead. And Exposed 1.3 makes the `SqlExpressionBuilder.eq` import a **compile error**: adapters
+import the top-level `org.jetbrains.exposed.v1.core.eq`.
+
+Two risks are accepted rather than fixed, and both are in the adapter's KDoc. `updateLinkPolicy` is a
+read-modify-write under `READ_COMMITTED`, so two admins saving at once are last-writer-wins with a
+trail that reads as sequential — there is no writer at all until Phase 2, and `forUpdate()` is the
+fix. And the audit metadata's credential guard catches a credential-shaped *key* completely but
+catches a credential-shaped *value* only as a tripwire; a bare six-digit rule was considered and
+rejected because ERT-810's `size_bytes` will collide with it, and a test pins that limit so nobody
+"adds the obvious missing check".
 
 ---
 

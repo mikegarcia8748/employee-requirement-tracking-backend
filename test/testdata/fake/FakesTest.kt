@@ -26,6 +26,9 @@ import kotlinx.coroutines.test.runTest
 import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
+import com.pgsystem.employee.requirement.tracker.core.error.AppError
+import com.pgsystem.employee.requirement.tracker.testdata.errCode
+import com.pgsystem.employee.requirement.tracker.testdata.ok
 
 /**
  * The remaining seven fakes, one or two assertions each, on the semantics that could drift from
@@ -293,7 +296,7 @@ class FakesTest {
         repository.updateLinkPolicy(LinkPolicy(absoluteExpiryDays = 30), actor = "hr.admin@example.com")
 
         repository.updates.single().actor shouldBe "hr.admin@example.com"
-        repository.linkPolicy().absoluteExpiryDays shouldBe 30
+        repository.linkPolicy().ok().absoluteExpiryDays shouldBe 30
     }
 
     @Test
@@ -315,8 +318,23 @@ class FakesTest {
 
         repository.updateLinkPolicy(LinkPolicy(absoluteExpiryDays = 3650), actor = "hr.admin@example.com")
 
-        repository.linkPolicy().absoluteExpiryDays shouldBe 3650
+        repository.linkPolicy().ok().absoluteExpiryDays shouldBe 3650
         (3650 in LinkPolicy.ABSOLUTE_EXPIRY_DAYS_RANGE) shouldBe false
+    }
+
+    @Test
+    fun `fake app settings repository - a refusal - returns the error rather than throwing`() = runTest {
+        // ERT-310 put DomainResult in this port's signature, so an unreadable settings row is a
+        // value a use case must handle rather than an exception it can ignore.
+        val repository = FakeAppSettingsRepository()
+            .refuses(AppError.Validation("setting.missing", "link.absolute_expiry_days", "No row"))
+
+        repository.linkPolicy().errCode() shouldBe "setting.missing"
+        repository.updateLinkPolicy(LinkPolicy(), actor = "hr.admin@example.com").errCode() shouldBe "setting.missing"
+
+        // A refusal is still a read: otherwise a use case that never asked would pass this path.
+        repository.reads shouldBe 1
+        repository.updates.shouldBeEmpty()
     }
 
     // ── FakeAuditLog ────────────────────────────────────────────────────────────────────────────
