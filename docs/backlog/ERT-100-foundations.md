@@ -382,6 +382,90 @@ is indistinguishable across causes.
 
 ---
 
+## ERT-145 — A uniform response envelope for `/api`
+
+| | |
+|---|---|
+| **Parent** | ERT-100 |
+| **Type** | Ticket |
+| **Phase** | 0 |
+| **Status** | Done |
+| **Depends on** | ERT-140 |
+| **PRD** | §12 |
+| **Architecture** | §9, §12 invariant 3 |
+
+**Description**
+
+The front-end decodes every endpoint with one generic `BaseResponse<T>`, so every `/api` response —
+success and failure — is one envelope: `result`, `data`, `meta`, `error`. Done now rather than later
+because `/health` was the only route mounted; after ERT-450 this is a migration across every handler,
+DTO and route test.
+
+Four shapes were rejected along the way, and the reasons belong with the ticket:
+
+- **`status` in the body.** It duplicates the status line, and nothing detects a disagreement.
+  `MockEngine` sets status and body independently, so a fixture claiming `"status":"200"` beside a
+  500 is trivial to write and silently wrong.
+- **A free-text `message` on every response.** Clients cannot branch on prose, and on the success
+  path nothing renders it. `message` is now error-only and defaults to a lookup on `code`.
+- **JSend's payload rules.** JSend puts a `fail`'s reasons in `data`. That makes `data` a DTO on
+  success and a field-error map on failure, which breaks `BaseResponse<T>` outright. Only the
+  success/fail/error trichotomy was adopted; `data` stays the success payload.
+- **`field` and `detail` at the error root.** With `details` also present, a one-field failure was
+  expressible two ways and a client had to handle both. The error block is now `code`, `message`,
+  `details?` — and a single-field failure is a list of length one.
+
+**Acceptance criteria**
+
+- Every `/api` response carries `result`, derived from the status class, never passed by a handler.
+- A one-field and a four-field validation failure render the same shape.
+- A `result: "error"` body carries no `details`.
+- A wrong PIN and an unknown token stay byte-identical, and an unmatched route still matches both.
+- `GET /health` is unchanged and still outside the envelope.
+
+**Implementation notes**
+
+- add `src/route/dto/ApiResponse.kt` — `ApiResponse<T>`, `ApiResult`, `ApiError`, `ApiErrorDetail`,
+  `ApiMeta`
+- add `src/route/mapper/ApiResponses.kt` — `resultFor`, `errorEnvelope`, `respondResult`, `respondOk`
+- add `src/route/mapper/ErrorMessages.kt` — `messageFor`
+- add `AppError.ValidationFailed`; rewrite `AppErrorMapper` around `toApiError`
+- `MappedErrorKey` moves from `plugin/` to `route/mapper/` so the dependency runs one way:
+  `plugin` reads from `route.mapper`, never the reverse
+- `respondResult` and `respondOk` are **`inline` + `reified`**. Ktor resolves a serializer from
+  `typeInfo<T>()`; in a non-reified helper the type argument of `ApiResponse<T>` erases and
+  serialization fails at runtime rather than at compile time
+- add `test/route/ApiEnvelopeTest.kt` — 12 tests, suite 92 → 104
+
+**Verified, not assumed: the OpenAPI generator infers nothing from `call.respond`.**
+
+The spike that opened this ticket asked whether `ApiResponse<T>` would erase to `data: object` in
+the generated spec. It does not — `data` renders as `$ref: #/components/schemas/HealthResponse`, and
+`result` even carries its enum constraint. But the baseline had no response schema *either*: with a
+plain `HealthResponse` the operation published no `responses` key at all. Schemas are not derived
+from the route tree; they must be declared:
+
+```kotlin
+responses { response(200) { schema = jsonSchema<ApiResponse<HireDto>>() } }
+```
+
+So architecture §9's "`route/dto/` types are what the schema is generated from" was aspirational.
+Both §9 and this ticket now say what is actually required, and `/health` carries the first such
+block as the pattern to copy. **Every route from ERT-340 onward needs one**, or the published spec
+has no body type and the front-end has nothing to generate a client from.
+
+**Out of scope**
+- Pagination. `ApiMeta` reserves `page`/`pageSize`; cursor-or-offset is a contract decision for
+  ERT-512. `total` works today.
+- The client-side `BaseResponse<T>` — a separate repo. The contract for it is in
+  [api-contract.md](../api-contract.md).
+- A correlation id. It belongs in an `X-Request-Id` **header**, not the body: a per-request body
+  field would break the byte-identity test outright.
+- `ReasonRequired.action` has no wire slot under the new error shape. Confirm the flow against
+  ERT-431 when that ticket is taken.
+
+---
+
 ## ERT-150 — Expose the Micrometer registry on a scrape route
 
 | | |

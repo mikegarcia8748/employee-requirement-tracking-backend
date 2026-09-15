@@ -43,4 +43,26 @@ sealed interface AppError {
 
     /** A rule requires an explicit, recorded human justification that was not supplied. */
     data class ReasonRequired(override val code: String, val action: String) : AppError
+
+    /**
+     * Several inputs failed at once.
+     *
+     * [Validation] names one field, which is right for a value object like `PersonId.of` but wrong
+     * for a form: reporting `POST /api/employees` one field at a time costs the caller a round trip
+     * per mistake. A use case that checks a whole command accumulates into this instead.
+     *
+     * The element type is [Validation] rather than a parallel field-error class, so there is one
+     * description of "a field that did not validate" and no second shape to keep in step. Both
+     * cases render through the same wire shape, so a client never branches on how many failed.
+     *
+     * The `require` is a construction precondition rather than a domain failure: an empty list is a
+     * programming error, and it would render an empty `details` array that says nothing.
+     */
+    data class ValidationFailed(val errors: List<Validation>) : AppError {
+        override val code: String = "validation_failed"
+
+        init {
+            require(errors.isNotEmpty()) { "ValidationFailed needs at least one error" }
+        }
+    }
 }

@@ -21,7 +21,11 @@ application lifecycle (ERT-110), Flyway applies a baseline guarded by a drift te
 reference data and policy defaults are seeded (ERT-130). ERT-180 then replaced every UUID identifier
 with a validated `PersonId` or `EntityId`, and ERT-140 gave the route layer one mapping from an
 `AppError` to a status — with `Denied` made a `data object` so invariant 3 holds by construction, and
-a path id decided to be a 404 rather than a 422.
+a path id decided to be a 404 rather than a 422. ERT-145 then wrapped every `/api` response in one
+envelope (`result`, `data`, `meta`, `error`), taken now because `/health` was still the only route
+mounted; it also established that **the OpenAPI generator infers nothing from `call.respond`**, so
+every route from here on must declare its response schema in `describe { }` or publish an operation
+a client cannot generate from.
 
 What remains in Phase 0 is metrics (ERT-150), the token digest (ERT-160) and the write-mostly guards
 (ERT-170), then the ERT-200 test harness. **No repository, use case or business route exists yet**,

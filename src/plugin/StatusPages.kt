@@ -1,5 +1,10 @@
 package com.pgsystem.employee.requirement.tracker.plugin
 
+import com.pgsystem.employee.requirement.tracker.route.dto.ApiError
+import com.pgsystem.employee.requirement.tracker.route.mapper.MappedErrorKey
+import com.pgsystem.employee.requirement.tracker.route.mapper.NOT_FOUND_BODY
+import com.pgsystem.employee.requirement.tracker.route.mapper.errorEnvelope
+import com.pgsystem.employee.requirement.tracker.route.mapper.messageFor
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -7,7 +12,6 @@ import io.ktor.server.application.log
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
-import kotlinx.serialization.Serializable
 
 /**
  * Uniform error responses.
@@ -17,27 +21,11 @@ import kotlinx.serialization.Serializable
  * driver messages name tables, file paths and library versions. The cause is logged server-side;
  * the client gets a code and nothing else (PRD 12).
  *
- * `detail` and `field` are nullable and `Serialization.kt` sets `explicitNulls = false`, so a null
- * is **omitted from the JSON entirely** rather than rendered as `null`. That is what lets
- * [com.pgsystem.employee.requirement.tracker.core.error.AppError.Denied] serialise to exactly
- * `{"code":"not_found"}` — a body with nothing in it that could differ between two causes.
+ * Bodies are the `/api` envelope (ERT-145), built by `route/mapper`. `Serialization.kt` sets
+ * `explicitNulls = false`, so a null field is **omitted from the JSON entirely** rather than
+ * rendered as `null` — that is what lets a denied response serialise to one constant body with
+ * nothing in it that could differ between two causes.
  */
-@Serializable
-data class ErrorResponse(
-    val code: String,
-    val detail: String? = null,
-    val field: String? = null,
-)
-
-/**
- * The body every unmatched route and every `Denied` produces, to the byte.
- *
- * A mistyped portal sub-path and a denied one must look the same. If the framework's 404 were empty
- * while a denied 404 carried a body, the difference would answer "is this path real" and, one step
- * later, "is this link real" (PRD 6.6, SEC-01).
- */
-internal val NOT_FOUND_BODY = ErrorResponse(code = "not_found")
-
 fun Application.configureStatusPages() {
     install(StatusPages) {
         // A malformed or unconvertible request body. Before ERT-140 this fell through to the
@@ -47,19 +35,29 @@ fun Application.configureStatusPages() {
             call.application.log.info("Malformed request on ${call.request.local.uri}: ${cause.message}")
             call.respond(
                 HttpStatusCode.UnprocessableEntity,
-                ErrorResponse(code = "request.malformed", detail = "The request body could not be read."),
+                errorEnvelope(
+                    HttpStatusCode.UnprocessableEntity,
+                    ApiError(code = "request_malformed", message = messageFor("request_malformed")),
+                ),
             )
         }
 
+        // The only producer of `result: "error"`. It must never populate `details`: a 5xx names
+        // nothing about the cause, which is logged here instead (PRD 12). Note that most 5xx a
+        // client sees never reach this handler at all — a proxy 502 or a container OOM is answered
+        // above the application — so a client cannot treat this envelope as the contract for 5xx.
         exception<Throwable> { call, cause ->
             call.application.log.error("Unhandled exception on ${call.request.local.uri}", cause)
             call.respond(
                 HttpStatusCode.InternalServerError,
-                ErrorResponse(code = "internal_error", detail = "An unexpected error occurred."),
+                errorEnvelope(
+                    HttpStatusCode.InternalServerError,
+                    ApiError(code = "internal_error", message = messageFor("internal_error")),
+                ),
             )
         }
 
-        // Ktor answers an unmatched route with a bare 404 and no body. Given it the same body a
+        // Ktor answers an unmatched route with a bare 404 and no body. Give it the same body a
         // denied response carries, so the two are indistinguishable.
         //
         // `status` handlers fire on the response status, including one a route has already
@@ -72,13 +70,3 @@ fun Application.configureStatusPages() {
         }
     }
 }
-
-/**
- * Marks a call whose failure body was written by the `AppError` mapper.
- *
- * 401 and 405 deliberately keep Ktor's own handling. A `status(Unauthorized)` handler risks
- * dropping the `WWW-Authenticate` challenge the JWT plugin sets, and neither status discloses
- * anything about whether a link exists, so there is nothing to gain.
- */
-internal val MappedErrorKey: io.ktor.util.AttributeKey<Unit> =
-    io.ktor.util.AttributeKey("com.pgsystem.ert.mapped-error")

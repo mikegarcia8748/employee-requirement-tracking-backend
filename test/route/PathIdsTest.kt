@@ -5,7 +5,7 @@ import com.pgsystem.employee.requirement.tracker.core.error.DomainResult
 import com.pgsystem.employee.requirement.tracker.core.value.PersonId
 import com.pgsystem.employee.requirement.tracker.route.mapper.orDenied
 import com.pgsystem.employee.requirement.tracker.route.mapper.orNotFound
-import com.pgsystem.employee.requirement.tracker.route.mapper.toResponse
+import com.pgsystem.employee.requirement.tracker.route.mapper.toApiError
 import com.pgsystem.employee.requirement.tracker.route.mapper.toStatus
 import com.pgsystem.employee.requirement.tracker.testdata.personId
 import io.kotest.matchers.shouldBe
@@ -39,7 +39,7 @@ class PathIdsTest {
         val error = (malformed.orNotFound("employee") as DomainResult.Err).error
 
         error.toStatus() shouldBe HttpStatusCode.NotFound
-        error.toResponse().code shouldBe "employee_not_found"
+        error.toApiError().code shouldBe "employee_not_found"
     }
 
     @Test
@@ -70,9 +70,8 @@ class PathIdsTest {
     fun `denied rendering - every denied value - is the same object so no two bodies can differ`() {
         // The guarantee is structural: AppError.Denied is a data object, so there is nothing to
         // compare. This test exists so that turning it back into a data class fails the build.
-        AppError.Denied.toResponse() shouldBe AppError.Denied.toResponse()
-        AppError.Denied.toResponse().detail shouldBe null
-        AppError.Denied.toResponse().field shouldBe null
+        AppError.Denied.toApiError() shouldBe AppError.Denied.toApiError()
+        AppError.Denied.toApiError().details shouldBe null
         AppError.Denied.code shouldBe "not_found"
     }
 }

@@ -62,21 +62,64 @@ replaces Q4's placeholder".
 the same concept. This contract uses **`{id}` throughout**; the backlog ticket titles (ERT-750,
 ERT-760) already normalised to it.
 
-### Error envelope
+### Response envelope
 
-Every failure returns the same shape, from `StatusPages`:
+Every `/api` response, success or failure, is the same envelope (ERT-145):
 
 ```json
-{ "code": "requirement_locked", "detail": "...", "field": "..." }
+{ "result": "success", "data": { "token": "ada9a8sd6789a" } }
+{ "result": "success", "data": [ ... ], "meta": { "total": 120 } }
+{ "result": "fail",    "error": { "code": "requirement_locked", "message": "..." } }
+{ "result": "fail",    "error": { "code": "validation_failed", "message": "...",
+                                  "details": [ { "field": "email", "code": "email.invalid_format",
+                                                 "message": "..." } ] } }
+{ "result": "error",   "error": { "code": "internal_error", "message": "..." } }
 ```
 
-`code` is a stable identifier a client may branch on. `detail` and `field` are **omitted** when
-absent, never rendered as `null` — so the smallest body is exactly `{"code":"not_found"}`, twenty
-bytes with nothing in them that could differ between two causes.
+A client decodes all of it with one generic `BaseResponse<T>`. Absent fields are **omitted, never
+rendered as `null`** (`explicitNulls = false`), so the denied body is exactly
+`{"result":"fail","error":{"code":"not_found","message":"Not found."}}` — one constant, with nothing
+in it that could differ between two causes.
+
+| Field | |
+|---|---|
+| `result` | `success` \| `fail` \| `error`, derived from the status class by `resultFor` — 2xx, 4xx, 5xx. No handler supplies it, so it cannot disagree with the status line |
+| `data` | **only ever the success payload.** Deliberately not JSend, which puts a `fail`'s reasons in `data`; that would make `data` a DTO on success and a field-error map on failure, and `BaseResponse<T>` would stop working |
+| `meta` | response metadata beside the payload, never inside it — a count nested in `data` would force a wrapper type per list endpoint |
+| `error` | carries both `fail` and `error` reasons. Three fields: `code`, `message`, `details?` |
+
+`code` is a stable identifier a client branches on, and it is a **domain** identifier rather than
+the HTTP status: under 422 alone this system has `email.invalid_format` (highlight the field) and
+`duplicate_email.reason_required` (ask for a justification), which are different UI flows that `422`
+cannot tell apart. `message` is display text, defaulting to a lookup on `code`; a client with its own
+copy ignores it.
+
+`details` is the **single** slot for per-item context. A one-field failure is a list of length one
+and a four-field failure is a longer list, so a client binds errors to a form with one expression and
+never branches on how many failed. There is no `field` or `detail` at the error root: two ways to say
+the same thing is one way too many.
+
+**`result` is a convenience, not the contract.** Most 5xx a client sees never reach this application
+— a proxy 502, a 504 timeout, a container OOM — so none of those carry `"result": "error"`. A client's
+5xx branch must key on the status class. The same goes for `401`, `405`, `204` and `304`, which carry
+no envelope at all, and for `/health`, `/metrics`, `/openapi` and `/swagger`, which are outside it by
+design.
 
 The body **never** carries a stack trace, a SQL fragment, a driver message, a table name or a file
 path — those name library versions and schema internals, so the cause is logged server-side and the
-client gets a code (PRD §12).
+client gets a code (PRD §12). A `result: "error"` body carries no `details` at all.
+
+**Error codes are `snake_case`, except field-scoped validation codes which are `<field>.<rule>`.**
+The dot is meaningful: it marks a code that appears inside a `details` entry with `field` set.
+
+**Every route must declare its response schema** in `describe { }`:
+
+```kotlin
+responses { response(200) { schema = jsonSchema<ApiResponse<HireDto>>() } }
+```
+
+Verified, not assumed: the generator does **not** infer a body type from `call.respond`. A route
+without this block publishes an operation with no schema, and nothing a client can generate from.
 
 ### `AppError` → HTTP status
 
@@ -85,12 +128,13 @@ into a status so no route invents its own. Defined in ERT-140.
 
 | `AppError` | Status | Notes |
 |---|---|---|
-| `Validation(code, field, detail)` | **422** | names the offending field |
+| `Validation(code, field, detail)` | **422** | one entry in `details`, naming the field |
+| `ValidationFailed(errors)` | **422** | one `details` entry per field, same shape as above |
 | `NotFound(code, entity)` | **404** | |
 | `Conflict(code, detail)` | **409** | the locked-upload case of §8.7 |
-| `ReasonRequired(code, action)` | **422** | names the action needing justification |
-| `Denied` | **404** | `{"code":"not_found"}`, **identical in every instance** |
-| malformed JSON body | **422** | `request.malformed`, cause logged server-side only |
+| `ReasonRequired(code, action)` | **422** | a `details` entry naming the `reason` field; `action` is not on the wire |
+| `Denied` | **404** | the shared denied body, **identical in every instance** |
+| malformed JSON body | **422** | `request_malformed`, cause logged server-side only |
 | unmatched route | **404** | the **same body** a `Denied` produces |
 | — | **429** | rate limiting, ERT-660 |
 | unexpected `Throwable` | **500** | generic code, cause logged server-side only |
@@ -114,6 +158,60 @@ risks dropping the `WWW-Authenticate` challenge, and neither status discloses wh
 reinterprets it at the edge: `orNotFound(entity)` on the HR surface, `orDenied()` on the portal,
 where **every** failure — malformed, unknown, not-yours, expired, wrong PIN — collapses to the one
 `Denied` response.
+
+---
+
+### The client side of the envelope
+
+The contract the front-end builds against. Not code in this repo — the client lives elsewhere — but
+the envelope is only worth having if both halves agree.
+
+```kotlin
+@Serializable
+data class BaseResponse<T>(
+    val result: String,                  // "success" | "fail" | "error"
+    val data: T? = null,
+    val meta: Meta? = null,
+    val error: ApiError? = null,
+)
+
+@Serializable
+data class ApiError(val code: String, val message: String, val details: List<ApiErrorDetail>? = null)
+
+@Serializable
+data class ApiErrorDetail(val code: String, val field: String? = null, val message: String? = null)
+```
+
+One class decodes all three outcomes, because every absent field is omitted rather than null.
+`result` is a `String` rather than an enum on purpose: kotlinx throws on an unknown enum value, so a
+server that ever adds a fourth label would break every deployed client at the decode step. Decode
+with `ignoreUnknownKeys = true` for the same reason.
+
+Binding errors to a form is one expression, and it is the same expression whether one field failed
+or four — which is what `details` is for:
+
+```kotlin
+fun ApiError.fieldErrors(): Map<String, String> =
+    details.orEmpty().mapNotNull { d -> d.field?.let { it to (d.message ?: d.code) } }.toMap()
+```
+
+**One adapter should be the only place the client inspects status**, so the responses that carry no
+envelope — 401, 405, a proxy 502, a body that is not JSON — arrive as ordinary typed failures rather
+than as a null envelope or a thrown exception:
+
+```kotlin
+sealed interface ApiResult<out T> {
+    data class Success<out T>(val data: T, val meta: Meta? = null) : ApiResult<T>
+    data class Fail(val error: ApiError) : ApiResult<Nothing>     // 4xx — the user can act
+    data class Error(val error: ApiError) : ApiResult<Nothing>    // 5xx / transport
+}
+
+suspend inline fun <reified T : Any> HttpResponse.toApiResult(): ApiResult<T>
+```
+
+Those three cases are worth covering in the client's own suite — a 401 with an empty body, a 502
+returning HTML, and a 200 whose `data` is missing — because they are the ones that surface in
+production rather than in development.
 
 ---
 

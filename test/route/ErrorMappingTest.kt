@@ -79,17 +79,22 @@ class ErrorMappingTest {
         val response = client.get("/test/not-found")
 
         response.status shouldBe HttpStatusCode.NotFound
-        response.bodyAsText() shouldBe """{"code":"employee_not_found"}"""
+        response.bodyAsText() shouldBe
+            """{"result":"fail","error":{"code":"employee_not_found","message":"Not found."}}"""
     }
 
     @Test
-    fun `error mapping - a reason required - returns 422 naming the action`() = testApplication {
+    fun `error mapping - a reason required - returns 422 asking for a reason`() = testApplication {
+        // The action the reason is *for* is not on the wire: the code already implies it, and what
+        // the client has to do is collect a `reason`, which the detail names directly.
         withErrorRoutes()
 
         val response = client.get("/test/reason-required")
 
         response.status shouldBe HttpStatusCode.UnprocessableEntity
-        response.bodyAsText() shouldContain "create_hire"
+        response.bodyAsText() shouldContain "\"code\":\"duplicate_email.reason_required\""
+        response.bodyAsText() shouldContain "\"field\":\"reason\""
+        response.bodyAsText() shouldNotContain "create_hire"
     }
 
     @Test
@@ -107,14 +112,14 @@ class ErrorMappingTest {
     }
 
     @Test
-    fun `denied response - the rendered body - is the bare code with no detail field`() = testApplication {
+    fun `denied response - the rendered body - is the bare code with no details`() = testApplication {
         // The mapper must not add a detail. A detail is exactly what would pull the two causes apart.
         withErrorRoutes()
 
         val response = client.get("/test/denied/wrong-pin")
 
         response.status shouldBe HttpStatusCode.NotFound
-        response.bodyAsText() shouldBe """{"code":"not_found"}"""
+        response.bodyAsText() shouldBe """{"result":"fail","error":{"code":"not_found","message":"Not found."}}"""
     }
 
     @Test
@@ -136,7 +141,8 @@ class ErrorMappingTest {
         // side would lose its code.
         withErrorRoutes()
 
-        client.get("/test/not-found").bodyAsText() shouldBe """{"code":"employee_not_found"}"""
+        client.get("/test/not-found").bodyAsText() shouldBe
+            """{"result":"fail","error":{"code":"employee_not_found","message":"Not found."}}"""
     }
 
     @Test
@@ -179,7 +185,7 @@ class ErrorMappingTest {
         }
 
         response.status shouldBe HttpStatusCode.UnprocessableEntity
-        response.bodyAsText() shouldContain "request.malformed"
+        response.bodyAsText() shouldContain "request_malformed"
     }
 
     @Test
@@ -190,7 +196,8 @@ class ErrorMappingTest {
         val body = response.bodyAsText()
 
         response.status shouldBe HttpStatusCode.InternalServerError
-        body shouldBe """{"code":"internal_error","detail":"An unexpected error occurred."}"""
+        body shouldBe
+            """{"result":"error","error":{"code":"internal_error","message":"An unexpected error occurred."}}"""
         body shouldNotContain "portal_access_logs"
         body shouldNotContain "org.h2"
     }
