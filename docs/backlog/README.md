@@ -3,7 +3,7 @@
 Every unit of work, one row each. Open [docs/roadmap.md](../roadmap.md) for sequencing, the decision
 register, the escalation list, and the pointer to what is next.
 
-**10 epics · 48 tickets · 17 sub-tasks.**
+**10 epics · 49 tickets · 17 sub-tasks.**
 Phase 0 and Phase 1 are specified to ticket depth. Phases 2–4 are epic-level entries in the roadmap,
 expanded when their predecessor closes.
 
@@ -26,6 +26,7 @@ Phase 0 · depends on —
 | [ERT-170](ERT-100-foundations.md#ert-170--architecture-guards-for-the-write-mostly-rule) | Architecture guards for the write-mostly rule | Ticket | — | Done |
 | [ERT-180](ERT-100-foundations.md#ert-180--short-alphanumeric-identifiers-replace-uuids) | Short alphanumeric identifiers replace UUIDs | Ticket | ERT-120, ERT-130 | Done |
 | [ERT-190](ERT-100-foundations.md#ert-190--hr-user-accounts-and-the-persona-model) | HR user accounts and the persona model | Ticket | ERT-180, Q4 | Blocked |
+| [ERT-195](ERT-100-foundations.md#ert-195--dev-only-tracing-of-use-case-execution) | Dev-only tracing of use case execution | Ticket | ERT-150 | Done |
 
 ## [ERT-200](ERT-200-test-harness.md) — Test harness
 

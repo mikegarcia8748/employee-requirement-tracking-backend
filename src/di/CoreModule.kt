@@ -7,6 +7,7 @@ import com.pgsystem.employee.requirement.tracker.core.id.PersonIdGenerator
 import com.pgsystem.employee.requirement.tracker.core.id.PinGenerator
 import com.pgsystem.employee.requirement.tracker.core.id.TokenGenerator
 import com.pgsystem.employee.requirement.tracker.core.time.Clock
+import com.pgsystem.employee.requirement.tracker.core.trace.UseCaseTracer
 import com.pgsystem.employee.requirement.tracker.data.crypto.BcryptHasher
 import com.pgsystem.employee.requirement.tracker.data.crypto.HmacTokenDigest
 import com.pgsystem.employee.requirement.tracker.data.id.SecureEntityIdGenerator
@@ -14,6 +15,7 @@ import com.pgsystem.employee.requirement.tracker.data.id.SecurePersonIdGenerator
 import com.pgsystem.employee.requirement.tracker.data.id.SecurePinGenerator
 import com.pgsystem.employee.requirement.tracker.data.id.SecureTokenGenerator
 import com.pgsystem.employee.requirement.tracker.data.time.SystemClock
+import com.pgsystem.employee.requirement.tracker.data.trace.Slf4jUseCaseTracer
 import com.pgsystem.employee.requirement.tracker.plugin.isDevMode
 import org.koin.dsl.module
 
@@ -30,6 +32,11 @@ import org.koin.dsl.module
  * `TokenDigest` must stay a `single`: in dev the pepper is generated per instance, so a `factory`
  * here would digest a token differently at issue and at lookup, and every dev link would fail to
  * resolve.
+ *
+ * [UseCaseTracer] is the diagnostic seam rather than a rule: it resolves to a no-op unless
+ * `TRACE_USECASES` says otherwise, so the binding is present in every environment and silent in
+ * almost all of them. `devMode` decides only whether enabling it warrants a warning, so tracing
+ * is not a fifth control hanging off an unset `APP_ENV` (ERT-195).
  */
 val coreModule = module {
     single<Clock> { SystemClock() }
@@ -39,4 +46,5 @@ val coreModule = module {
     single<PinGenerator> { SecurePinGenerator() }
     single<Hasher> { BcryptHasher() }
     single<TokenDigest> { HmacTokenDigest.fromEnvironment(isDevMode()) }
+    single<UseCaseTracer> { Slf4jUseCaseTracer.fromEnvironment(isDevMode()) }
 }

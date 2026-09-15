@@ -11,7 +11,7 @@ decision register, and the pointer above. Each session updates that pointer on t
 
 | | |
 |---|---|
-| Built | `core/` value objects and error types · 12 domain models with status logic · 11 ports · 12 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation **or on a portal DTO leaking document content** |
+| Built | `core/` value objects and error types · 12 domain models with status logic · 11 ports · 12 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** |
 | Empty | `domain/usecase/` · `data/repository/` · `data/mapper/` · `route/hr/` · `route/portal/` · `test/testdata/fake/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
 | Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics`. PRD Appendix B specifies ~38. |
@@ -39,10 +39,26 @@ document handle, a portal route importing `DocumentStorage`, or any route import
 `plugin` now fails the build — and the guard reports *vacuous* rather than passing while the portal
 directories are still empty.
 
+ERT-195 then gave the layer below the route a voice. `CallLogging` reported `POST /api/employees ->
+422` and stopped, so which rule rejected a request could only be answered with a debugger — and on a
+portal path even the route line collapses to `/api/portal/[redacted]`. A `UseCaseTracer` port in
+`core/` now emits one line per invocation — name, outcome, duration, and nothing else — behind
+`TRACE_USECASES`, which defaults to off. It was taken **before** ERT-430 writes the first use case,
+for the reason ERT-170 gives about the portal guards: a seam laid first is one every use case is
+written against, and one the architecture test can hold. That test now fails the build on a use case
+that takes no tracer, traces under a name copied from another file, or imports `org.slf4j` to log by
+hand. Correlation came free: Ktor already wraps the call pipeline in an MDC context, so a generated
+`requestId` reaches every suspend frame a request opens and ties a trace line to its access-log line.
+
 Two things were recorded rather than fixed, and both want an owner: **the token pepper cannot be
 rotated** (rotation invalidates every live link and there is no re-issue flow), and **`APP_ENV`
 defaults to dev**, so a deployment that forgets to set it silently gets open docs, open metrics, an
-ephemeral JWT key and an ephemeral pepper. `.env.example` now documents all twelve variables.
+ephemeral JWT key and an ephemeral pepper — which is why ERT-195 took its own variable rather than
+becoming a fifth control on that one. `.env.example` now documents all thirteen variables.
+
+A third is now on the list: **`StatusPages` logs `call.request.local.uri` unredacted** at two call
+sites, bypassing the portal-token redaction `Monitoring.kt` applies three files over. Harmless while
+`route/portal/` is empty; a token in a log file the moment it is not.
 
 What remains in Phase 0 is the ERT-200 test harness. **No repository, use case or business route
 exists yet**, so nothing writes rows outside the tests.

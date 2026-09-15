@@ -145,6 +145,10 @@ Three of these encode a rule in their *shape* rather than their documentation:
 `domain/usecase/` is deliberately empty. Each entry below is one class, one public
 `operator fun invoke`, returning a sealed result. Built test-first in the business session.
 
+Each also takes a `UseCaseTracer` and delegates through it — `invoke` is
+`tracer.trace("XUseCase") { execute(...) }`, and the body lives in a private `execute`. See §10.1;
+the architecture test fails the build on a use case that omits it.
+
 | Use case | Rules | PRD | Phase |
 |---|---|---|---|
 | `CreateHireUseCase` | validate email; duplicate-on-active needs a typed reason; snapshot the requirement set; generate + hash PIN and token; compute `expiresAt` from current policy; send invitation; survive delivery failure | §8.1, §5, §6.4, §6.6 | 1 |
@@ -287,6 +291,38 @@ So tests use `kotlin.test` (`@Test`, discovered by JUnit 5) with **Kotest assert
 (`shouldBe`, `shouldBeEmpty`) and **MockK**, which work normally as libraries. BDD structure comes
 from the three-part naming template rather than `given/when/then` nesting. Revisit if Amper gains
 Kotest engine support.
+
+
+### 10.1 Diagnostics — tracing business logic
+
+Below the route there was no observability at all: `CallLogging` reports
+`POST /api/employees -> 422` and stops, and on a portal path it collapses to
+`/api/portal/[redacted]`, so neither the rule that fired nor the action attempted was visible.
+`UseCaseTracer` (`core/trace/`, adapter in `data/trace/`) emits one line per invocation, behind
+`TRACE_USECASES`, which defaults to off and binds a no-op:
+
+```
+2026-09-15 15:01:39.356 [eventLoopGroupProxy-4-1] e5ed898e DEBUG usecase - CreateHireUseCase ok in 42ms
+2026-09-15 15:01:39.375 [eventLoopGroupProxy-4-1] e5ed898e INFO  io.ktor…Application - POST /api/employees -> 201
+```
+
+**Name, outcome, duration — never an argument.** The traced block returns `DomainResult`, so the
+tracer reads the outcome itself and a call site has nothing to pass. That is the privacy design: not
+a rule someone must remember, an absence of anything to hand over. The outcome word is
+`AppError.code`, never the error — `Validation` and `Conflict` carry a `detail` holding whatever the
+caller typed, while `Denied` is a single `data object` whose code is `not_found`, so §12 invariant 3
+holds in the trace for the same reason it holds on the wire.
+
+`e5ed898e` is a generated `requestId` in the MDC. Ktor wraps the call pipeline in an `MDCContext`, so
+it reaches every suspend frame a request opens, including work on another dispatcher inside a
+transaction — which is what lets a trace line be matched to its access-log line. **It is opaque by
+requirement, not by accident.** The portal redaction lives inside `CallLogging`'s `format` block and
+protects that one line; an id derived from the path would travel through `%X{requestId}` onto every
+line in the file, and a portal path carries a live credential (§12 invariant 4).
+
+Tracing is gated on its own variable rather than on `isDevMode()`. §14 already records that four
+controls hang off `APP_ENV` and that it defaults to dev when unset; a fifth would mean a deployment
+that forgot it silently began tracing.
 
 ---
 

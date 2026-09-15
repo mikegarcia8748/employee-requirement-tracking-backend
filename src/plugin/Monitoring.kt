@@ -10,6 +10,7 @@ import io.ktor.server.routing.routing
 import io.micrometer.prometheusmetrics.PrometheusConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
 import org.slf4j.event.Level
+import java.util.concurrent.ThreadLocalRandom
 
 /**
  * Metrics and request logging.
@@ -32,6 +33,20 @@ import org.slf4j.event.Level
 fun Application.configureMonitoring(registry: PrometheusMeterRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)) {
     install(CallLogging) {
         level = Level.INFO
+
+        // Correlation (ERT-195). Ktor wraps the Monitoring and Call phases in
+        // withContext(MDCContext(...)), and routing intercepts Call, so this value reaches every
+        // suspend frame the request opens -- including a use case, and including work handed to
+        // another dispatcher inside a transaction. That is what ties a `usecase` trace line to the
+        // request that caused it; without it, concurrent requests interleave unreadably.
+        //
+        // THE VALUE MUST STAY OPAQUE AND GENERATED. The redaction below lives inside `format` and
+        // protects that one line only. An id derived from the path, the URI or a header would go
+        // through `%X{requestId}` onto EVERY line in the file, and a portal path carries the link
+        // token, which is a live credential (PRD 12, invariant 4). The `call` argument is ignored
+        // on purpose -- see `RequestCorrelationTest`.
+        mdc(REQUEST_ID) { newRequestId() }
+
         format { call ->
             val path = call.request.path()
             val safePath = if (path.startsWith("/api/portal/")) "/api/portal/[redacted]" else path
@@ -49,3 +64,16 @@ fun Application.configureMonitoring(registry: PrometheusMeterRegistry = Promethe
 }
 
 val MeterRegistryKey = io.ktor.util.AttributeKey<PrometheusMeterRegistry>("PrometheusMeterRegistry")
+
+/** MDC key carrying the per-request correlation id, rendered by `%X{requestId}` in `logback.xml`. */
+const val REQUEST_ID = "requestId"
+
+/**
+ * Eight hex characters of randomness, and nothing derived from the request.
+ *
+ * Not a [com.pgsystem.employee.requirement.tracker.core.value.EntityId] and not a UUID: this
+ * identifies a log span, never a row, and giving it an entity type would invite someone to
+ * persist it. It needs no unpredictability either -- it is a correlation handle, not a
+ * credential -- so a thread-local PRNG is the right cost.
+ */
+private fun newRequestId(): String = "%08x".format(ThreadLocalRandom.current().nextInt())

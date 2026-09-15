@@ -3,6 +3,7 @@ package com.pgsystem.employee.requirement.tracker
 import io.kotest.assertions.withClue
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import java.io.File
 import kotlin.test.Test
 
@@ -33,6 +34,7 @@ class ArchitectureTest {
 
     private val forbiddenInInnerLayers = listOf(
         "io.ktor",
+        "org.slf4j",
         "org.jetbrains.exposed",
         "org.koin",
         "com.zaxxer.hikari",
@@ -247,6 +249,114 @@ class ArchitectureTest {
         } shouldBe GuardOutcome.Checked(scanned = 1, violations = emptyList())
     }
 
+    // ── Use case tracing (ERT-195) ──────────────────────────────────────────────────────────────
+
+    @Test
+    fun `dependency rule - a use case logs directly instead of through the port - the build fails`() {
+        // org.slf4j joined the ban list with this rule. A use case holding its own logger has no
+        // DomainResult to read, so it would log by hand -- which is where an argument gets written
+        // to a file. Routing it through UseCaseTracer means the outcome is all there is to say.
+        forbiddenImports(
+            listOf(source("src/domain/usecase/CreateHireUseCase.kt", "import org.slf4j.LoggerFactory")),
+            "org.slf4j",
+        ).size shouldBe 1
+    }
+
+    @Test
+    fun `use case tracing - every use case in the tree - is traced`() {
+        untracedUseCases(useCaseSources()).shouldBeEmpty()
+    }
+
+    @Test
+    fun `use case tracing - a use case that takes no tracer - the build fails`() {
+        val violations = untracedUseCases(
+            listOf(
+                source(
+                    "src/domain/usecase/CreateHireUseCase.kt",
+                    """
+                    class CreateHireUseCase(private val employees: EmployeeRepository) {
+                        suspend operator fun invoke(command: CreateHire): DomainResult<Employee> = execute(command)
+                    }
+                    """.trimIndent(),
+                )
+            )
+        )
+
+        violations.size shouldBe 2
+        violations.any { it.contains("UseCaseTracer") } shouldBe true
+        violations.any { it.contains("trace") } shouldBe true
+    }
+
+    @Test
+    fun `use case tracing - a use case tracing under a copied name - the build fails`() {
+        // The name is a string literal, so the realistic failure is a file copied as a starting
+        // point: the new use case compiles, runs, and reports every invocation under the old name.
+        val violations = untracedUseCases(
+            listOf(
+                source(
+                    "src/domain/usecase/RevokeLinkUseCase.kt",
+                    """
+                    class RevokeLinkUseCase(private val tracer: UseCaseTracer) {
+                        suspend operator fun invoke(id: EntityId): DomainResult<Unit> =
+                            tracer.trace("ExtendLinkUseCase") { execute(id) }
+                    }
+                    """.trimIndent(),
+                )
+            )
+        )
+
+        violations.size shouldBe 1
+        violations.single() shouldContain "ExtendLinkUseCase"
+    }
+
+    @Test
+    fun `use case tracing - a use case wired to the port under its own name - passes`() {
+        untracedUseCases(
+            listOf(
+                source(
+                    "src/domain/usecase/CreateHireUseCase.kt",
+                    """
+                    class CreateHireUseCase(
+                        private val employees: EmployeeRepository,
+                        private val tracer: UseCaseTracer,
+                    ) {
+                        suspend operator fun invoke(command: CreateHire): DomainResult<Employee> =
+                            tracer.trace("CreateHireUseCase") { execute(command) }
+                    }
+                    """.trimIndent(),
+                )
+            )
+        ).shouldBeEmpty()
+    }
+
+    @Test
+    fun `guard integrity - the use case directory is empty - the guard reports vacuous rather than passing`() {
+        // THIS TEST IS A TRIPWIRE, NOT A BUG. Same shape as the portal tripwire above.
+        //
+        // src/domain/usecase/ holds no files, so the assertion above examines nothing and would keep
+        // passing if the guard were broken. ERT-195 landed the seam deliberately before ERT-430
+        // wrote the first use case, which means this is the whole of the guard's coverage today.
+        //
+        // WHEN THIS FAILS: the first use case has landed and the guard is doing real work. Flip the
+        // expectation to GuardOutcome.Checked -- do not delete the test.
+        val message = "A use case now exists: flip this expectation to Checked. See the comment above."
+
+        withClue(message) {
+            guard(useCaseSources()) { untracedUseCases(it) } shouldBe GuardOutcome.Vacuous
+        }
+    }
+
+    @Test
+    fun `guard integrity - a file beside a use case that is not one - does not make the guard look enforcing`() {
+        // The filter runs before guard(), not inside the check. Otherwise the day a command or a
+        // mapper lands in src/domain/usecase/ with no use case beside it, guard() would report
+        // Checked(scanned = 1) -- an enforcing signal for a rule that examined nothing -- and the
+        // tripwire above would stop firing without anybody noticing. A deliberate divergence from
+        // documentFieldViolations, which scopes by path inside the check instead.
+        useCaseSourcesIn(listOf(source("src/domain/usecase/CreateHireCommand.kt", "data class CreateHire(val x: String)")))
+            .shouldBeEmpty()
+    }
+
     // ── Guards ──────────────────────────────────────────────────────────────────────────────────
 
     private data class SourceFile(val path: String, val text: String)
@@ -290,6 +400,50 @@ class ArchitectureTest {
                 .toList()
         }
 
+    /**
+     * Every use case routes its invocation through [UseCaseTracer], under its own name (ERT-195).
+     *
+     * Unlike every other guard here this one requires a string rather than banning one, and that is
+     * strictly weaker: `// TODO: add UseCaseTracer .trace(` satisfies it, and no text rule can tell
+     * a call from a comment. It is still worth having -- the realistic failure is a use case written
+     * without the tracer at all, not one written to defeat the check -- but do not read a pass here
+     * as proof that tracing happens, only that it was not forgotten outright.
+     *
+     * The third rule is the one that earns its keep: the traced name is a string literal, so copying
+     * a use case as a starting point produces something that compiles, runs, and reports every
+     * invocation under the name of the file it came from.
+     */
+    private fun untracedUseCases(files: List<SourceFile>): List<String> =
+        files.flatMap { file ->
+            val expected = file.path.substringAfterLast('/').removeSuffix(".kt")
+            val violations = mutableListOf<String>()
+
+            if (!TRACER_PARAMETER.containsMatchIn(file.text)) {
+                violations += "${file.path}: takes no `: UseCaseTracer` constructor parameter (ERT-195)"
+            }
+
+            val tracedAs = TRACE_CALL.findAll(file.text).map { it.groupValues[1] }.toList()
+            when {
+                tracedAs.isEmpty() ->
+                    violations += "${file.path}: never calls trace(\"$expected\") (ERT-195)"
+                expected !in tracedAs ->
+                    violations += "${file.path}: traces as `${tracedAs.first()}` rather than `$expected` (ERT-195)"
+            }
+
+            violations
+        }
+
+    /**
+     * The use cases in the real tree.
+     *
+     * Filtered to `*UseCase.kt` **before** [guard] sees the list, so vacuity is measured over the
+     * files actually being checked. See the guard-integrity test for what goes wrong otherwise.
+     */
+    private fun useCaseSources(): List<SourceFile> = useCaseSourcesIn(sourcesUnder(USE_CASE_DIR))
+
+    private fun useCaseSourcesIn(files: List<SourceFile>): List<SourceFile> =
+        files.filter { it.path.substringAfterLast('/').endsWith("UseCase.kt") }
+
     private fun forbiddenImports(files: List<SourceFile>, prefix: String): List<String> =
         files.flatMap { file ->
             file.text.lineSequence()
@@ -319,11 +473,14 @@ class ArchitectureTest {
 
     private companion object {
         const val PORTAL_DTO_DIR = "src/route/dto/portal"
+        const val USE_CASE_DIR = "src/domain/usecase"
         const val PORTAL_ROUTE_DIR = "src/route/portal"
         const val PLUGIN_PACKAGE = "com.pgsystem.employee.requirement.tracker.plugin"
         const val DOMAIN_PORT_PACKAGE = "com.pgsystem.employee.requirement.tracker.domain.port"
 
         val DECLARATION = Regex("""\b(?:val|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*:""")
+        val TRACER_PARAMETER = Regex(""":\s*UseCaseTracer\b""")
+        val TRACE_CALL = Regex("""\.trace\s*\(\s*"([^"]+)"""")
         val SERIAL_NAME = Regex("""@SerialName\s*\(\s*"([^"]+)"\s*\)""")
 
         val BANNED_FIELDS = setOf(

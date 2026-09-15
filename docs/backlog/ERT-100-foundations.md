@@ -927,3 +927,187 @@ An HR action is attributable to a row rather than to a typed-in name, without pr
 
 **Out of scope**
 - Department-scoped permissions (PRD P2).
+
+---
+
+## ERT-195 — Dev-only tracing of use case execution
+
+| | |
+|---|---|
+| **Parent** | ERT-100 |
+| **Type** | Ticket |
+| **Phase** | 0 |
+| **Status** | Done |
+| **Depends on** | ERT-150 |
+| **PRD** | §12, §13 |
+| **Architecture** | §2, §12 invariants 1–4 |
+
+**Description**
+
+Nothing below the route is observable. `CallLogging` reports `POST /api/employees -> 422` and stops
+there, so "which rule rejected it, and what did it cost" can only be answered with a debugger — and
+on a portal path even the route line collapses to `/api/portal/[redacted]`, so the action is not
+visible either.
+
+`src/domain/usecase/` is empty. That is the reason to do this now rather than later: a seam laid
+before the first use case is one every use case is written against, and one an architecture guard can
+hold. ERT-170 made the same argument for the portal guards, in the same words — afterwards it is an
+audit, not a guard.
+
+The hazard is the obvious one. A trace of business logic sits exactly where the arguments are, and
+§12 invariants 1–4 say a PIN, a token, a filename, and anything separating a wrong PIN from an
+unknown token must never reach a log. So the design question is not "what would be useful to log" but
+"what can a call site be prevented from logging".
+
+**Goal**
+
+With `TRACE_USECASES=true`, every use case invocation emits one line — name, outcome, duration —
+correlated to its request. Unset, a no-op is bound and nothing is measured.
+
+**Stories**
+- As an engineer debugging a data or business-logic problem, I want to see which use case ran, what
+  it decided and how long it took, so that I can locate a fault without attaching a debugger.
+- As an engineer on the next session, I want a use case that forgets to trace to fail the build, so
+  that coverage does not decay one file at a time.
+
+### Decided
+
+**1. The block returns `DomainResult`, so the tracer reads the outcome itself.** A call site cannot
+report something richer because it reports nothing: it hands over a name and a block. This is the
+whole of the privacy design — not a rule to remember, an absence of anything to pass.
+
+**2. The outcome word is `AppError.code`, never the error.** `Validation` and `Conflict` carry a
+`detail` holding whatever the caller typed. `Denied` is a single `data object` whose code is
+`not_found`, so a wrong PIN and an unknown token render identically — invariant 3 holds in the trace
+for the same reason it holds on the wire.
+
+**3. Its own environment variable, not `isDevMode()`.** Architecture §10 already records that four
+controls hang off `APP_ENV` and that it defaults to dev when unset. A fifth would mean a deployment
+that forgot the variable silently started tracing. `TRACE_USECASES` is off unless set to `true`; an
+unparseable value warns rather than refusing to boot, because a debug flag should not be able to take
+production down, but silently ignoring `TRACE_USECASES=1` would send someone hunting for a tracer
+that was never on.
+
+**4. The port is in `core/`, beside `Clock`, not in `domain/port/`.** It is infrastructure a use case
+depends on, not a business collaborator — the same category `CoreModule` already names. This also
+leaves ERT-210 scoped to ten domain ports, unchanged.
+
+**5. `invoke` delegates to a private `execute`.** Wrapping a use case body directly would turn every
+`return` into `return@trace` — a compile error rather than a silent bug, but permanent noise in
+guard-clause-shaped code, re-touched by each of ERT-430's four sub-tasks:
+
+```kotlin
+suspend operator fun invoke(command: CreateHire): DomainResult<Employee> =
+    tracer.trace("CreateHireUseCase") { execute(command) }
+```
+
+**6. Elapsed time is `System.nanoTime()`, not the injected `Clock`.** `Clock` is a wall clock, so an
+NTP step lands mid-measurement; and ERT-220's `FixedClock` never advances, so every duration in every
+test would be `0` and every timing assertion would pass without measuring anything.
+
+**7. Correlation reuses the `CallLogging` MDC hook.** Ktor wraps the Monitoring and Call phases in
+`withContext(MDCContext(...))` and routing intercepts `Call`, so the value reaches every suspend
+frame the request opens, including work handed to another dispatcher inside a transaction. **The id
+must stay opaque and generated.** The portal redaction lives inside `format` and protects that one
+line; an id derived from the path would travel through `%X{requestId}` onto every line in the file,
+and a portal path carries a live credential.
+
+**Verified, not assumed.**
+
+- **The guard fails the build on a real violation.** An untraced `ProbeUseCase` was planted in
+  `src/domain/usecase/`; the real-tree assertion and the vacuity tripwire both failed. Replacing it
+  with a correctly traced one left only the tripwire failing — which is the tripwire working. Removed
+  afterwards.
+- **The tracer's privacy assertion bites.** `outcomeOf` was mutated to return `error.toString()`;
+  exactly one test failed, the one asserting the detail stays out. The invariant-3 test correctly did
+  **not** fail, since `Denied` renders identically either way.
+- **The MDC reaches a handler, and survives a dispatcher hop.** Asserted in `RequestCorrelationTest`
+  against a `Dispatchers.IO` probe, because "Ktor propagates the MDC" is a claim about a library that
+  would fail silently on a version bump — the id would render blank and traces would quietly stop
+  being attributable.
+- **End to end, both ways.** With `TRACE_USECASES=true`, `usecase - ProbeUseCase ok in 0ms` and its
+  `GET /probe -> 200` shared one id, and two requests got different ids. Unset, zero `usecase` lines
+  with request logging intact.
+
+> **The tripwire is deliberate.** `guard integrity - the use case directory is empty` asserts
+> `Vacuous` **today**. The day ERT-430 lands the first use case it fails — that is the signal, not a
+> regression. Flip the expectation to `Checked`; do not delete the test.
+
+**Acceptance criteria**
+- [x] `[derived]` Given `TRACE_USECASES` is unset or blank, then the no-op tracer is bound and no
+      line is emitted
+- [x] `[derived]` Given a use case that fails, then the line carries `AppError.code` and not
+      `AppError.Validation.detail`
+- [x] `[derived]` Given a wrong PIN and an unknown token, then the two trace lines are identical
+      apart from duration (§12 invariant 3)
+- [x] `[derived]` Given a use case that throws, then the exception class is traced, the message is
+      not, and the exception is rethrown unchanged
+- [x] `[derived]` Given a file in `src/domain/usecase/` named `*UseCase.kt`, then it takes a
+      `UseCaseTracer` and traces under its own file name
+- [x] `[derived]` Given a use case importing `org.slf4j`, then the build fails
+- [x] `[derived]` Given a request, then its handler and any coroutine it opens see one `requestId`
+- [x] `[derived]` Given a portal path carrying a link token, then no part of the token appears in
+      the request id (§12, invariant 4)
+- [x] `[derived]` Given `src/domain/usecase/` is empty, then the guard reports vacuous rather than
+      passing
+
+**Tests**
+| Level | Test |
+|---|---|
+| Unit | `trace line - a use case that succeeds - names the use case and reports ok` |
+| Unit | `trace line - a use case that fails - reports the error code and not the error detail` |
+| Unit | `trace line - a wrong pin and an unknown token - are indistinguishable in the trace` |
+| Unit | `trace line - a use case that throws - reports the exception class and rethrows` |
+| Unit | `trace line - the elapsed time - is reported in milliseconds` |
+| Unit | `trace line - the level is above debug - the use case still runs and nothing is emitted` |
+| Unit | `tracer selection - the flag is unset - binds the no-op` |
+| Unit | `tracer selection - the flag is blank - binds the no-op rather than treating it as set` |
+| Unit | `tracer selection - the flag is true - binds the logging tracer` |
+| Unit | `tracer selection - the flag is set to something unparseable - binds the no-op` |
+| Unit | `tracer selection - the no-op tracer - returns the result and emits nothing` |
+| Route | `request correlation - a route handler - sees a request id in the MDC` |
+| Route | `request correlation - work handed to another dispatcher - keeps the same request id` |
+| Route | `request correlation - two requests - are given different ids` |
+| Route | `request correlation - one request - reports one id for its whole duration` |
+| Route | `request correlation - a portal path carrying a link token - the id contains no part of it` |
+| Architecture | `dependency rule - a use case logs directly instead of through the port - the build fails` |
+| Architecture | `use case tracing - every use case in the tree - is traced` |
+| Architecture | `use case tracing - a use case that takes no tracer - the build fails` |
+| Architecture | `use case tracing - a use case tracing under a copied name - the build fails` |
+| Architecture | `use case tracing - a use case wired to the port under its own name - passes` |
+| Architecture | `guard integrity - the use case directory is empty - the guard reports vacuous rather than passing` |
+| Architecture | `guard integrity - a file beside a use case that is not one - does not make the guard look enforcing` |
+
+**Files**
+- create [`src/core/trace/UseCaseTracer.kt`](../../src/core/trace/UseCaseTracer.kt) — port and no-op
+- create [`src/data/trace/Slf4jUseCaseTracer.kt`](../../src/data/trace/Slf4jUseCaseTracer.kt) — adapter and env seam
+- create [`test/data/trace/Slf4jUseCaseTracerTest.kt`](../../test/data/trace/Slf4jUseCaseTracerTest.kt)
+- create [`test/RequestCorrelationTest.kt`](../../test/RequestCorrelationTest.kt)
+- modify [`src/di/CoreModule.kt`](../../src/di/CoreModule.kt) — one binding
+- modify [`src/plugin/Monitoring.kt`](../../src/plugin/Monitoring.kt) — `mdc(REQUEST_ID)`
+- modify [`resources/logback.xml`](../../resources/logback.xml) — `%X{requestId}`, `usecase` at DEBUG
+- modify [`test/ArchitectureTest.kt`](../../test/ArchitectureTest.kt) — 7 tests, `org.slf4j` banned
+- modify `.env.example`, [`CLAUDE.md`](../../CLAUDE.md), [`docs/architecture.md`](../architecture.md)
+
+Suite 130 → 153.
+
+**Added beyond the original scope**
+
+`logback.xml` used `%d{YYYY-…}`, the ISO week-year, which disagrees with the calendar year in the
+last days of December. One character, in a file this ticket already edits, and the kind of defect
+found a year late in a log file. Corrected to `yyyy`.
+
+**Out of scope**
+- **A Micrometer `Timer` per use case.** Strictly better for the operational question — p95 with no
+  log volume and no PII surface, which is the shape PRD §13's leading indicators want — and the port
+  supports a second adapter with no interface change. Blocked today: the registry lives in
+  `Application.attributes` under `MeterRegistryKey`, not in Koin, so a Koin-resolved tracer cannot
+  reach it. Wants its own ticket alongside the first use case that emits a business metric.
+- **`X-Request-Id` on the wire.** ERT-145 deferred it deliberately: a per-request field would break
+  the envelope's byte-identity test. The id here is log-side only and does not touch a response.
+- **A Koin decorator over a `UseCase<C, R>` supertype**, which would remove the tracer from every
+  constructor and upgrade the guard from a text check to a structural one. It needs a common
+  supertype that does not exist and that "one class, one `operator fun invoke`" does not imply.
+- **`StatusPages` logging the raw URI.** Found while reading `Monitoring.kt`: `StatusPages.kt:35` and
+  `:50` log `call.request.local.uri` unredacted, so the first malformed body on a portal path writes
+  a link token to the log. Not live while `route/portal/` is empty. Wants its own ticket.
