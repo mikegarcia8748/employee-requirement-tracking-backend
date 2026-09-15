@@ -1,7 +1,7 @@
 package com.pgsystem.employee.requirement.tracker.domain.model
 
+import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 import java.time.Instant
-import java.util.UUID
 
 /**
  * One append-only record of a portal access attempt (PRD 8.12).
@@ -11,9 +11,9 @@ import java.util.UUID
  * first question asked when a fraudulent submission surfaces (SEC-05). This record replaces it.
  */
 data class PortalAccessLog(
-    val id: UUID,
-    val uploadLinkId: UUID,
-    val sessionId: UUID?,
+    val id: EntityId,
+    val uploadLinkId: EntityId,
+    val sessionId: EntityId?,
     val timestamp: Instant,
     val ip: String,
     val userAgent: String,

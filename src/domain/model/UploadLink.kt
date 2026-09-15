@@ -1,7 +1,8 @@
 package com.pgsystem.employee.requirement.tracker.domain.model
 
+import com.pgsystem.employee.requirement.tracker.core.value.EntityId
+import com.pgsystem.employee.requirement.tracker.core.value.PersonId
 import java.time.Instant
-import java.util.UUID
 
 /**
  * A tokenized, expiring pointer at one employee's checklist.
@@ -17,8 +18,8 @@ import java.util.UUID
  * reworking the model — v1 always scopes to all of them (PRD 9.3).
  */
 data class UploadLink(
-    val id: UUID,
-    val employeeId: UUID,
+    val id: EntityId,
+    val employeeId: PersonId,
     val tokenHash: String,
     val pinHash: String,
     val scope: LinkScope,
@@ -43,5 +44,5 @@ data class UploadLink(
  */
 sealed interface LinkScope {
     data object All : LinkScope
-    data class Only(val requirementTemplateIds: Set<UUID>) : LinkScope
+    data class Only(val requirementTemplateIds: Set<EntityId>) : LinkScope
 }

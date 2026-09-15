@@ -1,7 +1,7 @@
 package com.pgsystem.employee.requirement.tracker.domain.model
 
+import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 import java.time.Instant
-import java.util.UUID
 
 /**
  * One uploaded file against one requirement.
@@ -14,8 +14,8 @@ import java.util.UUID
  * content (`NBI_Clearance_DelaCruz_1998.pdf`) as surely as the document does (SEC-02).
  */
 data class Submission(
-    val id: UUID,
-    val employeeRequirementId: UUID,
+    val id: EntityId,
+    val employeeRequirementId: EntityId,
     val version: Int,
     val fileKey: String,
     val originalFilename: String,

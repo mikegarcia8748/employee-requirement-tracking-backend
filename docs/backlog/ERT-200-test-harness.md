@@ -129,7 +129,8 @@ Almost every Phase 1 rule is a time or randomness question: does this link expir
 over, is the idle clock earlier than the ceiling, is this PIN right. None of that is testable against
 `Instant.now()` and a `SecureRandom`.
 
-`Clock`, `IdGenerator`, `TokenGenerator` and `PinGenerator` are already `fun interface`s in `core/`
+`Clock`, `EntityIdGenerator`, `PersonIdGenerator`, `TokenGenerator` and `PinGenerator` are already
+`fun interface`s in `core/`
 and already bound in [CoreModule.kt](../../src/di/CoreModule.kt), so this is substitution, not
 redesign. `FixedClock` needs to advance on demand — testing "lockout expires after 15 minutes"
 requires moving time forward, not just pinning it.
@@ -151,10 +152,17 @@ deterministic.
       `Duration`
 - [ ] `[derived]` Given the deterministic generators, then ids, tokens and PINs are predictable and
       repeatable across runs
+- [ ] `[derived]` Given the id generators, then there is one fake per port — a `PersonId` is 8
+      characters and an `EntityId` is 12, and a fake returning the wrong width must not compile
+      into the wrong slot
 - [ ] `[derived]` Given `FixedPinGenerator`, then the PIN it returns satisfies `AccessPin`'s
       six-digit validation, so tests exercise the real value object
 - [ ] `[derived]` Given a test needs collision behaviour, then a generator can be made to return the
       same value twice
+
+> The collision criterion above is no longer hypothetical. A `PersonId` draws from 62^8, so a
+> duplicate is a real if unlikely event at scale and the hire-creation insert must retry (ERT-400).
+> That retry needs a generator that repeats on demand, which is what this ticket supplies.
 
 **Tests**
 | Level | Test |

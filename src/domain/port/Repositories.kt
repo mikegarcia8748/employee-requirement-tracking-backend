@@ -1,8 +1,9 @@
 package com.pgsystem.employee.requirement.tracker.domain.port
 
 import com.pgsystem.employee.requirement.tracker.core.value.EmailAddress
+import com.pgsystem.employee.requirement.tracker.core.value.EntityId
+import com.pgsystem.employee.requirement.tracker.core.value.PersonId
 import com.pgsystem.employee.requirement.tracker.domain.model.*
-import java.util.UUID
 
 /**
  * Persistence seams for the domain.
@@ -12,7 +13,7 @@ import java.util.UUID
  */
 
 interface EmployeeRepository {
-    suspend fun findById(id: UUID): Employee?
+    suspend fun findById(id: PersonId): Employee?
 
     /**
      * Used for the PRD 8.1 duplicate check. Scoped to **active** hires: a completed or cancelled
@@ -21,12 +22,12 @@ interface EmployeeRepository {
     suspend fun findActiveByEmail(email: EmailAddress): List<Employee>
 
     suspend fun save(employee: Employee): Employee
-    suspend fun requirementsOf(employeeId: UUID): RequirementSet
+    suspend fun requirementsOf(employeeId: PersonId): RequirementSet
     suspend fun saveRequirements(requirements: List<EmployeeRequirement>)
 }
 
 interface RequirementTemplateRepository {
-    suspend fun findById(id: UUID): RequirementTemplate?
+    suspend fun findById(id: EntityId): RequirementTemplate?
 
     /**
      * The templates that make up the requirement set for an employment type.
@@ -34,7 +35,7 @@ interface RequirementTemplateRepository {
      * Read **once**, at hire creation, and copied onto the employee (PRD 5). Nothing downstream
      * may consult this again for an in-flight hire.
      */
-    suspend fun findActiveForEmploymentType(employmentTypeId: UUID): List<RequirementTemplate>
+    suspend fun findActiveForEmploymentType(employmentTypeId: EntityId): List<RequirementTemplate>
 
     suspend fun findAll(includeInactive: Boolean = false): List<RequirementTemplate>
 }
@@ -48,13 +49,13 @@ interface UploadLinkRepository {
      */
     suspend fun findByTokenHash(tokenHash: String): UploadLink?
 
-    suspend fun findActiveForEmployee(employeeId: UUID): UploadLink?
+    suspend fun findActiveForEmployee(employeeId: PersonId): UploadLink?
     suspend fun save(link: UploadLink): UploadLink
 }
 
 interface SubmissionRepository {
-    suspend fun findCurrentFor(employeeRequirementId: UUID): Submission?
-    suspend fun findVersions(employeeRequirementId: UUID): List<Submission>
+    suspend fun findCurrentFor(employeeRequirementId: EntityId): Submission?
+    suspend fun findVersions(employeeRequirementId: EntityId): List<Submission>
     suspend fun save(submission: Submission): Submission
 
     /**
@@ -63,18 +64,18 @@ interface SubmissionRepository {
      * Callers must not invoke this for a record with an open anomaly flag — the superseded version
      * is the evidence (PRD 7.1, SEC-13).
      */
-    suspend fun purgeBeyondRetention(employeeRequirementId: UUID, keep: Int)
+    suspend fun purgeBeyondRetention(employeeRequirementId: EntityId, keep: Int)
 
-    suspend fun totalBytesFor(employeeId: UUID): Long
+    suspend fun totalBytesFor(employeeId: PersonId): Long
 }
 
 interface PortalSessionRepository {
-    suspend fun findActive(sessionId: UUID, now: java.time.Instant): PortalSession?
-    suspend fun findActiveForLink(uploadLinkId: UUID): List<PortalSession>
+    suspend fun findActive(sessionId: EntityId, now: java.time.Instant): PortalSession?
+    suspend fun findActiveForLink(uploadLinkId: EntityId): List<PortalSession>
     suspend fun save(session: PortalSession): PortalSession
 
     /** Backs the P1 "HR can terminate active portal sessions" control. */
-    suspend fun end(sessionId: UUID, endedAt: java.time.Instant)
+    suspend fun end(sessionId: EntityId, endedAt: java.time.Instant)
 }
 
 /**

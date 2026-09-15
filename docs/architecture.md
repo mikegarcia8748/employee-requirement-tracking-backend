@@ -81,9 +81,9 @@ src/
   core/                   cross-cutting, framework-free
     error/                AppError, DomainResult — failures as data, not exceptions
     time/                 Clock port
-    id/                   IdGenerator, TokenGenerator, PinGenerator ports
+    id/                   EntityIdGenerator, PersonIdGenerator, TokenGenerator, PinGenerator
     crypto/               Hasher port
-    value/                EmailAddress, AccessPin — validating value objects
+    value/                EmailAddress, AccessPin, PersonId, EntityId — validating value objects
 
   domain/                 the rules. Pure Kotlin.
     model/                entities, status enums, LinkPolicy
@@ -126,7 +126,7 @@ its own dispatcher and the use case never sees one.
 | `PortalAccessTrail` | append-only portal attempts, distinct IPs, failure counts | *(pending)* |
 | `Notifier` | the seven notification kinds | *(pending)* |
 | `DocumentStorage` | object storage; signed URLs **HR-side only** | *(pending)* |
-| `Clock`, `IdGenerator`, `TokenGenerator`, `PinGenerator`, `Hasher` | infrastructure | **bound** |
+| `Clock`, `EntityIdGenerator`, `PersonIdGenerator`, `TokenGenerator`, `PinGenerator`, `Hasher` | infrastructure | **bound** |
 
 Three of these encode a rule in their *shape* rather than their documentation:
 
@@ -248,7 +248,7 @@ route. The `hr-jwt` security scheme is derived from the `authenticate` blocks ra
 With ~38 endpoints in Appendix B, a hand-maintained file would drift within a sprint — and a spec
 that lies is worse than none.
 
-`route/dto/` types are what the schema is generated from. That gives the DTO layer a second job
+`route/dto/` types are what the schema is generated from — but only where a route declares them. Verified, not assumed: the generator infers nothing from `call.respond`, so every route needs a `responses { response(200) { schema = jsonSchema<...>() } }` block in its `describe { }` or it publishes an operation with no body type (ERT-145). That gives the DTO layer a second job
 beyond wire-format isolation and is a further reason domain models never reach a route: a model
 serialised directly would publish whatever fields it happens to carry, and §8.6 forbids the portal
 returning an original filename or storage key.
@@ -310,7 +310,7 @@ Structural, not incidental. Weakening any of these re-opens a finding the audit 
 |---|---|---|
 | The portal returns document **status** — never content, signed URLs, or original filenames | `DocumentStorage` is HR-side only; `route/dto` never carries `fileKey`/`originalFilename` | §8.6, SEC-02 |
 | A bare link resolves to a PIN prompt and nothing else | `VerifyPortalPinUseCase`, portal DTOs | Appendix B, SEC-01 |
-| Wrong PIN and unknown token are indistinguishable | `AppError.Denied` collapses both; `PortalOutcome.DENIED` does not record which | §6.6 |
+| Wrong PIN and unknown token are indistinguishable | `AppError.Denied` is a **`data object`**, so there is exactly one value and differing bodies are unrepresentable; the mapper sends it to one shared envelope constant, so it cannot carry a per-instance message or `details`; an unmatched route renders the same body; `PortalOutcome.DENIED` does not record which | §6.6 |
 | Tokens and PINs stored hashed; PIN in the invitation only | `Hasher`; `Notifier` signature | §6.6, §12 |
 | Locked-state upload rejection is server-side | `RequirementStatus.employeeCanUpload`, checked in the use case | §8.7 |
 | Requirement sets and `expiresAt` snapshotted at creation | snapshot columns | §5, §6.4 |

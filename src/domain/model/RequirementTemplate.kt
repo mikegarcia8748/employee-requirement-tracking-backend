@@ -1,6 +1,6 @@
 package com.pgsystem.employee.requirement.tracker.domain.model
 
-import java.util.UUID
+import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 
 /**
  * A document type in the catalogue, defined once and reused (PRD 5, 8.11).
@@ -9,7 +9,7 @@ import java.util.UUID
  * checklist only onboarding uses, so Phase 4 renewal can reuse it without restructuring (PRD 9.3).
  */
 data class RequirementTemplate(
-    val id: UUID,
+    val id: EntityId,
     val name: String,
     val instructions: String,
     /** Optional requirements are excluded from both numerator and denominator of progress (PRD 6.5). */
@@ -24,10 +24,10 @@ data class RequirementTemplate(
 
 /** Which templates make up the requirement set for an employment type (PRD 11). */
 data class TemplateAssignment(
-    val employmentTypeId: UUID,
-    val requirementTemplateId: UUID,
+    val employmentTypeId: EntityId,
+    val requirementTemplateId: EntityId,
 )
 
-data class Department(val id: UUID, val name: String)
+data class Department(val id: EntityId, val name: String)
 
-data class EmploymentType(val id: UUID, val name: String)
+data class EmploymentType(val id: EntityId, val name: String)

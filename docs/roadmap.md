@@ -1,6 +1,6 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-110 — Wire `DatabaseFactory` into the application lifecycle](backlog/ERT-100-foundations.md#ert-110--wire-databasefactory-into-the-application-lifecycle)**
+**Next ticket: [ERT-150 — Expose the Micrometer registry on a scrape route](backlog/ERT-100-foundations.md#ert-150--expose-the-micrometer-registry-on-a-scrape-route)**
 
 The full board is [docs/backlog/README.md](backlog/README.md). This file holds sequencing, the
 decision register, and the pointer above. Each session updates that pointer on the way out.
@@ -13,12 +13,23 @@ decision register, and the pointer above. Each session updates that pointer on t
 |---|---|
 | Built | `core/` value objects and error types · 12 domain models with status logic · 10 ports · 12 Exposed tables · bcrypt, clock and secure generators · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation |
 | Empty | `domain/usecase/` · `data/repository/` · `data/mapper/` · `route/hr/` · `route/portal/` · `test/testdata/fake/` |
+| Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
 | Endpoints | `/health`, `/openapi`, `/swagger`. PRD Appendix B specifies ~38. |
 
-Three foundational gaps are not visible from the use-case list and are what Phase 0 exists to close:
-`DatabaseFactory.connect()` is never called from anywhere, `allTables` at
-[Tables.kt:185](../src/data/db/table/Tables.kt) is referenced by nothing, and there is no
-migration tooling. Nothing persists today.
+The three foundational gaps Phase 0 opened with are closed: `DatabaseFactory.connect()` runs from the
+application lifecycle (ERT-110), Flyway applies a baseline guarded by a drift test (ERT-120), and
+reference data and policy defaults are seeded (ERT-130). ERT-180 then replaced every UUID identifier
+with a validated `PersonId` or `EntityId`, and ERT-140 gave the route layer one mapping from an
+`AppError` to a status — with `Denied` made a `data object` so invariant 3 holds by construction, and
+a path id decided to be a 404 rather than a 422. ERT-145 then wrapped every `/api` response in one
+envelope (`result`, `data`, `meta`, `error`), taken now because `/health` was still the only route
+mounted; it also established that **the OpenAPI generator infers nothing from `call.respond`**, so
+every route from here on must declare its response schema in `describe { }` or publish an operation
+a client cannot generate from.
+
+What remains in Phase 0 is metrics (ERT-150), the token digest (ERT-160) and the write-mostly guards
+(ERT-170), then the ERT-200 test harness. **No repository, use case or business route exists yet**,
+so nothing writes rows outside the tests.
 
 ---
 
@@ -99,7 +110,7 @@ exists, so answering the question later costs an adapter swap rather than a rede
 
 | # | Question | Owner | Blocks | Proceeding meanwhile |
 |---|---|---|---|---|
-| Q4 | Who are the HR users, how do they authenticate, does SSO exist? | Stakeholder / IT | The HR auth epic, and the real protection of every `authenticate(HR_AUTH)` route | The marked-placeholder JWT verifier in [Security.kt](../src/plugin/Security.kt). HR routes are written behind it now. Architecture §14 says it should be **replaced, not extended**. |
+| Q4 | Who are the HR users, how do they authenticate, does SSO exist? | Stakeholder / IT | The HR auth epic, the real protection of every `authenticate(HR_AUTH)` route, and [ERT-190](backlog/ERT-100-foundations.md#ert-190--hr-user-accounts-and-the-persona-model) | The marked-placeholder JWT verifier in [Security.kt](../src/plugin/Security.kt). HR routes are written behind it now. Architecture §14 says it should be **replaced, not extended**. A local `users` table is deliberately **not** built ahead of the answer: if identity lives in an IdP it would be a mirror, not a source of truth. Actors stay free-text `varchar(128)` meanwhile. |
 | Q12 | Email delivery mechanism and sending domain | Engineering / IT | ERT-1010 | ERT-440 writes to an outbox table. Rows become real sends when the adapter lands; no use case changes. |
 | Q2 | The actual requirement checklist, and whether it differs by employment type | HR stakeholder | ERT-130 seed *content* (not its mechanism) | Appendix A seeded and clearly marked illustrative. Templates are data, so replacing them is a seed change. |
 | Q3 | Which documents have validity periods, and how long | HR stakeholder | Phase 4 | Columns already exist and are nullable. |

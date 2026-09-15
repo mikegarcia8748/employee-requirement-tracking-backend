@@ -1,18 +1,19 @@
 package com.pgsystem.employee.requirement.tracker.domain.model
 
 import com.pgsystem.employee.requirement.tracker.core.value.EmailAddress
+import com.pgsystem.employee.requirement.tracker.core.value.EntityId
+import com.pgsystem.employee.requirement.tracker.core.value.PersonId
 import java.time.Instant
-import java.util.UUID
 
 /** A hired person being onboarded. Created by HR, individually or via CSV import (PRD 5). */
 data class Employee(
-    val id: UUID,
+    val id: PersonId,
     val firstName: String,
     val middleInitial: String?,
     val lastName: String,
-    val departmentId: UUID,
+    val departmentId: EntityId,
     val position: String,
-    val employmentTypeId: UUID,
+    val employmentTypeId: EntityId,
     val email: EmailAddress,
     val packetStatus: PacketStatus,
     val submittedAt: Instant?,

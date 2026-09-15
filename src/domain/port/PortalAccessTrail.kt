@@ -1,7 +1,7 @@
 package com.pgsystem.employee.requirement.tracker.domain.port
 
+import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 import com.pgsystem.employee.requirement.tracker.domain.model.PortalAccessLog
-import java.util.UUID
 
 /**
  * Append-only trail of portal access attempts (PRD 8.12).
@@ -12,10 +12,10 @@ import java.util.UUID
  */
 interface PortalAccessTrail {
     suspend fun record(entry: PortalAccessLog)
-    suspend fun findFor(uploadLinkId: UUID): List<PortalAccessLog>
+    suspend fun findFor(uploadLinkId: EntityId): List<PortalAccessLog>
 
     /** Distinct source addresses seen for a link — the input to the multi-IP anomaly flag. */
-    suspend fun distinctIpsFor(uploadLinkId: UUID): Set<String>
+    suspend fun distinctIpsFor(uploadLinkId: EntityId): Set<String>
 
-    suspend fun countRecentFailures(uploadLinkId: UUID, since: java.time.Instant): Int
+    suspend fun countRecentFailures(uploadLinkId: EntityId, since: java.time.Instant): Int
 }

@@ -59,7 +59,10 @@ The object-storage target is undecided and has **no question number in the PRD**
 opened. A filesystem adapter under `STORAGE_ROOT`, outside the repository, unblocks the epic.
 
 The swap to real object storage is one Koin binding **provided the key scheme is opaque from day
-one**: `{employeeId}/{requirementId}/v{version}/{uuid}` with **no filename component**. A filename
+one**: `{employeeId}/{requirementId}/v{version}/{random}` with **no filename component**. That
+trailing component is a long random suffix and **must not** be shortened to an `EntityId`: its job is
+to make the key unguessable, which is a security property rather than an identity one. The id
+prefixes are short and enumerable by design; the suffix is what carries the entropy. A filename
 inside a key leaks content through logs and URLs exactly as the document does —
 `NBI_Clearance_DelaCruz_1998.pdf` says everything. Get the key scheme wrong and the swap becomes a
 data migration rather than a binding change.

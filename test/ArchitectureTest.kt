@@ -33,6 +33,21 @@ class ArchitectureTest {
     )
 
     @Test
+    fun `identifier discipline - no domain or core file imports java util UUID - ids are value types`() {
+        // Separate from forbiddenInInnerLayers because java.util in general is legitimate in core/.
+        // Scoped to src/ only: MigrationTest uses UUID.randomUUID() to name a throwaway in-memory
+        // database, which is test plumbing rather than an entity identifier.
+        val violations = innerLayerFiles().flatMap { file ->
+            file.readLines()
+                .filter { it.startsWith("import ") }
+                .filter { it.startsWith("import java.util.UUID") }
+                .map { "${file.relativeTo(projectDir)}: ${it.trim()}" }
+        }
+
+        violations.shouldBeEmpty()
+    }
+
+    @Test
     fun `dependency rule - domain and core import no framework types - inner layers stay pure`() {
         val violations = innerLayerFiles().flatMap { file ->
             file.readLines()

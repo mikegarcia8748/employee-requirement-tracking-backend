@@ -1,7 +1,8 @@
 package com.pgsystem.employee.requirement.tracker.domain.model
 
+import com.pgsystem.employee.requirement.tracker.core.value.EntityId
+import com.pgsystem.employee.requirement.tracker.core.value.Identifier
 import java.time.Instant
-import java.util.UUID
 
 /**
  * An HR-side action record (PRD 11, 12).
@@ -11,11 +12,18 @@ import java.util.UUID
  * looking at.
  */
 data class AuditEntry(
-    val id: UUID,
+    val id: EntityId,
     val actor: String,
     val action: AuditAction,
     val entity: String,
-    val entityId: UUID,
+    /**
+     * The identifier of whatever was acted on, of either width — [entity] names its kind.
+     *
+     * Typed as [Identifier] rather than a concrete id because an audit row points at any of ten
+     * tables. It deliberately carries no foreign key: an audit row must outlive the row it
+     * describes, and a trail that cascades away with its subject is not a trail.
+     */
+    val entityId: Identifier,
     val timestamp: Instant,
     /** Free-form context: old and new values, reason, verification method. Never credentials. */
     val metadata: Map<String, String>,

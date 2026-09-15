@@ -1,6 +1,7 @@
 package com.pgsystem.employee.requirement.tracker.domain.model
 
-import java.util.UUID
+import com.pgsystem.employee.requirement.tracker.core.value.EntityId
+import com.pgsystem.employee.requirement.tracker.core.value.PersonId
 
 /**
  * One requirement as it applies to one employee — a **snapshot** of the template taken at hire
@@ -11,9 +12,9 @@ import java.util.UUID
  * hire retroactively incomplete. Template edits apply only to hires created after the edit.
  */
 data class EmployeeRequirement(
-    val id: UUID,
-    val employeeId: UUID,
-    val templateId: UUID,
+    val id: EntityId,
+    val employeeId: PersonId,
+    val templateId: EntityId,
     val nameSnapshot: String,
     val isRequiredSnapshot: Boolean,
     val status: RequirementStatus,
