@@ -1,7 +1,15 @@
 <configuration>
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{YYYY-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <!--
+                %X{requestId} is the per-request correlation id set by CallLogging (ERT-195). The
+                `:-` form supplies a default of eight dots for lines outside a request, so the
+                column never collapses and startup output stays aligned with request output.
+
+                %d is yyyy, not YYYY. YYYY is the ISO week-year, which disagrees with the calendar
+                year in the last days of December — the kind of defect found a year late, in logs.
+            -->
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %X{requestId:-........} %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
     <root level="INFO">
@@ -9,4 +17,12 @@
     </root>
     <logger name="org.eclipse.jetty" level="INFO"/>
     <logger name="io.netty" level="INFO"/>
+
+    <!--
+        Use case tracing (ERT-195). Root is INFO, so without this line the tracer would be bound,
+        wired and permanently silent: Logger.debug() short-circuits before any appender is
+        consulted. TRACE_USECASES stays the switch that decides whether tracing happens at all;
+        this is the volume knob. Set it to INFO to leave the tracer enabled but quiet.
+    -->
+    <logger name="usecase" level="DEBUG"/>
 </configuration>

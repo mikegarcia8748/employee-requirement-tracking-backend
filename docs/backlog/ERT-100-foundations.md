@@ -473,7 +473,7 @@ has no body type and the front-end has nothing to generate a client from.
 | **Parent** | ERT-100 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | §13 |
 | **Architecture** | §3 |
@@ -496,12 +496,38 @@ Prometheus can scrape the service, and the endpoint is not world-readable outsid
 - As an operator, I want a scrape endpoint so that the §13 launch metrics can be measured rather than
   estimated.
 
+### Decided
+
+**1. `plugin/Monitoring.kt` mounts the route, not `configureRouting()`.** The gate needs `HR_AUTH`
+and `isDevMode()`, both in `plugin/`, and ERT-145 recorded that the dependency runs `plugin` →
+`route` and never the reverse. So `route/MetricsRoutes.kt` holds the route and takes
+`registry`, `devMode` and `authName` as parameters — it imports nothing from `plugin/` — and
+`configureMonitoring()`, which already owns the registry, supplies them.
+[`ApiDocs.kt`](../../src/plugin/ApiDocs.kt) mounts `/openapi` and `/swagger` the same way and for the
+same reason: all three are operational surfaces, gated identically, and none belongs to the `/api`
+contract `configureRouting()` assembles. **`Routing.kt` is therefore untouched**, which is the one
+deviation from the Files list below. `routing { }` is additive, so mounting before
+`configureRouting()` runs is not an ordering hazard.
+
+**2. `devMode` is a parameter rather than an `isDevMode()` call inside the route.** A JVM test cannot
+unset `APP_ENV` in its own process, so without the parameter the refused-outside-dev criterion is
+unprovable. The same seam is what ERT-160 uses for `TOKEN_PEPPER`.
+
+**3. The content type states `version=0.0.4`,** not bare `text/plain`. Scrapers accept the latter, so
+dropping the parameter would fail nothing loudly — it is pinned by a test instead.
+
+> **`hide()` inside `authenticate { }` was verified, not assumed.** Outside dev the handler is nested
+> one level deeper, and `hide()` attaches to whatever `Route` node `get` returned in *that* tree. Had
+> it attached to the wrong node, `/metrics` would be published in exactly the configuration where it
+> is protected and where nobody looks. Both spec tests fail when `.hide()` is removed, so neither
+> passes vacuously.
+
 **Acceptance criteria**
-- [ ] `[derived]` Given the app is running in dev, when `/metrics` is requested, then the Prometheus
+- [x] `[derived]` Given the app is running in dev, when `/metrics` is requested, then the Prometheus
       exposition format is returned
-- [ ] `[derived]` Given `APP_ENV` is not dev, when `/metrics` is requested without HR credentials,
+- [x] `[derived]` Given `APP_ENV` is not dev, when `/metrics` is requested without HR credentials,
       then it is refused
-- [ ] `[derived]` Given the OpenAPI spec, then `/metrics` is hidden from it — it is an operational
+- [x] `[derived]` Given the OpenAPI spec, then `/metrics` is hidden from it — it is an operational
       surface, not an API
 
 **Tests**
@@ -509,10 +535,15 @@ Prometheus can scrape the service, and the endpoint is not world-readable outsid
 |---|---|
 | Route | `metrics endpoint - dev mode - returns prometheus exposition format` |
 | Route | `metrics endpoint - outside dev without credentials - is refused` |
+| Route | `metrics endpoint - the generated spec - does not publish it` |
+| Route | `metrics endpoint - outside dev behind authentication - is still absent from the generated spec` |
+| Route | `metrics endpoint - the response content type - names the prometheus text format version` |
 
 **Files**
-- create `src/route/MetricsRoutes.kt` — using `hide()` so it stays out of the spec
-- modify [`src/route/Routing.kt`](../../src/route/Routing.kt)
+- create [`src/route/MetricsRoutes.kt`](../../src/route/MetricsRoutes.kt) — using `hide()` so it
+  stays out of the spec
+- modify [`src/plugin/Monitoring.kt`](../../src/plugin/Monitoring.kt) — mounts it; see Decided 1
+- create `test/route/MetricsRoutesTest.kt` — 5 tests, suite 104 → 109
 
 **Out of scope**
 - Defining custom business metrics. Those land with the use cases that emit them.
@@ -526,7 +557,7 @@ Prometheus can scrape the service, and the endpoint is not world-readable outsid
 | **Parent** | ERT-100 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | §6.6, §12 |
 | **Architecture** | §4, §12 invariant 4, §14 |
@@ -564,32 +595,79 @@ continues to hash PINs only, and the pepper is required outside dev.
   primitive each so that neither the lookup silently fails nor every portal request pays 100ms of
   bcrypt.
 
+### Decided
+
+**1. Absence is forgiven in dev; weakness never is.** A dev run with no `TOKEN_PEPPER` gets an
+ephemeral pepper, so a fresh checkout works unconfigured — the same trade as the in-memory H2
+default. A pepper that is *present but shorter than 32 characters* fails in every mode, dev included:
+without a floor the "is it configured" check is satisfied by `TOKEN_PEPPER=x`, which adds no work to
+an offline attempt and is configuration theatre.
+
+**2. Blank counts as absent.** `?:` catches `null` but not `""`. Sourcing a `.env` copied from
+`.env.example` supplies exactly the empty string, so without this, following the documentation would
+walk straight past the check. The same one-line fix was applied to `JWT_SECRET`, which had the same
+hole and where the consequence is booting on an empty signing key.
+
+**3. A fresh `Mac` per call.** `javax.crypto.Mac` is stateful and not thread-safe. A shared instance
+field would interleave `update`/`doFinal` across concurrent portal requests and return digests
+belonging to neither caller — a fault that appears only under load and reads as data corruption.
+Construction costs microseconds against the ~100 ms bcrypt call it replaces on the lookup path.
+
+**4. `TokenDigest` is resolved eagerly in `configureKoin()`.** Koin singles are lazy, so a missing
+pepper would otherwise surface on the first portal request rather than at boot — in production, long
+after the deploy looked successful. Same argument `Database.kt` records for calling `connect()` in
+the module body. *(This modifies `di/AppModule.kt`, which the Files list below did not name.)*
+
+**5. It must stay a `single`, never a `factory`.** In dev the pepper is generated per instance, so a
+`factory` would digest a token one way at issue and another at lookup — every dev link issued already
+broken. Pinned by an identity assertion in `ServerTest`.
+
 **Acceptance criteria**
-- [ ] `[derived]` Given the same token digested twice, then the two digests are equal, so a link can
+- [x] `[derived]` Given the same token digested twice, then the two digests are equal, so a link can
       be resolved by hash
-- [ ] `[derived]` Given two different tokens, then their digests differ
-- [ ] `[derived]` Given no pepper is configured outside dev, then startup fails — matching the
+- [x] `[derived]` Given two different tokens, then their digests differ
+- [x] `[derived]` Given no pepper is configured outside dev, then startup fails — matching the
       existing `JWT_SECRET` behaviour in [Security.kt:32](../../src/plugin/Security.kt)
-- [ ] `[derived]` Given a leaked database, then no stored value yields a usable token or PIN
-- [ ] `[derived]` Given an access PIN, then it is still hashed with bcrypt and not with the digest
-- [ ] `[derived]` Given the documentation, then the pepper-rotation gap is recorded
+- [x] `[derived]` Given a leaked database, then no stored value yields a usable token or PIN
+- [x] `[derived]` Given an access PIN, then it is still hashed with bcrypt and not with the digest
+- [x] `[derived]` Given the documentation, then the pepper-rotation gap is recorded — architecture
+      §14 and the `HmacTokenDigest` KDoc
 
 **Tests**
 | Level | Test |
 |---|---|
 | Use case | `token digest - the same token digested twice - produces the same value so a link resolves by hash` |
 | Use case | `token digest - two different tokens - produce different digests` |
+| Use case | `token digest - two different peppers - produce different digests for the same token` |
+| Use case | `token digest - a stored digest - does not contain the token it was made from` |
 | Use case | `credential hashing - an access pin - is hashed with a work factor rather than a fast digest` |
-| Route | `token digest - no pepper configured outside dev - startup refuses` |
+| Use case | `token digest - no pepper configured outside dev - startup refuses` |
+| Use case | `token digest - a blank pepper outside dev - is treated as absent rather than accepted` |
+| Use case | `token digest - a pepper below the minimum length - is refused in dev as well as outside it` |
+| Use case | `token digest - no pepper configured in dev - falls back to an ephemeral pepper that still works` |
+| Route | `token digest wiring - the running application - resolves one shared digest, not one per call` |
+
+> **Scope note on the refusal tests.** This ticket filed them at Route level, meaning a real server
+> boot. A JVM test cannot unset `TOKEN_PEPPER` in its own process, so `fromEnvironment` takes the
+> pepper as a defaulted parameter and the tests drive it directly. **What is proven is that the
+> refusal fires, not that it aborts the boot** — the boot path is covered only by the eager
+> resolution in `configureKoin()` being on the same line as `install(Koin)`. Verify the real thing by
+> hand with `APP_ENV=prod JWT_SECRET=… ./kotlin run`.
 
 **Files**
-- create `src/core/crypto/TokenDigest.kt` — the port
-- create `src/data/crypto/HmacTokenDigest.kt`
-- modify [`src/core/crypto/Hasher.kt`](../../src/core/crypto/Hasher.kt) — narrow its doc comment to
-  the PIN; it currently claims to cover the link token
+- create [`src/core/crypto/TokenDigest.kt`](../../src/core/crypto/TokenDigest.kt) — the port
+- create [`src/data/crypto/HmacTokenDigest.kt`](../../src/data/crypto/HmacTokenDigest.kt)
+- modify [`src/core/crypto/Hasher.kt`](../../src/core/crypto/Hasher.kt) — narrowed to the PIN; it
+  claimed to cover the link token
 - modify [`src/data/crypto/BcryptHasher.kt`](../../src/data/crypto/BcryptHasher.kt) — same
 - modify [`src/di/CoreModule.kt`](../../src/di/CoreModule.kt) — bind it
-- create `test/core/crypto/TokenDigestTest.kt`
+- modify [`src/di/AppModule.kt`](../../src/di/AppModule.kt) — resolve it eagerly; see Decided 4
+- modify [`src/plugin/Security.kt`](../../src/plugin/Security.kt) — blank `JWT_SECRET` now counts as
+  absent; see Decided 2
+- modify `docs/architecture.md` — §14 rewritten (it stated "bcrypt for token and PIN", which this
+  ticket supersedes), §12 invariant row, §3 and §4
+- create `test/core/crypto/TokenDigestTest.kt`, modify `test/ServerTest.kt` — 10 tests, suite
+  109 → 119
 
 **Out of scope**
 - A pepper-rotation or credential re-issue flow. Recorded as a gap, not built.
@@ -603,7 +681,7 @@ continues to hash PINs only, and the pepper is required outside dev.
 | **Parent** | ERT-100 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | §8.6 |
 | **Architecture** | §2, §12 invariants 1 and 2 |
@@ -637,28 +715,77 @@ build — and the guard cannot pass vacuously.
 - As an engineer on the next session, I want the write-mostly rule enforced mechanically so that I
   cannot reintroduce the finding the audit closed without the build telling me.
 
+### Decided
+
+**1. Each guard is a pure function over `(path, source)` pairs, driven two ways.** Against the real
+tree — which is what fails the build — and against **synthetic sources** that assert the rule itself.
+The synthetic half is not redundant: `src/route/dto/portal/` and `src/route/portal/` hold no files,
+so a real-tree-only guard passes without examining anything, and would keep passing after someone
+broke the rule it is named for.
+
+**2. The ban is on document *handles*, not on six spellings.** Exact names (`fileKey`,
+`originalFilename`, `url`, `downloadUrl`, `signedUrl`, `mimeType` and their snake_case forms) plus a
+suffix rule: any property ending in `Url` or `Filename`. The named list would not have caught
+`previewUrl`, which is the shape the next well-meant addition actually takes. `@SerialName` values
+are matched too — renaming the field only on the wire is the obvious way around a property check and
+the one that ships the field.
+
+**3. The path scope lives inside the rule, not at the call site.** §8.4 requires `originalFilename`,
+`sizeBytes` and `mimeType` on the HR side, so a blanket ban would block ERT-820. The first draft
+scoped by what the caller passed in; the HR test caught it, which is the review step working as
+intended.
+
+**4. `GuardOutcome` makes vacuity a visible state.** `Vacuous` when the walk matched nothing,
+`Checked(scanned, violations)` otherwise — so "it examined nothing" cannot be mistaken for "it found
+nothing". A second test asserts a populated directory reports `Checked`, without which a guard that
+returned `Vacuous` unconditionally would satisfy the tripwire forever.
+
+> **The tripwire is deliberate.** `guard integrity - the portal dto directory is empty` asserts
+> `Vacuous` **today**. The day the first portal DTO or portal route lands, it fails — that is the
+> signal, not a regression. Flip the expectation to `Checked`; do not delete the test, and do not
+> delete the two real-tree assertions it is guarding.
+
+**Verified, not assumed: every guard fails the build on a real violation.** A portal DTO declaring
+`originalFilename` and `previewUrl`, a portal route importing `DocumentStorage`, and a route file
+importing `org.jetbrains.exposed` and `…tracker.plugin` were each planted in `src/` and the suite
+re-run. Five tests failed across the four rules, and the vacuity tripwire fired alongside them. The
+sources were then removed.
+
 **Acceptance criteria**
-- [ ] `[derived]` Given a type under `route/dto/portal/`, then it declares no field named `fileKey`,
+- [x] `[derived]` Given a type under `route/dto/portal/`, then it declares no field named `fileKey`,
       `originalFilename`, `url`, `downloadUrl`, `signedUrl` or `mimeType` (§8.6)
-- [ ] `[derived]` Given any file under `src/route/portal/`, then it does not import `DocumentStorage`
-- [ ] `[derived]` Given any file under `src/route/`, then it does not import
+- [x] `[derived]` Given any file under `src/route/portal/`, then it does not import `DocumentStorage`
+- [x] `[derived]` Given any file under `src/route/`, then it does not import
       `org.jetbrains.exposed` — routes make no direct `data/` access, which is currently unguarded
-- [ ] `[derived]` Given `route/dto/portal/` is empty, then the guard reports vacuous rather than
+- [x] `[derived]` Given `route/dto/portal/` is empty, then the guard reports vacuous rather than
       passing
-- [ ] `[derived]` Given an HR DTO carrying `originalFilename`, then the guard does **not** fire —
+- [x] `[derived]` Given an HR DTO carrying `originalFilename`, then the guard does **not** fire —
       §8.4 requires it
 
 **Tests**
 | Level | Test |
 |---|---|
 | Architecture | `write-mostly portal - a portal dto declares a file key or original filename - the build fails` |
-| Architecture | `write-mostly portal - a portal route imports DocumentStorage - the build fails` |
-| Architecture | `dependency rule - a route imports Exposed directly - the build fails` |
-| Architecture | `guard integrity - the portal dto directory is empty - the guard reports vacuous rather than passing` |
+| Architecture | `write-mostly portal - a portal dto names a preview url the ban list never anticipated - the build fails` |
+| Architecture | `write-mostly portal - a portal dto renames the field only on the wire - the build fails` |
 | Architecture | `write-mostly portal - an HR dto carrying an original filename - does not trip the guard` |
+| Architecture | `write-mostly portal - a portal route imports DocumentStorage - the build fails` |
+| Architecture | `write-mostly portal - every portal dto in the tree - declares no document field` |
+| Architecture | `write-mostly portal - every portal route in the tree - reaches no document storage` |
+| Architecture | `dependency rule - a route imports Exposed directly - the build fails` |
+| Architecture | `dependency rule - a route imports plugin - the dependency runs plugin to route not the reverse` |
+| Architecture | `guard integrity - the portal dto directory is empty - the guard reports vacuous rather than passing` |
+| Architecture | `guard integrity - a populated directory - reports checked so the tripwire above can fire` |
 
 **Files**
-- modify [`test/ArchitectureTest.kt`](../../test/ArchitectureTest.kt)
+- modify [`test/ArchitectureTest.kt`](../../test/ArchitectureTest.kt) — 11 tests, suite 119 → 130
+
+**Added beyond the original scope**
+
+`dependency rule - a route imports plugin - …`. ERT-145 decided the arrow runs `plugin` → `route` and
+never the reverse, and recorded it in a ticket and nowhere else — a route author could only learn it
+by reading one. It is the rule that decided where ERT-150 mounts `/metrics`. Same file walk, one
+extra assertion.
 
 **Out of scope**
 - A multi-module split. Architecture §14 defers it deliberately.
@@ -800,3 +927,187 @@ An HR action is attributable to a row rather than to a typed-in name, without pr
 
 **Out of scope**
 - Department-scoped permissions (PRD P2).
+
+---
+
+## ERT-195 — Dev-only tracing of use case execution
+
+| | |
+|---|---|
+| **Parent** | ERT-100 |
+| **Type** | Ticket |
+| **Phase** | 0 |
+| **Status** | Done |
+| **Depends on** | ERT-150 |
+| **PRD** | §12, §13 |
+| **Architecture** | §2, §12 invariants 1–4 |
+
+**Description**
+
+Nothing below the route is observable. `CallLogging` reports `POST /api/employees -> 422` and stops
+there, so "which rule rejected it, and what did it cost" can only be answered with a debugger — and
+on a portal path even the route line collapses to `/api/portal/[redacted]`, so the action is not
+visible either.
+
+`src/domain/usecase/` is empty. That is the reason to do this now rather than later: a seam laid
+before the first use case is one every use case is written against, and one an architecture guard can
+hold. ERT-170 made the same argument for the portal guards, in the same words — afterwards it is an
+audit, not a guard.
+
+The hazard is the obvious one. A trace of business logic sits exactly where the arguments are, and
+§12 invariants 1–4 say a PIN, a token, a filename, and anything separating a wrong PIN from an
+unknown token must never reach a log. So the design question is not "what would be useful to log" but
+"what can a call site be prevented from logging".
+
+**Goal**
+
+With `TRACE_USECASES=true`, every use case invocation emits one line — name, outcome, duration —
+correlated to its request. Unset, a no-op is bound and nothing is measured.
+
+**Stories**
+- As an engineer debugging a data or business-logic problem, I want to see which use case ran, what
+  it decided and how long it took, so that I can locate a fault without attaching a debugger.
+- As an engineer on the next session, I want a use case that forgets to trace to fail the build, so
+  that coverage does not decay one file at a time.
+
+### Decided
+
+**1. The block returns `DomainResult`, so the tracer reads the outcome itself.** A call site cannot
+report something richer because it reports nothing: it hands over a name and a block. This is the
+whole of the privacy design — not a rule to remember, an absence of anything to pass.
+
+**2. The outcome word is `AppError.code`, never the error.** `Validation` and `Conflict` carry a
+`detail` holding whatever the caller typed. `Denied` is a single `data object` whose code is
+`not_found`, so a wrong PIN and an unknown token render identically — invariant 3 holds in the trace
+for the same reason it holds on the wire.
+
+**3. Its own environment variable, not `isDevMode()`.** Architecture §10 already records that four
+controls hang off `APP_ENV` and that it defaults to dev when unset. A fifth would mean a deployment
+that forgot the variable silently started tracing. `TRACE_USECASES` is off unless set to `true`; an
+unparseable value warns rather than refusing to boot, because a debug flag should not be able to take
+production down, but silently ignoring `TRACE_USECASES=1` would send someone hunting for a tracer
+that was never on.
+
+**4. The port is in `core/`, beside `Clock`, not in `domain/port/`.** It is infrastructure a use case
+depends on, not a business collaborator — the same category `CoreModule` already names. This also
+leaves ERT-210 scoped to ten domain ports, unchanged.
+
+**5. `invoke` delegates to a private `execute`.** Wrapping a use case body directly would turn every
+`return` into `return@trace` — a compile error rather than a silent bug, but permanent noise in
+guard-clause-shaped code, re-touched by each of ERT-430's four sub-tasks:
+
+```kotlin
+suspend operator fun invoke(command: CreateHire): DomainResult<Employee> =
+    tracer.trace("CreateHireUseCase") { execute(command) }
+```
+
+**6. Elapsed time is `System.nanoTime()`, not the injected `Clock`.** `Clock` is a wall clock, so an
+NTP step lands mid-measurement; and ERT-220's `FixedClock` never advances, so every duration in every
+test would be `0` and every timing assertion would pass without measuring anything.
+
+**7. Correlation reuses the `CallLogging` MDC hook.** Ktor wraps the Monitoring and Call phases in
+`withContext(MDCContext(...))` and routing intercepts `Call`, so the value reaches every suspend
+frame the request opens, including work handed to another dispatcher inside a transaction. **The id
+must stay opaque and generated.** The portal redaction lives inside `format` and protects that one
+line; an id derived from the path would travel through `%X{requestId}` onto every line in the file,
+and a portal path carries a live credential.
+
+**Verified, not assumed.**
+
+- **The guard fails the build on a real violation.** An untraced `ProbeUseCase` was planted in
+  `src/domain/usecase/`; the real-tree assertion and the vacuity tripwire both failed. Replacing it
+  with a correctly traced one left only the tripwire failing — which is the tripwire working. Removed
+  afterwards.
+- **The tracer's privacy assertion bites.** `outcomeOf` was mutated to return `error.toString()`;
+  exactly one test failed, the one asserting the detail stays out. The invariant-3 test correctly did
+  **not** fail, since `Denied` renders identically either way.
+- **The MDC reaches a handler, and survives a dispatcher hop.** Asserted in `RequestCorrelationTest`
+  against a `Dispatchers.IO` probe, because "Ktor propagates the MDC" is a claim about a library that
+  would fail silently on a version bump — the id would render blank and traces would quietly stop
+  being attributable.
+- **End to end, both ways.** With `TRACE_USECASES=true`, `usecase - ProbeUseCase ok in 0ms` and its
+  `GET /probe -> 200` shared one id, and two requests got different ids. Unset, zero `usecase` lines
+  with request logging intact.
+
+> **The tripwire is deliberate.** `guard integrity - the use case directory is empty` asserts
+> `Vacuous` **today**. The day ERT-430 lands the first use case it fails — that is the signal, not a
+> regression. Flip the expectation to `Checked`; do not delete the test.
+
+**Acceptance criteria**
+- [x] `[derived]` Given `TRACE_USECASES` is unset or blank, then the no-op tracer is bound and no
+      line is emitted
+- [x] `[derived]` Given a use case that fails, then the line carries `AppError.code` and not
+      `AppError.Validation.detail`
+- [x] `[derived]` Given a wrong PIN and an unknown token, then the two trace lines are identical
+      apart from duration (§12 invariant 3)
+- [x] `[derived]` Given a use case that throws, then the exception class is traced, the message is
+      not, and the exception is rethrown unchanged
+- [x] `[derived]` Given a file in `src/domain/usecase/` named `*UseCase.kt`, then it takes a
+      `UseCaseTracer` and traces under its own file name
+- [x] `[derived]` Given a use case importing `org.slf4j`, then the build fails
+- [x] `[derived]` Given a request, then its handler and any coroutine it opens see one `requestId`
+- [x] `[derived]` Given a portal path carrying a link token, then no part of the token appears in
+      the request id (§12, invariant 4)
+- [x] `[derived]` Given `src/domain/usecase/` is empty, then the guard reports vacuous rather than
+      passing
+
+**Tests**
+| Level | Test |
+|---|---|
+| Unit | `trace line - a use case that succeeds - names the use case and reports ok` |
+| Unit | `trace line - a use case that fails - reports the error code and not the error detail` |
+| Unit | `trace line - a wrong pin and an unknown token - are indistinguishable in the trace` |
+| Unit | `trace line - a use case that throws - reports the exception class and rethrows` |
+| Unit | `trace line - the elapsed time - is reported in milliseconds` |
+| Unit | `trace line - the level is above debug - the use case still runs and nothing is emitted` |
+| Unit | `tracer selection - the flag is unset - binds the no-op` |
+| Unit | `tracer selection - the flag is blank - binds the no-op rather than treating it as set` |
+| Unit | `tracer selection - the flag is true - binds the logging tracer` |
+| Unit | `tracer selection - the flag is set to something unparseable - binds the no-op` |
+| Unit | `tracer selection - the no-op tracer - returns the result and emits nothing` |
+| Route | `request correlation - a route handler - sees a request id in the MDC` |
+| Route | `request correlation - work handed to another dispatcher - keeps the same request id` |
+| Route | `request correlation - two requests - are given different ids` |
+| Route | `request correlation - one request - reports one id for its whole duration` |
+| Route | `request correlation - a portal path carrying a link token - the id contains no part of it` |
+| Architecture | `dependency rule - a use case logs directly instead of through the port - the build fails` |
+| Architecture | `use case tracing - every use case in the tree - is traced` |
+| Architecture | `use case tracing - a use case that takes no tracer - the build fails` |
+| Architecture | `use case tracing - a use case tracing under a copied name - the build fails` |
+| Architecture | `use case tracing - a use case wired to the port under its own name - passes` |
+| Architecture | `guard integrity - the use case directory is empty - the guard reports vacuous rather than passing` |
+| Architecture | `guard integrity - a file beside a use case that is not one - does not make the guard look enforcing` |
+
+**Files**
+- create [`src/core/trace/UseCaseTracer.kt`](../../src/core/trace/UseCaseTracer.kt) — port and no-op
+- create [`src/data/trace/Slf4jUseCaseTracer.kt`](../../src/data/trace/Slf4jUseCaseTracer.kt) — adapter and env seam
+- create [`test/data/trace/Slf4jUseCaseTracerTest.kt`](../../test/data/trace/Slf4jUseCaseTracerTest.kt)
+- create [`test/RequestCorrelationTest.kt`](../../test/RequestCorrelationTest.kt)
+- modify [`src/di/CoreModule.kt`](../../src/di/CoreModule.kt) — one binding
+- modify [`src/plugin/Monitoring.kt`](../../src/plugin/Monitoring.kt) — `mdc(REQUEST_ID)`
+- modify [`resources/logback.xml`](../../resources/logback.xml) — `%X{requestId}`, `usecase` at DEBUG
+- modify [`test/ArchitectureTest.kt`](../../test/ArchitectureTest.kt) — 7 tests, `org.slf4j` banned
+- modify `.env.example`, [`CLAUDE.md`](../../CLAUDE.md), [`docs/architecture.md`](../architecture.md)
+
+Suite 130 → 153.
+
+**Added beyond the original scope**
+
+`logback.xml` used `%d{YYYY-…}`, the ISO week-year, which disagrees with the calendar year in the
+last days of December. One character, in a file this ticket already edits, and the kind of defect
+found a year late in a log file. Corrected to `yyyy`.
+
+**Out of scope**
+- **A Micrometer `Timer` per use case.** Strictly better for the operational question — p95 with no
+  log volume and no PII surface, which is the shape PRD §13's leading indicators want — and the port
+  supports a second adapter with no interface change. Blocked today: the registry lives in
+  `Application.attributes` under `MeterRegistryKey`, not in Koin, so a Koin-resolved tracer cannot
+  reach it. Wants its own ticket alongside the first use case that emits a business metric.
+- **`X-Request-Id` on the wire.** ERT-145 deferred it deliberately: a per-request field would break
+  the envelope's byte-identity test. The id here is log-side only and does not touch a response.
+- **A Koin decorator over a `UseCase<C, R>` supertype**, which would remove the tracer from every
+  constructor and upgrade the guard from a text check to a structural one. It needs a common
+  supertype that does not exist and that "one class, one `operator fun invoke`" does not imply.
+- **`StatusPages` logging the raw URI.** Found while reading `Monitoring.kt`: `StatusPages.kt:35` and
+  `:50` log `call.request.local.uri` unredacted, so the first malformed body on a portal path writes
+  a link token to the log. Not live while `route/portal/` is empty. Wants its own ticket.

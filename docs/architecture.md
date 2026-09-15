@@ -82,7 +82,7 @@ src/
     error/                AppError, DomainResult — failures as data, not exceptions
     time/                 Clock port
     id/                   EntityIdGenerator, PersonIdGenerator, TokenGenerator, PinGenerator
-    crypto/               Hasher port
+    crypto/               Hasher (PIN) and TokenDigest (link/session token) ports
     value/                EmailAddress, AccessPin, PersonId, EntityId — validating value objects
 
   domain/                 the rules. Pure Kotlin.
@@ -126,7 +126,7 @@ its own dispatcher and the use case never sees one.
 | `PortalAccessTrail` | append-only portal attempts, distinct IPs, failure counts | *(pending)* |
 | `Notifier` | the seven notification kinds | *(pending)* |
 | `DocumentStorage` | object storage; signed URLs **HR-side only** | *(pending)* |
-| `Clock`, `EntityIdGenerator`, `PersonIdGenerator`, `TokenGenerator`, `PinGenerator`, `Hasher` | infrastructure | **bound** |
+| `Clock`, `EntityIdGenerator`, `PersonIdGenerator`, `TokenGenerator`, `PinGenerator`, `Hasher`, `TokenDigest` | infrastructure | **bound** |
 
 Three of these encode a rule in their *shape* rather than their documentation:
 
@@ -144,6 +144,10 @@ Three of these encode a rule in their *shape* rather than their documentation:
 
 `domain/usecase/` is deliberately empty. Each entry below is one class, one public
 `operator fun invoke`, returning a sealed result. Built test-first in the business session.
+
+Each also takes a `UseCaseTracer` and delegates through it — `invoke` is
+`tracer.trace("XUseCase") { execute(...) }`, and the body lives in a private `execute`. See §10.1;
+the architecture test fails the build on a use case that omits it.
 
 | Use case | Rules | PRD | Phase |
 |---|---|---|---|
@@ -288,6 +292,38 @@ So tests use `kotlin.test` (`@Test`, discovered by JUnit 5) with **Kotest assert
 from the three-part naming template rather than `given/when/then` nesting. Revisit if Amper gains
 Kotest engine support.
 
+
+### 10.1 Diagnostics — tracing business logic
+
+Below the route there was no observability at all: `CallLogging` reports
+`POST /api/employees -> 422` and stops, and on a portal path it collapses to
+`/api/portal/[redacted]`, so neither the rule that fired nor the action attempted was visible.
+`UseCaseTracer` (`core/trace/`, adapter in `data/trace/`) emits one line per invocation, behind
+`TRACE_USECASES`, which defaults to off and binds a no-op:
+
+```
+2026-09-15 15:01:39.356 [eventLoopGroupProxy-4-1] e5ed898e DEBUG usecase - CreateHireUseCase ok in 42ms
+2026-09-15 15:01:39.375 [eventLoopGroupProxy-4-1] e5ed898e INFO  io.ktor…Application - POST /api/employees -> 201
+```
+
+**Name, outcome, duration — never an argument.** The traced block returns `DomainResult`, so the
+tracer reads the outcome itself and a call site has nothing to pass. That is the privacy design: not
+a rule someone must remember, an absence of anything to hand over. The outcome word is
+`AppError.code`, never the error — `Validation` and `Conflict` carry a `detail` holding whatever the
+caller typed, while `Denied` is a single `data object` whose code is `not_found`, so §12 invariant 3
+holds in the trace for the same reason it holds on the wire.
+
+`e5ed898e` is a generated `requestId` in the MDC. Ktor wraps the call pipeline in an `MDCContext`, so
+it reaches every suspend frame a request opens, including work on another dispatcher inside a
+transaction — which is what lets a trace line be matched to its access-log line. **It is opaque by
+requirement, not by accident.** The portal redaction lives inside `CallLogging`'s `format` block and
+protects that one line; an id derived from the path would travel through `%X{requestId}` onto every
+line in the file, and a portal path carries a live credential (§12 invariant 4).
+
+Tracing is gated on its own variable rather than on `isDevMode()`. §14 already records that four
+controls hang off `APP_ENV` and that it defaults to dev when unset; a fifth would mean a deployment
+that forgot it silently began tracing.
+
 ---
 
 ## 11. Dependency injection
@@ -311,7 +347,7 @@ Structural, not incidental. Weakening any of these re-opens a finding the audit 
 | The portal returns document **status** — never content, signed URLs, or original filenames | `DocumentStorage` is HR-side only; `route/dto` never carries `fileKey`/`originalFilename` | §8.6, SEC-02 |
 | A bare link resolves to a PIN prompt and nothing else | `VerifyPortalPinUseCase`, portal DTOs | Appendix B, SEC-01 |
 | Wrong PIN and unknown token are indistinguishable | `AppError.Denied` is a **`data object`**, so there is exactly one value and differing bodies are unrepresentable; the mapper sends it to one shared envelope constant, so it cannot carry a per-instance message or `details`; an unmatched route renders the same body; `PortalOutcome.DENIED` does not record which | §6.6 |
-| Tokens and PINs stored hashed; PIN in the invitation only | `Hasher`; `Notifier` signature | §6.6, §12 |
+| Tokens and PINs stored hashed; PIN in the invitation only | `TokenDigest` (keyed, reproducible — tokens are looked up by digest); `Hasher` (bcrypt, salted — PINs are verified); `Notifier` signature | §6.6, §12 |
 | Locked-state upload rejection is server-side | `RequirementStatus.employeeCanUpload`, checked in the use case | §8.7 |
 | Requirement sets and `expiresAt` snapshotted at creation | snapshot columns | §5, §6.4 |
 | Every portal access is an append-only record | `PortalAccessLogs`; no `last_accessed_at` | §8.12, SEC-05 |
@@ -347,10 +383,30 @@ the audit trail and access log are transactional writes where maturity matters m
 I/O. `exposed-r2dbc` and `h2database-r2dbc` remain declared in `module.yaml` but are now unused —
 harmless, and left for the owner to remove.
 
-**bcrypt, not a fast digest, for token and PIN.** The PIN keyspace is only 10⁶; a leaked database
-falls to an offline sweep in seconds against SHA-256. A work factor makes each candidate expensive.
-Lockout and auto-suspend bound the *online* attack — different attacks, and neither control
-substitutes for the other.
+**Two credentials, two primitives — bcrypt for the PIN, a keyed digest for the token** (ERT-160,
+superseding the earlier "bcrypt for both"). They are used differently, and one primitive cannot serve
+both:
+
+| Credential | Primitive | Why |
+|---|---|---|
+| Link token, session token | HMAC-SHA-256 keyed by a server-side pepper (`TokenDigest`) | It is **looked up** — `findByTokenHash`, and `upload_links.token_hash` is uniquely indexed — so the digest must be reproducible. bcrypt salts every call, so the original code could never have resolved a presented token. 256 bits of entropy leaves no offline guessing attack for a work factor to slow. |
+| Access PIN | bcrypt, cost 12 (`Hasher`) | It is **verified** against one already-located row, never looked up. The keyspace is 10⁶, which falls to an offline sweep in seconds against a fast digest; a work factor makes each candidate expensive. |
+
+Lockout and auto-suspend bound the *online* attack on the PIN — different attacks, and neither
+control substitutes for the other.
+
+**Known gap: the token pepper cannot be rotated.** Rotating `TOKEN_PEPPER` changes every digest, so
+every live link and session stops resolving at once. There is no credential re-issue flow, so
+recovery means re-inviting every in-flight hire by hand through the bulk path §8.2 deliberately makes
+slow. Treat the pepper as permanent for the life of an environment until a re-issue flow exists.
+
+**`APP_ENV` defaults to dev, and that default is permissive.** `isDevMode()` treats an unset variable
+as development, which is what lets a fresh checkout run with no configuration — the same trade as the
+in-memory H2 default. The cost is that a deployment which forgets to set `APP_ENV` gets open
+`/openapi`, `/swagger` and `/metrics`, an ephemeral JWT signing key **and** an ephemeral token
+pepper, with no error. Four controls now hang off one unset variable. Inverting the default is the
+safer shape and is worth doing; it is recorded here rather than changed in passing because it breaks
+`./kotlin run` on a fresh checkout and belongs with a deployment-configuration ticket.
 
 **Generated OpenAPI.** See §9. Required declaring `io.ktor:ktor-server-routing-openapi` explicitly:
 Amper's Ktor catalog has no key for it.

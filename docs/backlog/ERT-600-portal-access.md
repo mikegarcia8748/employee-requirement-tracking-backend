@@ -322,6 +322,9 @@ both paths cost the same.
       is not an oracle
 - [ ] `[derived]` Given a malformed token that cannot be a valid digest, then the response is still
       identical
+- [ ] `[derived]` Given either failure and `TRACE_USECASES=true`, then the two trace lines are
+      identical apart from duration — the log is the third channel, alongside the response and the
+      trail (ERT-195)
 
 **Tests**
 | Level | Test |
@@ -329,6 +332,13 @@ both paths cost the same.
 | Use case | `pin verification - a wrong pin and an unknown token - return the identical Denied result` |
 | Use case | `pin verification - either failure - is recorded as denied without recording which` |
 | Use case | `pin verification - an unknown token - still performs a dummy verification so the timing is not an oracle` |
+| Use case | `pin verification - a wrong pin and an unknown token - emit the identical trace outcome` |
+
+**Note (ERT-195).** The generic form of the last test already exists in
+`Slf4jUseCaseTracerTest` — `AppError.Denied` is one `data object` whose code is `not_found`, so both
+paths trace identically by construction. Repeat it here against the real use case anyway: the
+guarantee that matters is that `VerifyPortalPinUseCase` returns the *same* error on both paths, and
+that is this ticket's to keep, not the tracer's.
 
 ---
 
