@@ -253,9 +253,54 @@ object AuditLogs : EntityIdTable("audit_logs") {
     val metadata = text("metadata").default("{}")
 }
 
+/**
+ * Queued outbound notifications (ERT-440, PRD §8.9).
+ *
+ * ERT-1010 lands the SMTP transport and drains this table; nothing transmits until it does. It earns
+ * a table rather than an in-memory queue because it gives §8.1's "retry action" something to retry,
+ * makes "was the invitation sent?" answerable, and survives a restart.
+ *
+ * **[body] is nullable for one reason: the invitation's is never stored.** A rendered invitation
+ * carries a live credential — since 2026-09-16 the link *is* the whole of authentication — and
+ * purging the row after delivery only shrinks the window, leaving the credential in a backup, a
+ * replica and a write-ahead log. The one use for keeping it would be resending the *same*
+ * credential, which nothing needs: `resend-link` reissues. [NotificationKind.storesBody] decides
+ * this per kind, so a kind added later must choose rather than inherit — the device
+ * `AnomalyFlag.freezesRetention` and `LinkStatus.opensPortal` already use.
+ *
+ * **[recipient] is nullable because two of the seven `Notifier` methods take no address.**
+ * `sendPacketReadyForReview` and `notifyHrOfSuspension` go to HR, whose address is ERT-1010's
+ * configuration rather than this ticket's. A sentinel string would be a lie in a column other code
+ * reads; [kind] already names the audience.
+ *
+ * **[employeeId] is not nullable**, which is what lets §8.1's delivery-failure indicator be *derived*
+ * from the latest row for a hire (E4) rather than needing a column on `employees` that something has
+ * to remember to update.
+ */
+object NotificationOutbox : EntityIdTable("notification_outbox") {
+    val kind = varchar("kind", 32)
+
+    /** Null for the two HR-bound kinds; resolved at send time. See this table's own note. */
+    val recipient = varchar("recipient", 320).nullable()
+
+    val employeeId = reference("employee_id", Employees)
+    val subject = varchar("subject", 256)
+
+    /** Null for `INVITATION`, always. See this table's own note. */
+    val body = text("body").nullable()
+
+    val status = varchar("status", 32)
+    val attempts = integer("attempts").default(0)
+    val lastError = text("last_error").nullable()
+    val queuedAt = timestamp("queued_at")
+    val lastAttemptAt = timestamp("last_attempt_at").nullable()
+    val sentAt = timestamp("sent_at").nullable()
+}
+
 val allTables = arrayOf(
     Users,
     Departments, EmploymentTypes, RequirementTemplates, TemplateAssignments,
     Employees, EmployeeRequirements, Submissions, UploadLinks,
     PortalSessions, PortalAccessLogs, AppSettings, AuditLogs,
+    NotificationOutbox,
 )

@@ -82,7 +82,7 @@ class MigrationTest {
     fun `schema drift - the guard is pointed at a real schema - allTables is non-empty`() {
         // statementsRequiredToActualizeScheme() over an empty array is trivially empty forever.
         // 13 since ERT-190 added `users`.
-        allTables.size shouldBe 13
+        allTables.size shouldBe 14
     }
 
     @Test
@@ -130,10 +130,17 @@ class MigrationTest {
             // at it. Getting one of these wrong is exactly the failure this sweep exists for -- an
             // 8-character id in a 12-wide column comes back blank-padded on PostgreSQL and fails the
             // validation it was written under.
+            //
+            // ERT-440 added `notification_outbox.employee_id`, and the list below is why it had to
+            // be declared rather than inferred: an EntityIdTable whose foreign key points at
+            // `employees` carries an 8-wide column, so the structural rule reads it as wrong. This
+            // sweep FAILED on it, which is the guard working -- a new person-keyed column is a
+            // decision, and the list is where the decision is recorded.
             val personColumns = setOf(
                 "employees.id",
                 "employee_requirements.employee_id",
                 "upload_links.employee_id",
+                "notification_outbox.employee_id",
                 "users.id",
                 "employees.created_by",
                 "employees.originals_sighted_by",
@@ -174,6 +181,10 @@ class MigrationTest {
             db.columnWidths("users")["id"] shouldBe PersonId.LENGTH
             db.columnWidths("employees")["created_by"] shouldBe PersonId.LENGTH
             db.columnWidths("audit_logs")["actor_user_id"] shouldBe PersonId.LENGTH
+
+            // ERT-440's outbox, for the same reason: it is an EntityIdTable pointing at `employees`.
+            db.columnWidths("notification_outbox")["employee_id"] shouldBe PersonId.LENGTH
+            db.columnWidths("notification_outbox")["id"] shouldBe EntityId.LENGTH
         }
 
     @Test
@@ -190,7 +201,7 @@ class MigrationTest {
     fun `identifier generation - the guard above - is pointed at the ten keyed tables`() {
         // app_settings is keyed by name and template_assignments by a composite; the other eleven
         // carry a generated identifier. Without this, the filter above could pass on an empty list.
-        allTables.filterIsInstance<IdTable<*>>().size shouldBe 11
+        allTables.filterIsInstance<IdTable<*>>().size shouldBe 12
     }
 
     @Test
@@ -223,7 +234,7 @@ class MigrationTest {
     fun `migration portability - the sweep above - is pointed at every migration`() {
         // A listFiles() that matched nothing would make the check above pass forever.
         File(projectDir, "resources/db/migration").listFiles { f -> f.extension == "sql" }.orEmpty()
-            .size shouldBe 5
+            .size shouldBe 6
     }
 }
 

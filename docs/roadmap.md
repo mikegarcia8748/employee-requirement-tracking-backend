@@ -1,19 +1,25 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-440 — `Notifier` dev adapter: outbox table, no SMTP](backlog/ERT-400-hire-creation.md#ert-440--notifier-dev-adapter-outbox-table-no-smtp)**
+**Next ticket: [ERT-430 / ERT-431 — `CreateHireUseCase`, starting with email validation and
+duplicate-on-active](backlog/ERT-400-hire-creation.md#ert-431--email-validation-and-duplicate-on-active-with-typed-reason)**
 
-> **ERT-420 landed: links resolve by token digest, and the 2026-09-16 reversal finally reached the
-> schema.** The suite went from 549 tests to 568. **ERT-1020 unblocks**, and ERT-430 now waits only
-> on ERT-440.
+> **ERT-420 and ERT-440 landed together: links resolve by token digest, and every notification has a
+> durable row.** The suite went from 549 tests to 592. **ERT-430 is fully unblocked** — every port it
+> names now has an adapter — and so are ERT-1010 and ERT-1020.
 >
-> **`upload_links.pin_hash` is nullable from V5, and ERT-440's outbox migration is therefore V6.**
-> The ticket was deliverable without it; ERT-433 was not. Read that section before taking ERT-433.
+> **Read the C23 row on the escalation table before writing ERT-433.** `Notifier.sendInvitation` still
+> requires an `AccessPin` and the invitation must carry none; ERT-433 is the ticket that has to decide
+> what to pass, and ERT-440 deliberately did not resolve it.
 >
-> **Two of ERT-420's tests were vacuous on the first pass, in a class whose own comment claimed to
-> have learned that lesson from ERT-410.** The eight-break mutation pass is what found them. Read
-> that section before writing an ordering or an encoding test. Nothing on the board is `Blocked`.
+> **`upload_links.pin_hash` is nullable from V5, and the outbox is V6.** ERT-420 was deliverable
+> without the migration; ERT-433 was not.
 >
-> **ERT-410 before it: the first business adapter, and the first ticket to change a port.** Hires and
+> **Three tests across the two tickets were vacuous on the first pass**, two of them in a class whose
+> own comment claimed to have learned that lesson from ERT-410. The mutation pass found all three.
+> Read those sections before writing an ordering, an encoding, or a "does not contain" assertion.
+> Nothing on the board is `Blocked`.
+>
+> **ERT-410 before them: the first business adapter, and the first ticket to change a port.** Hires and
 > their snapshotted requirement sets round-trip through real SQL — eighteen fields, the anomaly-flag
 > set and the attestation triple. **`EmployeeRepository` gained `create` beside `save`, and the
 > ticket could not have been delivered without it.**
@@ -45,7 +51,7 @@ decision register, and the pointer above. Each session updates that pointer on t
 
 | | |
 |---|---|
-| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **seven Exposed adapters plus a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data, HR accounts, **hires with their requirement sets** and **upload links resolved by token digest** · **six use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
+| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **seven Exposed adapters, an outbox notifier and a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data, HR accounts, **hires with their requirement sets**, **upload links resolved by token digest** and **a durable notification outbox** · **six use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
 | Empty | `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
 | Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics` · `POST /api/auth/login` (the only public `/api` route) · `/api/auth/change-password`, `/api/auth/me` · four `HR_ADMIN`-only routes under `/api/users` · three HR reads — `/api/requirement-templates`, `/api/departments`, `/api/employment-types`. Appendix B specifies the rest. |
@@ -412,6 +418,55 @@ did. So: **intending to write the anti-coincidence test is not the same as writi
 is not the same as checking that it works.** The mutation pass is the only step that tells the three
 apart, and it is cheap — the whole suite runs in thirteen seconds.
 
+**ERT-440 closed the epic's adapter work: every notification now has a durable row, and nothing is
+transmitted.** ERT-1010 lands the SMTP relay Q12 named and drains the table; no use case changes when
+it does. The suite went from 568 tests to 592, and **ERT-430 is fully unblocked** — every port it
+names has an adapter.
+
+Three things were decided rather than assumed:
+
+- **`storesBody` is a constructor parameter on `NotificationKind`, not a `kind != INVITATION` check
+  in the adapter.** Only the invitation carries a credential, so only its rendered body is dropped —
+  and that rule has to survive an eighth kind being added by someone who has not read this. A
+  comparison buried in the write path would let a new kind inherit `true` in silence; a constructor
+  parameter means it **will not compile** until someone chooses. It is the device
+  `AnomalyFlag.freezesRetention` and `LinkStatus.opensPortal` already use, and the one invariant 8
+  asks for by name.
+- **A failed invitation cannot be retried, and `retry` refuses it loudly rather than re-queueing.**
+  That is the cost of dropping the body, stated from the other end: the token is persisted nowhere,
+  so there is nothing to rebuild the message from, and reissuing is ERT-1030's `resend-link`. Silence
+  would hand ERT-1010's drain a row with nothing to send and a loop that never terminates. **ERT-1010
+  must not "fix" this by storing the body.**
+- **`recipient` is nullable and `employee_id` is not**, which looks backwards until you read the
+  port. Two of the seven methods take no address because they go to HR, whose mailbox is ERT-1010's
+  configuration — and a sentinel string would be a lie in a column other code reads. Every method
+  takes an `Employee`, so the hire is always known, and that is what lets §8.1's delivery-failure
+  indicator be **derived** from the latest row (E4) rather than needing a column on `employees` that
+  something has to remember to update.
+
+Two findings came out of the guards rather than the plan, and both are worth keeping.
+
+**`MigrationTest`'s column-width sweep failed on the new table**, and it was right to. An
+`EntityIdTable` whose foreign key points at `employees` carries an 8-wide column, so the structural
+rule reads it as wrong — the sweep's `personColumns` list is where that decision is recorded, and a
+new person-keyed column has to be added to it deliberately. The guard cost a minute and would have
+caught a genuinely wrong width just as loudly.
+
+**And the vacuity lesson got a fifth instance, of a shape the first four did not cover.** Sixteen
+deliberate breaks were applied across both adapters; fifteen failed a named test. The one that did
+not was "store the exception message verbatim in the failure reason" — and the test meant to catch it
+asserted *the reason does not contain the token*. It passed against the broken adapter, because the
+only write failure a test can construct is a foreign-key violation whose message happens not to quote
+the body. **It was testing H2's error text, not the adapter.** It now asserts a whitelist — the reason
+matches `^[A-Za-z]+$`, a bare exception type — which is a rule about what may appear rather than a
+list of what may not, and so holds for the failure the test cannot reach.
+
+The generalisation is worth more than the fix: **a "does not contain" assertion is only as strong as
+the input you can arrange.** Where the property is "nothing sensitive escapes", the test has to
+constrain the shape of what *does* escape, because the dangerous case is by definition the one nobody
+thought to construct. ERT-810's signed URLs and ERT-1110's log redaction are the next two places this
+applies.
+
 ---
 
 ## Phases
@@ -676,6 +731,7 @@ tracking are listed.
 | C20 | Architecture §9 asserted and retracted the same claim in one paragraph | **Closed.** §9 states the corrected claim outright |
 | C21 | §12 said "sliding expiry from last activity"; §6.4 says two clocks with the earlier winning. A reader implementing §12 literally would build only the idle clock | **Closed.** §12 now names both clocks |
 | C22 | `StatusPages` logs the request URI unredacted at two call sites — a known invariant-4 violation with no ticket | **Closed as ERT-1110**, gating ERT-630 through a `Depends on` row |
+| C23 | **`Notifier.sendInvitation` requires an `AccessPin`, and since 2026-09-16 the invitation must carry none.** ERT-400's own epic text asserts both in consecutive paragraphs: "it carries no PIN", and "only `sendInvitation` accepts an `AccessPin` … do not add an `AccessPin` parameter to any other method". The parameter is what makes "only the invitation may carry a credential" a compile-time property, so removing it weakens a real guard — but ERT-433 cannot call the method without minting a PIN the new model says must not exist at creation *(opened 2026-09-16 by ERT-440)* | **Open, owned by ERT-433.** ERT-440 implements the method honestly — it stores no body and renders nothing from the `pin` — and deliberately did not resolve it: changing a port's shape is a specification change. Three options, none free: make the parameter nullable and lose the compile-time guarantee; keep it and have ERT-433 mint a PIN nobody is told, which is the credential-shaped-digest problem V5 just removed from `upload_links`; or split the port so the *invitation* method takes no PIN and a separate `sendRecoveryPin` does, which is the only one that keeps the guard — and which ERT-650 will want anyway |
 
 **Still open, and deliberately so:** the PRD has **no owner**. E3's ratification, and any future
 contradiction between two P0 sections, route to a role nobody holds. Escalated 2026-09-16, due

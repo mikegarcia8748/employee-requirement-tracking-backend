@@ -66,7 +66,7 @@ Phase 1 · depends on ERT-300
 | [ERT-432](ERT-400-hire-creation.md#ert-432--requirement-set-snapshot-from-the-template-catalogue) | ↳ Requirement-set snapshot from the template catalogue | Sub-task | ERT-431 | Not started |
 | [ERT-433](ERT-400-hire-creation.md#ert-433--token-issue-digested-with-expiresat-computed-from-policy) | ↳ Token issue, digested, with `expiresAt` computed from policy | Sub-task | ERT-432 | Not started |
 | [ERT-434](ERT-400-hire-creation.md#ert-434--invitation-dispatch-and-surviving-delivery-failure) | ↳ Invitation dispatch and surviving delivery failure | Sub-task | ERT-433, ERT-440 | Not started |
-| [ERT-440](ERT-400-hire-creation.md#ert-440--notifier-dev-adapter-outbox-table-no-smtp) | `Notifier` dev adapter: outbox table, no SMTP | Ticket | ERT-120 | Not started |
+| [ERT-440](ERT-400-hire-creation.md#ert-440--notifier-dev-adapter-outbox-table-no-smtp) | `Notifier` dev adapter: outbox table, no SMTP | Ticket | ERT-120 | Done |
 | [ERT-450](ERT-400-hire-creation.md#ert-450--post-apiemployees-and-its-dtos) | `POST /api/employees` and its DTOs | Ticket | ERT-140, ERT-190, ERT-430 | Not started |
 
 ## [ERT-500](ERT-500-hr-read-side.md) — HR read side

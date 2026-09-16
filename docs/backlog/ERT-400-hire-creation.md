@@ -526,6 +526,18 @@ HR-issued recovery credential minted on demand by ERT-650 — not at creation. `
 generated at creation could not serve its new purpose anyway: it would arrive in the same email whose
 non-arrival it exists to remedy.
 
+> **C23, opened by ERT-440 and owned by this sub-task: `Notifier.sendInvitation` still *requires* an
+> `AccessPin`.** The paragraph above says the invitation carries none, and this epic's own
+> description says the parameter is what makes "only the invitation may carry a credential" a
+> compile-time property. Both cannot hold: ERT-433 has to pass *something*.
+>
+> ERT-440 implemented the method honestly — it stores no body and renders nothing from the `pin` —
+> and deliberately left the shape alone, because changing a port is a specification change. Three
+> options, none free: make the parameter nullable and lose the guarantee; mint a PIN nobody is told,
+> which is exactly the credential-shaped-digest problem V5 removed from `upload_links`; or **split
+> the port** so `sendInvitation` takes no PIN and a separate `sendRecoveryPin` does — the only one
+> that keeps the guard, and the one ERT-650 will want anyway. Decide it here, in writing.
+
 `expiresAt` is computed from the policy read at this moment and **stored**, exactly like the
 requirement snapshot. Changing `link.absolute_expiry_days` tomorrow must not move this link (§6.4).
 The idle clock is the second of two clocks — when `idleExpiryDays` is 0 it is disabled and
@@ -591,7 +603,7 @@ nothing useful. The `Notifier` shape enforces this; this sub-task must not work 
 **Tests**
 | Level | Test |
 |---|---|
-| Use case | `invitation - a hire is created - sends one invitation carrying the link and the pin` |
+| Use case | `invitation - a hire is created - sends one invitation carrying the link and no pin` |
 | Use case | `invitation - delivery fails - the hire and its link still exist` |
 | Use case | `invitation - delivery fails - the result reports the failure so HR can retry` |
 | Use case | `hire creation - a successful creation - records an audit entry naming the actor` |
@@ -605,7 +617,7 @@ nothing useful. The `Notifier` shape enforces this; this sub-task must not work 
 | **Parent** | ERT-400 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-120 |
 | **PRD** | §8.9 |
 | **Architecture** | §4 |
@@ -652,31 +664,99 @@ with no live credential left sitting in the table.
   a redesign.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given each of the seven `Notifier` methods, when called, then a row is written with
+- [x] `[derived]` Given each of the seven `Notifier` methods, when called, then a row is written with
       recipient, kind, payload and a pending status
-- [ ] `[derived]` Given an invitation outbox row **at any point in its life**, then it contains no
+- [x] `[derived]` Given an invitation outbox row **at any point in its life**, then it contains no
       plaintext token and no PIN — not before sending, not after, not in a failed row's last error
-- [ ] `[derived]` Given `PORTAL_BASE_URL` is unset outside dev, then startup fails rather than
+- [x] `[derived]` Given `PORTAL_BASE_URL` is unset outside dev, then startup fails rather than
       rendering a link with no origin
-- [ ] `[derived]` Given a row, then it can be marked sent or failed, and a failed row can be retried
-- [ ] `[derived]` Given the adapter, then it returns `DeliveryResult.Sent` on a successful write and
+- [x] `[derived]` Given a row, then it can be marked sent or failed, and a failed row can be retried
+- [x] `[derived]` Given the adapter, then it returns `DeliveryResult.Sent` on a successful write and
       `Failed` when the write fails
-- [ ] `[derived]` Given the outbox table, then it is added by a migration, not by `SchemaUtils`
+- [x] `[derived]` Given the outbox table, then it is added by a migration, not by `SchemaUtils`
+
+> **`storesBody` is a constructor parameter on `NotificationKind`, not a `kind != INVITATION` check.**
+> The rule "only the invitation's body is dropped" has to survive an eighth kind being added, and a
+> comparison buried in the adapter would let one inherit `true` in silence. Spelling it as a
+> parameter means the new kind **will not compile** until someone decides which side of the line it
+> is on — the device `AnomalyFlag.freezesRetention` and `LinkStatus.opensPortal` already use, and the
+> one invariant 8 asks for by name.
+
+> **A failed invitation cannot be retried, and `retry` refuses it loudly.** That is the cost of not
+> storing the body, stated from the other end: the token is not persisted anywhere, so there is
+> nothing to rebuild the message from. Reissuing the credential is ERT-1030's `resend-link`. Failing
+> here rather than silently re-queueing is what stops ERT-1010's drain from retrying an invitation
+> forever against an empty body — a loop that would never terminate and never send anything.
+
+> **`.env.example` already documented `PORTAL_BASE_URL`; the code that reads it did not exist.** The
+> ticket's file list said "modify `.env.example`", and that half was done before this session. What
+> was missing was `PortalBaseUrl.fromEnvironment(isDevMode())` and its place on `AppModule`'s
+> eager-resolution line beside `TokenDigest` and `JwtConfig`.
+>
+> **Its case for failing closed is the sharpest of the three, and the KDoc says why.** The other two
+> fail *recoverably*: fix the variable, restart, and the next request works. An invitation rendered
+> without an origin has already left, and the token it carried is not stored — so correcting the
+> variable does not correct the link. The remedy is reissuing the credential to every hire invited
+> since the deploy, through the bulk-send path §8.2 makes hard on purpose.
+
+> **Two of the seven methods take no address, and the column is nullable rather than holding a
+> sentinel.** `sendPacketReadyForReview` and `notifyHrOfSuspension` go to HR, whose mailbox is
+> ERT-1010's configuration rather than this ticket's. A string like `'HR'` in `recipient` would be a
+> lie in a column other code reads; `kind` already names the audience, and null means "resolve it at
+> send time". `employee_id`, by contrast, is **not** nullable — which is what lets §8.1's
+> delivery-failure indicator be *derived* from the latest row for a hire (E4) instead of needing a
+> column on `employees` that something has to remember to update.
+
+> **Confirmed by breaking it, sixteen times — and one break survived.** Storing the invitation's
+> body, dropping every body, flipping `INVITATION.storesBody`, throwing instead of returning
+> `Failed`, overwriting the attempt count, retrying an invitation, clearing the count on retry,
+> dropping the queue's `ORDER BY`, returning sent rows from the queue, putting the hire's address on
+> an HR-bound row, allowing an unset `PORTAL_BASE_URL` outside dev, treating an empty one as
+> configured, restating the link in the expiry warning, and passing silently on an update that
+> matched nothing — all fail a named test.
+>
+> **The one that did not was "store the exception message verbatim".** The test asserted the failure
+> reason does not contain the token, and it passed against the broken adapter — because the only
+> write failure a test can construct is a foreign-key violation, whose message happens not to quote
+> the body. It was testing H2's error text, not the adapter. It now asserts a **whitelist** — the
+> reason matches `^[A-Za-z]+$`, a bare exception type — which is a rule about what may appear rather
+> than a list of what may not, and therefore holds for the failure the test cannot construct. **A
+> blacklist assertion is only as good as the failure you can reach**, which is ERT-420's vacuity
+> lesson wearing different clothes.
 
 **Tests**
 | Level | Test |
 |---|---|
 | Repository | `outbox notifier - an invitation is sent - writes a pending row for the recipient` |
+| Repository | `outbox notifier - each of the seven notifier methods - writes one row of its own kind` |
 | Repository | `outbox notifier - an invitation at any point in its life - stores no token and no pin` |
+| Repository | `outbox notifier - an invitation - stores its subject but never its body` |
+| Repository | `outbox notifier - the six kinds carrying no credential - store their bodies` |
 | Repository | `outbox notifier - a failed invitation - records the error without echoing the link` |
+| Repository | `outbox notifier - a failed write of an invitation - reports only the exception type, not its message` |
+| Repository | `outbox notifier - the write itself fails - returns Failed rather than throwing` |
 | Repository | `outbox notifier - a failed row - can be retried` |
+| Repository | `outbox notifier - a failed invitation - cannot be retried because its body was never stored` |
+| Repository | `outbox notifier - the pending queue - holds only unsent rows, oldest first` |
+| Plugin | `portal base url - unset outside dev - refuses to start` |
+| Plugin | `portal base url - an empty string outside dev - is treated as unset rather than as configured` |
 
 **Files**
-- create `resources/db/migration/V6__notification_outbox.sql` — V4 is taken by ERT-190's `users`, **V5 by ERT-420's nullable `pin_hash`**
-- modify [`.env.example`](../../.env.example) — `PORTAL_BASE_URL`
-- create `src/data/notify/OutboxNotifier.kt`
+- create [`resources/db/migration/V6__notification_outbox.sql`](../../resources/db/migration/V6__notification_outbox.sql) — V4 is taken by ERT-190's `users`, **V5 by ERT-420's nullable `pin_hash`**
+- ~~modify [`.env.example`](../../.env.example) — `PORTAL_BASE_URL`~~ — already there; see the note above
+- create [`src/data/notify/OutboxNotifier.kt`](../../src/data/notify/OutboxNotifier.kt)
+- create [`src/data/notify/NotificationKind.kt`](../../src/data/notify/NotificationKind.kt) — `storesBody`, per the note above
+- create [`src/data/notify/NotificationMessages.kt`](../../src/data/notify/NotificationMessages.kt) — the seven bodies; only the invitation restates the link
+- create [`src/data/notify/PortalBaseUrl.kt`](../../src/data/notify/PortalBaseUrl.kt)
+- modify [`src/data/db/table/Tables.kt`](../../src/data/db/table/Tables.kt) — `NotificationOutbox`, added to `allTables`
 - modify [`src/di/DataModule.kt`](../../src/di/DataModule.kt) — bind it
-- create `test/data/notify/OutboxNotifierTest.kt`
+- modify [`src/di/AppModule.kt`](../../src/di/AppModule.kt) — `PortalBaseUrl` on the eager-resolution line
+- create [`test/data/notify/OutboxNotifierTest.kt`](../../test/data/notify/OutboxNotifierTest.kt)
+- create [`test/data/notify/PortalBaseUrlTest.kt`](../../test/data/notify/PortalBaseUrlTest.kt)
+- modify [`test/data/db/MigrationTest.kt`](../../test/data/db/MigrationTest.kt) — three count guards move, and
+  `notification_outbox.employee_id` joins the person-column list. **The width sweep failed on it
+  first**, which is the guard working: an `EntityIdTable` whose foreign key points at `employees`
+  carries an 8-wide column, so a new person-keyed column is a decision the list records.
 
 **Out of scope**
 - Actually sending mail, and the expiry-warning scheduler. ERT-1010 and ERT-1020.
