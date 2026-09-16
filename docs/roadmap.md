@@ -1,6 +1,6 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-340 — `GET /api/requirement-templates`](backlog/ERT-300-catalogue-policy.md#ert-340--get-apirequirement-templates)**
+**Next ticket: [ERT-350 — `ReferenceDataRepository` for departments and employment types](backlog/ERT-300-catalogue-policy.md#ert-350--referencedatarepository-for-departments-and-employment-types)**
 
 The full board is [docs/backlog/README.md](backlog/README.md). This file holds sequencing, the
 decision register, and the pointer above. Each session updates that pointer on the way out.
@@ -12,7 +12,7 @@ decision register, and the pointer above. Each session updates that pointer on t
 | | |
 |---|---|
 | Built | `core/` value objects and error types · 12 domain models with status logic · 11 ports · 12 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **two Exposed adapters, bound and resolved by a wiring test** — the §6.4 link policy and the append-only audit trail |
-| Empty | `domain/usecase/` · `route/hr/` · `route/portal/` |
+| Empty | `domain/usecase/` · `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
 | Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics`. PRD Appendix B specifies ~38. |
 
@@ -184,6 +184,29 @@ table, so without that import the named-argument form fails with "no parameter w
 'onColumn'", which reads as a typo rather than a missing import. And `and` is the same top-level
 trap already recorded for `eq`; `findActiveForEmploymentType` is the first two-predicate `where` in
 the codebase.
+
+ERT-340 then opened `route/hr/` with the first business endpoint, and settled three things every HR
+route after it copies. **The auth scheme name arrives as a parameter.** `HR_AUTH` lives in
+`plugin/Security.kt` and the architecture test fails the build on a route importing `plugin`, so
+`Application.kt` passes it to `configureRouting` the way `Monitoring.kt` already passes it to
+`metricsRoutes`. **The `authenticate` block sits in `Routing.kt`, not in the route file**, which
+keeps each handler auth-agnostic and is what lets a route test mount one against a fake with no
+security plugin — the only way to test the payload at all while `configureSecurity` still signs with
+a random key and **no test can mint a token this application accepts**. That gap is stated in the
+test class rather than worked around with a second `jwt(HR_AUTH)` provider, which would prove the
+duplicate; it closes with Q4.
+
+The third is a live risk retired: `jsonSchema<ApiResponse<List<Dto>>>()` **does** survive the generic
+envelope, so the ERT-145 convention holds for enveloped list responses and no concrete per-route
+wrapper type is needed. That was checked rather than assumed, by deleting the `responses { }` block
+and re-running — the "appears in the generated spec" test **still passes** against an operation with
+no body type at all, and only the test asserting a field name in the document catches it. Any route
+that declares `describe { }` without `responses { }` publishes an operation a client cannot generate
+from, and the obvious test will not say so.
+
+One nuisance worth recording because it reads as nonsense: **Kotlin block comments nest**, so a
+literal `/*` inside a KDoc — writing a path glob like `route/hr` with a star — opens a comment that
+never closes, and the compiler reports "unclosed comment" against the end of the file.
 
 ---
 

@@ -258,7 +258,7 @@ and no route by which a credential reaches the metadata.
 | **Parent** | ERT-300 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | **Done** |
 | **Depends on** | ERT-140, ERT-320 |
 | **PRD** | §8.11, Appendix B |
 | **Architecture** | §3, §9 |
@@ -285,12 +285,12 @@ spec.
   wrong employment type is visible before the invitation goes out.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given an authenticated HR caller, when the catalogue is requested, then active
+- [x] `[derived]` Given an authenticated HR caller, when the catalogue is requested, then active
       templates are returned in `sort_order`
-- [ ] `[derived]` Given no credentials, then the request is refused
-- [ ] `[derived]` Given the response, then it carries name, instructions, required flag and sort
+- [x] `[derived]` Given no credentials, then the request is refused
+- [x] `[derived]` Given the response, then it carries name, instructions, required flag and sort
       order — and no internal identifiers beyond the template id
-- [ ] `[derived]` Given the generated OpenAPI spec, then this endpoint appears in it with a
+- [x] `[derived]` Given the generated OpenAPI spec, then this endpoint appears in it with a
       description
 
 **Tests**

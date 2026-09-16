@@ -5,6 +5,7 @@ import com.pgsystem.employee.requirement.tracker.plugin.configureApiDocs
 import com.pgsystem.employee.requirement.tracker.plugin.configureDatabase
 import com.pgsystem.employee.requirement.tracker.plugin.configureHttp
 import com.pgsystem.employee.requirement.tracker.plugin.configureMonitoring
+import com.pgsystem.employee.requirement.tracker.plugin.HR_AUTH
 import com.pgsystem.employee.requirement.tracker.plugin.configureSecurity
 import com.pgsystem.employee.requirement.tracker.plugin.configureSerialization
 import com.pgsystem.employee.requirement.tracker.plugin.configureStatusPages
@@ -31,5 +32,5 @@ fun Application.rootModule() {
     configureSecurity()
     configureMonitoring()
     configureApiDocs()
-    configureRouting()
+    configureRouting(HR_AUTH)
 }
