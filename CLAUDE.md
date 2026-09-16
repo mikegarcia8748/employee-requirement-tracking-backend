@@ -8,7 +8,8 @@ and attests, and HR validates. See [docs/employee-requirements-tracker-prd_1.md]
 
 1. Open [docs/roadmap.md](docs/roadmap.md) — it names the next ticket.
 2. Open that ticket's epic file in [docs/backlog/](docs/backlog/). Work only that ticket.
-3. Before you finish, set the ticket's **Status** and update the "Next ticket" line in the roadmap.
+3. Before you finish, set the ticket's **Status** — in its own block **and** on the board — and update
+   the "Next ticket" line in the roadmap. Sub-tasks carry a Status row too.
 
 ## Build
 
@@ -45,13 +46,19 @@ decision reachable only through a handler is a bug.
 
 1. The portal returns document **status** — never content, a signed URL, or an original filename.
    `DocumentStorage.signedUrlFor` is HR-side only; no portal use case may depend on that port.
-2. A bare link resolves to a PIN prompt and nothing else — not a name, not a requirement count.
-3. A wrong PIN and an unknown token are **indistinguishable** in both response and log outcome.
-4. Tokens and PINs are stored hashed. Only `Notifier.sendInvitation` may carry an `AccessPin`.
+2. A valid link resolves to the holder's own checklist; every invalid, expired, suspended or revoked
+   token yields one constant response. The **recovery** page discloses nothing before the PIN is
+   verified — not a name, not a requirement count.
+3. A wrong recovery PIN and an unrecognised address are **indistinguishable** in response and log
+   outcome, as are an unknown token and an expired one.
+4. Tokens and PINs are stored hashed. A PIN is **never emailed**: only the one-time HR recovery
+   response may carry an `AccessPin`. No stored artefact holds a live PIN or plaintext token — the
+   invitation body is rendered at send time and never persisted.
 5. Locked-state upload rejection is server-side, via `RequirementStatus.employeeCanUpload`.
 6. Requirement sets and `expiresAt` are **snapshotted at creation**, never read live.
 7. Every portal access is an append-only row in `portal_access_logs`. There is no `last_accessed_at`.
-8. No submission version is purged while `Employee.retentionFrozen` is true.
+8. No submission version is purged while `Employee.retentionFrozen` is true — which reads
+   `AnomalyFlag.freezesRetention`, so a new flag must choose rather than inherit.
 9. `COMPLETE` is not identity assurance. `originalsSightedAt` is separate and must stay separate.
 
 Full text and rationale: [docs/architecture.md](docs/architecture.md) §12.
@@ -69,7 +76,7 @@ its tests hunting for what the happy path hid, and each finding becomes a new fa
 Name tests `<rule> - <scenario> - <outcome>`:
 
 ```
-hire creation - email duplicates an active hire with no reason given - fails with DuplicateEmailRequiresReason
+hire creation - email duplicates an active hire with no reason given - fails with ReasonRequired
 ```
 
 A failing test should say which business rule broke without opening the file.

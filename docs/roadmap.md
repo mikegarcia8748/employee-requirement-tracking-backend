@@ -1,6 +1,22 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-320 — `RequirementTemplateRepository` adapter](backlog/ERT-300-catalogue-policy.md#ert-320--requirementtemplaterepository-adapter)**
+**Next ticket: [ERT-190 — HR user accounts, roles and sign-in](backlog/ERT-100-foundations.md#ert-190--hr-user-accounts-roles-and-sign-in)**
+
+> **Two blocking questions were answered on 2026-09-16, and one product decision reversed.**
+>
+> **Q4** — a handful of HR staff, local accounts, two roles, no SSO — unblocks **ERT-190**, which now
+> goes **before ERT-410** rather than last. **Q12** — an SMTP relay on internal mail — unblocks
+> **ERT-1010**. Neither ticket is `Blocked` any more, and nothing on the board is.
+>
+> **The portal access model changed: the link alone now opens the portal**, and the 6-digit PIN
+> becomes an HR-issued out-of-band recovery credential for invitations that never arrive. That
+> rewrites PRD §6.6, three of the nine invariants, and most of ERT-600. SEC-01 returns to Critical
+> and is accepted in writing in PRD §12, dated. **Read that acceptance before taking any ERT-600
+> ticket.**
+>
+> **ERT-1110 is a hard gate before ERT-630** and is in its `Depends on` row rather than in a
+> sentence. ERT-410, ERT-420, ERT-440, ERT-610, ERT-660 and ERT-710 remain ready; ERT-720 unblocks
+> when ERT-410 lands, ERT-430 once ERT-320/350/410/420/440 are in.
 
 The full board is [docs/backlog/README.md](backlog/README.md). This file holds sequencing, the
 decision register, and the pointer above. Each session updates that pointer on the way out.
@@ -11,10 +27,10 @@ decision register, and the pointer above. Each session updates that pointer on t
 
 | | |
 |---|---|
-| Built | `core/` value objects and error types · 12 domain models with status logic · 11 ports · 12 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **two Exposed adapters, bound and resolved by a wiring test** — the §6.4 link policy and the append-only audit trail |
-| Empty | `domain/usecase/` · `route/hr/` · `route/portal/` |
+| Built | `core/` value objects and error types · 12 domain models with status logic · 11 ports · 12 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **four Exposed adapters, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue and the reference data · the first three HR routes behind `authenticate(HR_AUTH)` |
+| Empty | `domain/usecase/` · `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
-| Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics`. PRD Appendix B specifies ~38. |
+| Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics`, plus three HR reads — `/api/requirement-templates`, `/api/departments`, `/api/employment-types`. Appendix B specifies the rest. |
 
 The three foundational gaps Phase 0 opened with are closed: `DatabaseFactory.connect()` runs from the
 application lifecycle (ERT-110), Flyway applies a baseline guarded by a drift test (ERT-120), and
@@ -50,15 +66,17 @@ that takes no tracer, traces under a name copied from another file, or imports `
 hand. Correlation came free: Ktor already wraps the call pipeline in an MDC context, so a generated
 `requestId` reaches every suspend frame a request opens and ties a trace line to its access-log line.
 
-Two things were recorded rather than fixed, and both want an owner: **the token pepper cannot be
-rotated** (rotation invalidates every live link and there is no re-issue flow), and **`APP_ENV`
-defaults to dev**, so a deployment that forgets to set it silently gets open docs, open metrics, an
-ephemeral JWT key and an ephemeral pepper — which is why ERT-195 took its own variable rather than
-becoming a fifth control on that one. `.env.example` now documents all thirteen variables.
+Three things were recorded rather than fixed here, and for three epics they had no owner and no gate.
+**They now have both, in [ERT-1100](backlog/ERT-1100-operability-hardening.md)** — which is the point:
+a risk written in prose is a risk nobody is assigned.
 
-A third is now on the list: **`StatusPages` logs `call.request.local.uri` unredacted** at two call
-sites, bypassing the portal-token redaction `Monitoring.kt` applies three files over. Harmless while
-`route/portal/` is empty; a token in a log file the moment it is not.
+| Recorded | Ticket | Gate |
+|---|---|---|
+| **The token pepper cannot be rotated.** Rotation invalidates every live link and session, and there is no re-issue flow | **ERT-1130** | Phase 2, after ERT-1030 |
+| **`APP_ENV` defaults to dev**, so a deployment that forgets it silently gets open docs, open metrics, an ephemeral JWT key and an ephemeral pepper — which is why ERT-195 took its own variable rather than becoming a fifth control on that one | **ERT-1120** | Phase 1 exit |
+| **`StatusPages` logs `call.request.local.uri` unredacted** at two call sites, bypassing the portal-token redaction `Monitoring.kt` applies three files over. Harmless while `route/portal/` is empty; a live credential in a log file the moment it is not — and since 2026-09-16 the token is the *whole* credential | **ERT-1110** | **Before ERT-630**, in its `Depends on` row |
+
+`.env.example` documents every variable the code reads.
 
 ERT-210, ERT-220 and ERT-230 then built the in-memory half of the test harness: ten fakes, a
 `FixedClock` that advances rather than merely pins, deterministic id, token and PIN generators, and a
@@ -166,6 +184,101 @@ catches a credential-shaped *value* only as a tripwire; a bare six-digit rule wa
 rejected because ERT-810's `size_bytes` will collide with it, and a test pins that limit so nobody
 "adds the obvious missing check".
 
+ERT-320 then added the catalogue adapter, and its lesson is about the **seed rather than the SQL**.
+`template_assignments` is seeded as a cross join — four employment types x fourteen templates — and
+`sort_order` was assigned 1..14 in the same order as the ids. Both coincidences hide a defect from
+the ticket's own named tests, and this was measured rather than argued: the adapter was temporarily
+broken twice and the suite re-run. Dropping the `employment_type_id` predicate entirely fails three
+tests, but **dropping the `ORDER BY` entirely fails only one** — the test written specifically to
+break the coincidence, which reverses one row's `sort_order` before reading. Without it ERT-320
+would have shipped green with no ordering at all, and the first symptom would have been a checklist
+that reordered itself on a new hire's phone. **Every adapter from here on reads the same seed**, so
+a test that passes against seeded data has proved less than it looks; ERT-350's departments are the
+next instance, where a single seeded row makes "in name order" vacuous.
+
+Two smaller things settled there. Exposed 1.3's join-on-explicit-columns is the **top-level**
+`org.jetbrains.exposed.v1.core.innerJoin` — the member `ColumnSet.innerJoin` takes only the other
+table, so without that import the named-argument form fails with "no parameter with name
+'onColumn'", which reads as a typo rather than a missing import. And `and` is the same top-level
+trap already recorded for `eq`; `findActiveForEmploymentType` is the first two-predicate `where` in
+the codebase.
+
+ERT-340 then opened `route/hr/` with the first business endpoint, and settled three things every HR
+route after it copies. **The auth scheme name arrives as a parameter.** `HR_AUTH` lives in
+`plugin/Security.kt` and the architecture test fails the build on a route importing `plugin`, so
+`Application.kt` passes it to `configureRouting` the way `Monitoring.kt` already passes it to
+`metricsRoutes`. **The `authenticate` block sits in `Routing.kt`, not in the route file**, which
+keeps each handler auth-agnostic and is what lets a route test mount one against a fake with no
+security plugin — the only way to test the payload at all while `configureSecurity` still signs with
+a random key and **no test can mint a token this application accepts**. That gap is stated in the
+test class rather than worked around with a second `jwt(HR_AUTH)` provider, which would prove the
+duplicate; it closes with Q4.
+
+The third is a live risk retired: `jsonSchema<ApiResponse<List<Dto>>>()` **does** survive the generic
+envelope, so the ERT-145 convention holds for enveloped list responses and no concrete per-route
+wrapper type is needed. That was checked rather than assumed, by deleting the `responses { }` block
+and re-running — the "appears in the generated spec" test **still passes** against an operation with
+no body type at all, and only the test asserting a field name in the document catches it. Any route
+that declares `describe { }` without `responses { }` publishes an operation a client cannot generate
+from, and the obvious test will not say so.
+
+One nuisance worth recording because it reads as nonsense: **Kotlin block comments nest**, so a
+literal `/*` inside a KDoc — writing a path glob like `route/hr` with a star — opens a comment that
+never closes, and the compiler reports "unclosed comment" against the end of the file.
+
+ERT-350 closed the epic and filled a **gap in the port set rather than a missing implementation**:
+`Employee` has always required a `departmentId` and an `employmentTypeId`, and both tables have
+existed since the baseline, but nothing exposed either — so HR could not offer the real list and hire
+creation could not reject an id that does not exist. `EntityId.of` proves an id is well *formed*;
+this proves it *exists*.
+
+The port carries **two existence checks rather than one**, and the reason is worth keeping: a
+department id and an employment type id are both 12-character `EntityId`s and structurally
+indistinguishable, so a single `exists(id)` scanning both tables would answer `true` for a department
+id handed in the `employmentTypeId` slot — §8.2's exact defect, reached through the validator meant
+to prevent it. It is also what lets a caller *name* which id was wrong. Confirmed by breaking it:
+pointing `employmentTypeExists` at `departments` fails only two tests, one of which exists solely to
+ask the cross question. And as predicted, `findDepartments` with **no `ORDER BY` at all** fails only
+the test that inserts three more departments — the seed holds exactly one, so the ticket's own named
+test proves nothing about ordering. **That is now twice in one epic** that a named test was vacuous
+against seeded data; ERT-410 onward should assume it rather than rediscover it.
+
+Two decisions are recorded rather than assumed. `employment_types` has **no `sort_order` column**, so
+the list is alphabetical — which is not the order HR would choose, and that is the missing column
+speaking; adding one is an §8.11 change. And the reference endpoints are **not in PRD Appendix B at
+all** — two resources (`/api/departments`, `/api/employment-types`) rather than one combined payload,
+because `meta.total` is meaningless over a heterogeneous body; both rows are now in the API contract.
+
+**2026-09-16 — the access model was reversed, and the documentation set was closed out.** Two things
+happened in one session and they are worth separating.
+
+The first is a **product decision**: the link alone now opens the portal, and the 6-digit PIN becomes
+an HR-issued recovery credential for invitations that never arrive. It buys an onboarding flow with
+no code to find or mistype — for a population with no company account, often on a borrowed phone,
+who get one chance to find this easy — and it costs every threat where the URL reaches the wrong
+person. SEC-01 returns to Critical, accepted in writing in PRD §12 with a dated statement that
+supersedes rather than overwrites the 2026-09-09 one. The audit's original reasoning is preserved
+deliberately: it is the argument the compensating controls now have to carry alone. **The write-mostly
+portal stopped being the cheapest control and became the only one**, which is why §12's acceptance is
+explicitly void if document preview is ever added back.
+
+One small gain, recorded so the trade does not read as pure loss: the recovery PIN travels by phone or
+in person and never by email, so it is the **first genuinely out-of-band factor** the design has had —
+which is what SEC-01 asked for in the first place, on a narrower path than it wanted.
+
+The second is **hygiene, and there was more of it than the escalation list knew.** Q4 and Q12 were
+answered, unblocking the only two blocked tickets. Five decisions that had been escalated to
+"engineering's call" were made. A cross-document sweep found **22 contradictions**, of which two — C1
+and C2 — were on no list at all and both sat inside the next epic: a 409/422 disagreement that the API
+contract had with *itself*, and an `AppError` case that three documents named and the code has never
+had. Three risks that had lived in prose since Phase 0 became ERT-1110, ERT-1120 and ERT-1130, and the
+first of them now gates ERT-630 through a dependency rather than a sentence.
+
+The lesson worth keeping is the one E5, E6 and C22 share: **a gap without a number is invisible.**
+Malware scanning, the storage target and the token-in-logs defect were all known, all written down,
+and all unowned for three epics — because prose has no status field. Every one of them now has a
+ticket, an owner and a gate.
+
 ---
 
 ## Phases
@@ -188,15 +301,15 @@ runtime and test scaffolding Phase 1 assumes.
 
 PRD §15: §8.1 (create hire), §8.3 (list with progress), §8.4 (detail with preview), §8.6 (upload
 portal), §8.7 (upload limits and versioning), §8.9 (notifications), plus a configurable requirement
-list.
+list — and, since Q4 was answered, HR sign-in (§2).
 
 Three items look deferrable and are not. The PRD is explicit that each is expensive to retrofit
 rather than merely inconvenient:
 
 - **The write-mostly portal** (§8.6) — a rule about what the API returns. Deciding it later means
   unbuilding a preview feature and re-testing every portal endpoint.
-- **The PIN and session model** (§6.6) — retrofitting authentication onto a live public endpoint is a
-  rewrite, not an addition.
+- **The session model and the recovery path** (§6.6) — retrofitting a session boundary onto a live
+  public endpoint is a rewrite, not an addition, and the access trail it feeds cannot be backfilled.
 - **Review-and-submit with attestation** (§7.2) — it changes the data model, and every packet status
   depends on it.
 
@@ -208,55 +321,99 @@ rather than merely inconvenient:
 ## Sequencing
 
 ```
-ERT-100 ──► ERT-200 ──► ERT-300 ──┬─► ERT-400 ──┬─► ERT-500
-foundations  test harness  policy  │  hire       │  HR read side
-                                   │  creation   │
-                                   │             └─► ERT-600 ──► ERT-700 ──┬─► ERT-900 ──► ERT-1000
-                                   │                portal      document   │  review &     notifications
-                                   │                access      upload     │  submit       & link lifecycle
-                                   │                                       │
-                                   └───────────────────────────────────────┴─► ERT-800
-                                                                              HR document access
+ERT-100 ──► ERT-190 ──► ERT-200 ──► ERT-300 ──┬─► ERT-400 ──┬─► ERT-500
+foundations  HR auth     test harness  policy  │  hire       │  HR read side
+                                               │  creation   │
+                                               │             └─► ERT-600 ──► ERT-700 ──┬─► ERT-900 ──► ERT-1000
+                                               │                portal      document   │  review &     notifications
+                                               │                access      upload     │  submit       & link lifecycle
+                                               │                  ▲                    │
+                                               │            ERT-1110                   │
+                                               │            (hard gate)                │
+                                               └───────────────────────────────────────┴─► ERT-800
+                                                                                          HR document access
 ```
 
-**Critical path:** ERT-100 → ERT-200 → ERT-300 → ERT-400 → ERT-600 → ERT-700 → ERT-900.
+**Critical path:** ERT-100 → **ERT-190** → ERT-200 → ERT-300 → ERT-400 → ERT-600 → ERT-700 → ERT-900.
+
+ERT-190 joined the path on 2026-09-16 when Q4 was answered. It is Phase 0 work and delays Phase 1 by
+roughly a session — worth it, because all three costs it avoids are *rework* rather than delay, which
+is what the table below exists to prevent.
 
 ERT-500 and ERT-800 hang off the path and can be taken whenever their dependencies are met — useful
-when you want a shorter session. ERT-1000 closes Phase 1.
+when you want a shorter session. ERT-1000 closes Phase 1. ERT-1100 is cross-cutting: **ERT-1110 gates
+ERT-630**, and the rest are on the Phase 1 exit checklist or later.
 
 ### Orderings that cause rework if reversed
 
 | Do this | Not that | Why |
 |---|---|---|
+| **ERT-190 before ERT-410** | Build the hire mapper first, add users later | ERT-410 writes the row↔domain mapper for `employees.created_by`. Narrowing that column from `varchar(128)` to a `PersonId` foreign key afterwards redoes the mapper, its round-trip test **and** the schema-drift baseline — and ERT-430 meanwhile writes a `created_by` naming nobody, which is a backfill against rows with no correct answer. It also closes the gap ERT-340 recorded: no test can currently mint a token this application accepts, so "requires HR auth" is untested in the positive direction on every route. |
+| **ERT-1110 before ERT-630** | Mount the first portal route, redact the logs later | `StatusPages` logs the request URI unredacted, and ERT-630 creates the first route whose path **is** the credential. A token written to a log file cannot be un-logged, and since 2026-09-16 that token is the whole of authentication rather than half of it. The dependency is in ERT-630's `Depends on` row, because a sentence is not checkable. |
 | **ERT-160 before ERT-433 and ERT-420** | Hash the link token with bcrypt | bcrypt is salted, so a token hashed at issue cannot be recomputed at lookup. Ship it and **every live link becomes unresolvable** — recovery means re-issuing every credential and re-inviting every hire through a bulk send path §8.2 deliberately makes hard. |
-| **ERT-170 before ERT-740** | Write the first portal DTO, guard it later | The realistic failure is not a deliberate preview — it is `mimeType` "for the icon" and `originalFilename` "for the confirmation toast", both of which read as reasonable in review. Removing them later means re-testing every portal endpoint (§8.6, SEC-02). |
-| ERT-600 before ERT-700 | Upload first, PIN gate later | Retrofitting a session model onto a live public upload endpoint is a rewrite (§6.6, SEC-01). The trail gap it leaves is worse: an append-only history cannot be backfilled. |
+| **ERT-170 before ERT-740** | Write the first portal DTO, guard it later | The realistic failure is not a deliberate preview — it is `mimeType` "for the icon" and `originalFilename` "for the confirmation toast", both of which read as reasonable in review. Removing them later means re-testing every portal endpoint (§8.6, SEC-02). **Load-bearing since 2026-09-16:** with the link alone opening the portal, write-mostly is what keeps a leaked link a fraudulent-upload problem rather than a disclosure one. |
+| ERT-600 before ERT-700 | Upload first, session boundary later | Retrofitting a session model onto a live public upload endpoint is a rewrite (§6.6). The trail gap it leaves is worse: an append-only history cannot be backfilled. |
 | ERT-900 inside Phase 1 | Defer attestation to Phase 2 | Attestation changes the data model and every packet status depends on it (§7.2, SEC-07) |
 | ERT-310 before ERT-433 | Hardcode durations, read policy later | If `expiresAt` comes from `LinkPolicy`'s Kotlin defaults rather than `app_setting`, §8.10 is violated from the first row and **nothing detects it** — the numbers are identical. The quietest of these risks. |
 | ERT-610 before ERT-630 | Add the trail once endpoints exist | Invariant 7 admits no gaps, and adding logging to five handlers afterwards means auditing each for early returns — which is exactly where a denied attempt goes. |
 
 ---
 
-## Decision register
+## Phase 1 exit checklist
 
-Nine of the PRD's [§14](employee-requirements-tracker-prd_1.md) open questions are marked blocking
-and none has an owner date. Phase 1 does not wait on them: each runs behind a port that already
-exists, so answering the question later costs an adapter swap rather than a redesign.
+The roadmap has never had one, which is exactly how E5 could be a "named exit risk" that nothing
+checked. Phase 1 is not done until every row is closed or consciously waived in writing.
 
-| # | Question | Owner | Blocks | Proceeding meanwhile |
-|---|---|---|---|---|
-| Q4 | Who are the HR users, how do they authenticate, does SSO exist? | Stakeholder / IT | The HR auth epic, the real protection of every `authenticate(HR_AUTH)` route, and [ERT-190](backlog/ERT-100-foundations.md#ert-190--hr-user-accounts-and-the-persona-model) | The marked-placeholder JWT verifier in [Security.kt](../src/plugin/Security.kt). HR routes are written behind it now. Architecture §14 says it should be **replaced, not extended**. A local `users` table is deliberately **not** built ahead of the answer: if identity lives in an IdP it would be a mirror, not a source of truth. Actors stay free-text `varchar(128)` meanwhile. |
-| Q12 | Email delivery mechanism and sending domain | Engineering / IT | ERT-1010 | ERT-440 writes to an outbox table. Rows become real sends when the adapter lands; no use case changes. |
-| Q2 | The actual requirement checklist, and whether it differs by employment type | HR stakeholder | ERT-130 seed *content* (not its mechanism) | Appendix A seeded and clearly marked illustrative. Templates are data, so replacing them is a seed change. |
-| Q3 | Which documents have validity periods, and how long | HR stakeholder | Phase 4 | Columns already exist and are nullable. |
-| Q5 | Data-protection regime and portal consent notice | Legal / compliance | ERT-912 attestation **text** | Versioned placeholder text. The versioning mechanism is the part that is expensive to add later. |
-| Q16 | Is a phone number available for out-of-band verification of email changes? | HR | Phase 2 `ChangeHireEmailUseCase` | **Genuinely blocked.** Without a channel, SEC-03 is unremediated in practice regardless of what §7.4 says. Flagged, not worked around. |
-| — | Object storage target — no question number in the PRD | Engineering | ERT-710, ERT-810 | Local filesystem adapter behind `DocumentStorage`. Malware scanning (`isClean`) returns a documented stub until a scanner is chosen. |
-| Q1 | How do tenured employees enter the system? | HR / IT | All of Phase 4 | Phase 4 is not scheduled. The §9.3 seams are already open. |
-| Q6 | How does `COMPLETE` reach account provisioning? | IT | The handoff seam | `COMPLETE` is recorded; nothing consumes it yet. |
-| Q9, Q17 | Confirm the §7.1 upload limits and §6.4 / §6.6 defaults | HR / IT | Nothing | Defaults are in the PRD and stored in `app_setting`, changeable without a deployment. |
+| Item | Owner | Ticket |
+|---|---|---|
+| Malware scanning delivered — the `isClean` gate stops being a stub | Engineering / Security | **ERT-1150** (Q22) |
+| `APP_ENV` fails closed, and the deployment's instance assumption is recorded | Engineering | **ERT-1120** |
+| CI runs the build and the suite on every push | Engineering | **ERT-1160** |
+| Sending domain chosen, with SPF/DKIM/DMARC aligned | IT | Q12's second half |
+| Consent notice wording signed off, so the attestation text stops being a placeholder | Legal / compliance | Q5 → ERT-912 |
+| Object-storage project and bucket provisioned, private and encrypted at rest | Engineering | Q20 → ERT-710 |
+| Exception report has a named owner and a stated cadence | HR | Q19 — an unread report is not a control |
+| The §7.1 upload limits and §6.4 defaults confirmed against real use | HR | Q9, Q17 |
+| The real requirement checklist replaces Appendix A's illustrative seed | HR stakeholder | Q2 |
 
 ---
+
+## Decision register
+
+PRD [§14](employee-requirements-tracker-prd_1.md) holds the questions; this table holds **who owes an
+answer, by when, and what proceeds meanwhile**. Every number Q1–Q22 appears here exactly once, which
+is the check that would have caught Q7, Q10, Q11, Q13, Q14, Q15 and Q19 going missing from it.
+
+### Answered
+
+| # | Question | Answer | Landed in |
+|---|---|---|---|
+| Q4 | Who are the HR users, how do they authenticate, is there SSO? | A handful of HR staff; **local accounts, two roles, bcrypt, no SSO.** No separation-of-duties enforcement in v1 | PRD §2, §8.13, §12; architecture §14; **ERT-190** |
+| Q12 | Email delivery mechanism and sending domain | **SMTP relay on internal mail.** The sending domain stays with IT, on the exit checklist | **ERT-440**, **ERT-1010** |
+| Q20 | Object storage target *(opened 2026-09-16; it had no number before)* | **GCP Cloud Storage**, V4 signed URLs, private and encrypted at rest. Filesystem adapter for dev and tests | PRD §12; architecture §14; **ERT-710** |
+| Q21 | The upload MIME allowlist *(opened 2026-09-16)* | The §8.4 preview set — JPEG, PNG, HEIC, HEIF, PDF — **judged on sniffed content**, held in configuration | PRD §12; **ERT-732** |
+
+### Open
+
+| # | Question | Owner | Due | Blocks | Proceeding meanwhile |
+|---|---|---|---|---|---|
+| Q22 | Is ClamAV acceptable, and who runs it? *(opened 2026-09-16)* | Engineering / Security | Phase 1 exit | **ERT-1150** | `isClean` stubbed open with a startup warning; ERT-810 refuses to serve anything that fails it. A **named exit risk, not a delivered control** |
+| Q5 | Data-protection regime and portal consent notice | Legal / compliance | Phase 1 exit | ERT-912's attestation **text** | Versioned placeholder text. The versioning mechanism is the expensive half and is built |
+| Q2 | The actual requirement checklist, and whether it differs by employment type | HR stakeholder | Phase 1 exit | ERT-130's seed *content*, not its mechanism | Appendix A seeded and clearly marked illustrative. Templates are data, so replacing them is a seed change |
+| Q6 | How does `COMPLETE` reach account provisioning? | IT | Phase 1 exit | The handoff seam | `COMPLETE` is recorded; nothing consumes it yet |
+| Q9 | Confirm the §7.1 upload limits and §6.4 defaults | HR / IT | Phase 1 exit | Nothing | Defaults are in the PRD. **Note: the §6.4/§6.6 values are in `app_setting`; the §7.1 upload limits are not** — they are constants on `Submission`, so changing one is a release (C13) |
+| Q17 | Confirm the §6.6 defaults — PIN length, session duration, lockout and suspend thresholds | HR / IT | Phase 1 exit | Nothing | Session and lockout values are settings; **PIN length is a compiled constant** and stays one (C12) |
+| Q11 | Multiple files per requirement in v1? | Design / HR | Phase 1 exit | Nothing | v1 ships one file per requirement; the version chain already models the rest |
+| Q16 | Is a phone number available for out-of-band verification? | HR | Phase 2 | `ChangeHireEmailUseCase` — **and now ERT-650's recovery-PIN hand-off**, which needs the same channel | `VerificationMethod` already offers two non-phone fallbacks (recruiter, in person), so the *model* is not blocked; the **policy** is. Without a channel, SEC-03 is unremediated in practice regardless of what §7.4 says |
+| Q7 | Long-term retention here, or archive into the HRIS? | HR / IT | Phase 2 | The retention sweep | Nothing deletes anything yet |
+| Q10 | Reopen a `COMPLETE` record, and does it need a second approver? | HR | Phase 2 | `ReopenRecordUseCase` | Phase 2 is not expanded into tickets |
+| Q18 | Evidence preservation against data minimisation — which wins? | Legal | Phase 2 | The retention policy's shape | E3 settles *which flags* freeze; this settles *how long* the freeze may last |
+| Q19 | Who owns the exception report, and on what cadence? | HR | Phase 3 | §8.13's value, not its build | The report can be built unowned; an unread report is not a control |
+| Q8 | Expected volume: hires per month, and peak? | HR | Phase 3 | Whether CSV import matters | Import is Phase 3 regardless |
+| Q13 | Reminder cadence, and automatic or HR-approved? | HR | Phase 3 | Reminders | P1, Phase 3 |
+| Q14 | Is a Filipino-language portal needed? | HR | Phase 3 | Nothing | P2 |
+| Q1 | How do tenured employees enter the system? | HR / IT | Before Phase 4 is scheduled | All of Phase 4 | Phase 4 is not scheduled. The §9.3 seams are already open |
+| Q3 | Which documents have validity periods, and how long? | HR stakeholder | Before Phase 4 | Phase 4 | Columns exist and are nullable |
 
 ## Phase 2 — Validation loop and accountability
 
@@ -290,25 +447,49 @@ migration rather than a redesign.
 
 ## Cross-cutting, outside the phases
 
+Now a real epic with real tickets: [ERT-1100](backlog/ERT-1100-operability-hardening.md).
+
 | Epic | Covers | Gate |
 |---|---|---|
-| HR authentication | Replace the placeholder JWT scheme with the real model; add a user store or SSO integration | Q4 |
-| Security hardening | Malware scanning before a file becomes previewable; retention policy with scheduled deletion, suspended while an anomaly flag is open | Q7, Q18 |
-| Documentation hygiene | The root README is still stock Ktor generator boilerplate and advertises deleted features | — |
+| HR authentication | Replace the placeholder JWT scheme with the real model; local `users`, two roles, sign-in | **Q4 answered — ERT-190, next** |
+| Security hardening | Malware scanning before a file becomes previewable; pepper rotation; retention sweep with the freeze honoured | **ERT-1150** (Q22), **ERT-1130**; retention needs Q7 and Q18 |
+| Operability | `APP_ENV` fails closed, startup summary, deployment configuration, CI | **ERT-1120**, **ERT-1160** |
+| Documentation hygiene | The root README is still stock Ktor generator boilerplate and advertises deleted features; the unused R2DBC dependencies | **ERT-1140** |
 
 ---
 
 ## Contradictions and gaps to escalate
 
-Found while writing the backlog. Each is a specification question, not an implementation choice, and
-none should be resolved silently in code. Owners are suggestions.
+Found while writing the backlog, and extended by a full cross-document sweep on 2026-09-16. **Every
+row is kept, resolved or not** — the history is the point, and a deleted row is one a future reader
+re-files. E1–E8 came from the first pass; C1–C22 from the sweep, of which the ones still worth
+tracking are listed.
 
-| # | Issue | Where | Suggested owner |
-|---|---|---|---|
-| E1 | **§7.2 asks for thumbnails on the review screen; §8.6 forbids the portal returning a preview.** A direct contradiction between two P0 sections. §8.6 carries the audit disposition for SEC-02 and §15 names the write-mostly portal as non-negotiable, so §8.6 should win and §7.2 should be amended. The backlog builds to §8.6. | PRD §7.2 line 230 vs §8.6 line 355 | PRD owner |
-| E2 | **The upload MIME allowlist is never stated.** §12 requires "file type allowlist … enforced server-side"; §8.4 names JPG, PNG, HEIC and PDF for *preview* and says other formats "offer download only", implying they are accepted. There is no question number for this. ERT-732 starts from the §8.4 preview set as configuration. | PRD §12 line 548, §8.4 | HR / Engineering — open a question next to Q11 |
-| E3 | **A duplicate-email override silently freezes retention.** `Employee.retentionFrozen` derives from `anomalyFlags.isNotEmpty()`, so the `SHARED_EMAIL` flag set by an §8.1 override suspends version purging for that hire. §7.1 scopes the freeze to "a fraud or anomaly flag" — whether a shared address counts is undefined. ERT-734 implements the freeze as written and flags it. | `Employee.kt:35`, PRD §7.1, §8.1 | PRD owner |
-| E4 | **§8.1 requires an invite-delivery failure indicator; §11 models no column for it.** Recommendation is to derive it from the audit log rather than add a column, but that is an inference, not the PRD's instruction. | PRD §8.1 vs §11 | PRD owner |
-| E5 | **Malware scanning is a P0 control in §12 with no library, no owner and no question number.** ERT-710 wires the `isClean` gate and stubs it to `true`; ERT-810 refuses to serve anything that fails it. That makes it a **named Phase 1 exit risk, not a delivered control.** | PRD §12 line 550 | Engineering / Security |
-| E6 | **No object-storage target has been chosen and the PRD asks no question about it.** ERT-710 uses a filesystem adapter with an opaque key scheme so the swap stays a binding change. | PRD §11, §12 | Engineering |
-| E7 | **The audit doc says 14 findings; the dispositions table lists SEC-01 through SEC-15.** Cosmetic, but the count is quoted in the PRD's own changelog. | `2026-09-09-security-audit.md` | Audit author |
+| # | Issue | Resolution |
+|---|---|---|
+| E1 | §7.2 asked for thumbnails on the review screen; §8.6 forbids the portal returning a preview | **Closed.** §8.6 wins; PRD v0.5 amended §7.2. The API contract keeps a note so a reader of an older §7.2 does not re-file it |
+| E2 | The upload MIME allowlist was never stated | **Closed as Q21.** JPEG, PNG, HEIC, HEIF, PDF — sniffed, configurable. PRD §12, ERT-732 |
+| E3 | A duplicate-email override silently froze retention, because `retentionFrozen` derived from `anomalyFlags.isNotEmpty()` | **Closed.** Freezes on the four evidentiary flags only; `SHARED_EMAIL` and `SEPARATION_OF_DUTIES` do not. PRD §7.1, ERT-734, invariant 8. **PRD owner to ratify** |
+| E4 | §8.1 required an invite-delivery-failure indicator; §11 modelled no column | **Closed.** Derived from the latest outbox row, with the audit log as history — better than the audit-log-only guess, which predated ERT-440's outbox being settled |
+| E5 | Malware scanning was a P0 control with no library, no owner and no question number | **Converted to Q22 + ERT-1150.** ClamAV via `clamd`, Engineering / Security, Phase 1 exit. Still a named exit risk, but now one with a gate |
+| E6 | No object-storage target chosen, and the PRD asked no question about it | **Closed as Q20.** GCP Cloud Storage; filesystem for dev. The port's shape now matches presign-with-a-TTL |
+| E7 | The audit said 14 findings; the dispositions listed SEC-01…SEC-15 | **Closed.** Five Mediums, not four; 15 findings. Corrected in the audit with a dated note, and in PRD §0 and architecture §1 |
+| E8 | Unknown department or employment type — 404 or 422? | **Closed: 422**, two codes. Stated once in the API contract; ERT-300's wording corrected; **ERT-431 implements it** |
+| C1 | `ReasonRequired` maps to 422 in code and in the API contract's error table, but three other places said **409** for the duplicate-email case — and the API contract contradicted itself | **Closed: 422.** `Conflict` would drop the `details` entry naming `duplicateReason`, which is why `ReasonRequired` exists as a separate case. **This was never on the escalation list and would have surfaced as a failing test in ERT-450** |
+| C2 | `DuplicateEmailRequiresReason` was cited as an `AppError` case in CLAUDE.md, architecture §5 and ERT-431 — **it does not exist** | **Closed.** Three documents were prescribing an unapproved specification change. The rule is carried by `ReasonRequired(code, action)` |
+| C4 | Attestation-version failure: the API contract collapsed "missing or unknown" into 422; ERT-912 split missing (422) from stale (409) | **Closed.** Missing → 422, stale → 409 carrying the current version |
+| C5 | The audit's proposed §14 questions 15–19 were silently renumbered when folded into the PRD, and one was dropped | **Documented, not renumbered.** PRD §14 carries a note: cross-reference the audit by wording, not by number. Renumbering now would break 26 citations |
+| C9 | Port count said 12 in the roadmap, 11 in architecture; there are 11 — and `ReferenceDataRepository` has **no fake** | **Closed.** Count corrected; the missing fake is now in ERT-431's file list, where nothing previously recorded it as anyone's job |
+| C12 | PIN length is a compiled constant, but §8.10 and Q17 treated it as configurable | **Closed.** §8.10 now names which §6.6 values are settings and says plainly that PIN length is not |
+| C13 | The register claimed the §7.1 upload limits live in `app_setting` — **they do not**; only the nine §6.4/§6.6 keys are seeded | **Closed.** Q9's row now says so, and ERT-732 names `UPLOAD_MIME_ALLOWLIST` as its actual configuration surface |
+| C14 | Session management was Phase 2 in the API contract, Phase 3 in three places, P1 in two | **Closed: Phase 3.** Priority and phase are different axes; the storage it reads is still built in Phase 1 |
+| C15 | ERT-620's criterion asserted `findActiveForLink` "returns every live session" — the port takes no clock, so it could not | **Closed.** The port grows a `now` parameter. Filtering in the caller would put the same expiry rule in every call site |
+| C17 | ERT-644 and ERT-1040 carried identical acceptance criteria, so whichever ran second would duplicate or drop the work | **Closed.** ERT-644 owns the *gate*, ERT-1040 owns the *copy* |
+| C18 | Phase 1 promised a "request a new link" affordance whose endpoint is Phase 2 | **Closed.** Phase 1 explains, and names no action. PRD §6.4's "expiry is recoverable" is true from Phase 2; until then recovery is `resend-link` or ERT-650's PIN |
+| C20 | Architecture §9 asserted and retracted the same claim in one paragraph | **Closed.** §9 states the corrected claim outright |
+| C21 | §12 said "sliding expiry from last activity"; §6.4 says two clocks with the earlier winning. A reader implementing §12 literally would build only the idle clock | **Closed.** §12 now names both clocks |
+| C22 | `StatusPages` logs the request URI unredacted at two call sites — a known invariant-4 violation with no ticket | **Closed as ERT-1110**, gating ERT-630 through a `Depends on` row |
+
+**Still open, and deliberately so:** the PRD has **no owner**. E3's ratification, and any future
+contradiction between two P0 sections, route to a role nobody holds. Escalated 2026-09-16, due
+2026-09-30, HR sponsor.

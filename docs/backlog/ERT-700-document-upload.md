@@ -55,8 +55,16 @@ editable, and is refused server-side when locked.
 
 **Description**
 
-The object-storage target is undecided and has **no question number in the PRD** — one should be
-opened. A filesystem adapter under `STORAGE_ROOT`, outside the repository, unblocks the epic.
+**The object-storage target is now Q20, answered 2026-09-16: GCP Cloud Storage.** This ticket still
+ships the filesystem adapter under `STORAGE_ROOT`, outside the repository — nothing in Phase 1 depends
+on the provider, because `DocumentStorage` hides it, and dev and tests want a local one regardless.
+
+Naming the target changes the adapter's **shape**, which is why it matters now rather than later. The
+port is written against put / get / delete / **presign-with-a-TTL**, because that is what GCS V4
+signed URLs offer. **So the filesystem adapter must mint its own expiring, MAC'd URL** — reuse
+`TokenDigest` and the existing pepper so that no new secret appears — rather than returning a path
+this application serves. Get that wrong and ERT-810 is rewritten when the provider lands, which is
+exactly the migration the port exists to prevent.
 
 The swap to real object storage is one Koin binding **provided the key scheme is opaque from day
 one**: `{employeeId}/{requirementId}/v{version}/{random}` with **no filename component**. That
@@ -69,7 +77,10 @@ data migration rather than a binding change.
 
 `isClean` returns `true` with a startup warning naming the gap. Wire the gate anyway — ERT-810 calls
 it and renders "pending scan" on `false` — so the seam is live and swapping in a scanner is one
-adapter.
+adapter. **The scanner is Q22 and ERT-1150: ClamAV via `clamd` on a local socket**, deliberately not
+a hosted scanning API, because shipping government IDs and medical results to a third party is a
+disclosure decision rather than a procurement one. Until ERT-1150 lands this is a named Phase 1 exit
+risk, not a delivered control.
 
 **Goal**
 
@@ -198,6 +209,7 @@ Every §8.7 and §7.1 rule is proven against fakes.
 |---|---|
 | **Parent** | ERT-730 |
 | **Type** | Sub-task |
+| **Status** | Not started |
 | **Depends on** | ERT-210 |
 | **PRD** | §8.7, §6.1 |
 
@@ -234,6 +246,7 @@ because a re-derivation is what drifts when `EXPIRED` arrives in Phase 4.
 |---|---|
 | **Parent** | ERT-730 |
 | **Type** | Sub-task |
+| **Status** | Not started |
 | **Depends on** | ERT-731 |
 | **PRD** | §7.1, §8.6, §12 |
 
@@ -242,18 +255,26 @@ because a re-derivation is what drifts when `EXPIRED` arrives in Phase 4.
 The constants already exist on [`Submission`](../../src/domain/model/Submission.kt): 10 MB per file,
 100 MB per employee, 5 versions retained. Nothing reads them yet.
 
-**The MIME allowlist is genuinely undefined in the PRD.** §12 requires a "file type allowlist …
-enforced server-side" but never states it, and §8.4 names JPG, PNG, HEIC and PDF for *preview* while
-saying "other formats offer download only" — which implies other formats are accepted. Start with the
-§8.4 preview set, make it configuration rather than a constant, and raise it with HR; it needs a
-question number next to Q11. Do not silently invent a permissive list.
+**The MIME allowlist is Q21, answered 2026-09-16 and written into PRD §12:** `image/jpeg`,
+`image/png`, `image/heic`, `image/heif`, `application/pdf`. HEIF sits beside HEIC because iPhones emit
+both.
+
+That is the §8.4 preview set, and starting there buys a property worth having rather than merely
+resolving an ambiguity: **every accepted file is one HR can look at in the browser.** A format HR must
+download to read is a format that gets reviewed less carefully — and careful review is the control
+§8.5 depends on. Office formats are excluded deliberately: a `.docx` is a zip of XML, it is not
+previewable, and no §6 requirement asks for one. A certificate of employment often arrives as a Word
+file, so HR will eventually want it — which is precisely why the list is **configuration**
+(`UPLOAD_MIME_ALLOWLIST`, defaulting to the five) and not a constant. Adding a type should be a
+decision taken with its eyes open, not a permissive default nobody chose.
 
 **Acceptance criteria**
 - [ ] Given a file over the size limit, then upload is blocked with a message stating the actual
       limit (§8.6)
 - [ ] `[derived]` Given an upload that would take the employee over 100 MB, then it is refused
 - [ ] `[derived]` Given a MIME type outside the allowlist, then it is refused server-side
-- [ ] `[derived]` Given the allowlist, then it is read from configuration, not compiled in
+- [ ] `[derived]` Given the allowlist, then it is read from `UPLOAD_MIME_ALLOWLIST`, defaulting to
+      the five types in §12, and is not compiled in
 - [ ] `[derived]` Given a declared MIME type that disagrees with the file's actual content, then the
       content wins — a client-declared type is not a control
 
@@ -273,6 +294,7 @@ question number next to Q11. Do not silently invent a permissive list.
 |---|---|
 | **Parent** | ERT-730 |
 | **Type** | Sub-task |
+| **Status** | Not started |
 | **Depends on** | ERT-732 |
 | **PRD** | §7.1, §9.3 |
 
@@ -303,6 +325,7 @@ question number next to Q11. Do not silently invent a permissive list.
 |---|---|
 | **Parent** | ERT-730 |
 | **Type** | Sub-task |
+| **Status** | Not started |
 | **Depends on** | ERT-733 |
 | **PRD** | §7.1, §8.7 |
 | **Architecture** | §12 invariant 8 |
@@ -317,15 +340,26 @@ The freeze must be read from
 [`Employee.retentionFrozen`](../../src/domain/model/Employee.kt), never from a parameter the
 caller chooses — a caller-supplied flag is a caller-supplied bypass.
 
-> **Unresolved, and it changes behaviour.** `retentionFrozen` derives from `anomalyFlags.isNotEmpty()`,
-> so `SHARED_EMAIL` — set by a duplicate-email override in ERT-431 — silently suspends version
-> purging for that hire. §7.1 scopes the freeze to "a fraud or anomaly flag", and whether a shared
-> address counts is undefined. Do not resolve this in code; it is on the roadmap's escalation list.
+> **Settled 2026-09-16 (E3), and it changes behaviour from what this ticket first described.**
+> `retentionFrozen` derived from `anomalyFlags.isNotEmpty()`, so `SHARED_EMAIL` — set by a
+> duplicate-email override in ERT-431 — silently suspended purging for that hire. It now reads
+> `anomalyFlags.any { it.freezesRetention }`, with the classification **on the flag** so that a new
+> flag must choose rather than inherit.
+>
+> **Freezes:** `SUSPECTED_FRAUD`, `ACCESS_ANOMALY`, `PIN_FAILURE_SUSPENSION`, `REPEATED_REJECTIONS` —
+> each says the uploads themselves may be contested, and §7.1's own threat, erasing a forgery by
+> uploading replacements, *is* repeated replacement.
+> **Does not freeze:** `SHARED_EMAIL`, `SEPARATION_OF_DUTIES` — administrative facts about how the
+> record was handled, not about the documents. `SEPARATION_OF_DUTIES` is what decides it: with Q4
+> answered as a handful of staff and no enforced separation, it would fire on nearly every record and
+> disable retention entirely.
 
 **Acceptance criteria**
 - [ ] Given more than 5 versions exist, then the oldest is purged from storage (§8.7)
-- [ ] Given a record with an open fraud or anomaly flag, then no version is purged until the flag is
+- [ ] Given a record with an open **evidentiary** flag, then no version is purged until the flag is
       cleared (§8.7)
+- [ ] `[derived]` Given a record whose only flag is `SHARED_EMAIL`, then purging proceeds normally —
+      the pair below is what keeps E3 enforced in code rather than settled only in prose
 - [ ] `[derived]` Given the flag is later cleared, then purging resumes on the next upload
 - [ ] `[derived]` Given a purge, then the bytes are removed from storage and the row from the database
 - [ ] `[derived]` Given the freeze check, then it reads the employee's own flags and accepts no
@@ -335,7 +369,8 @@ caller chooses — a caller-supplied flag is a caller-supplied bypass.
 | Level | Test |
 |---|---|
 | Use case | `version retention - a sixth version is uploaded - the oldest is purged from storage and the database` |
-| Use case | `version retention - a sixth version uploaded while an anomaly flag is open - nothing is purged` |
+| Use case | `version retention - a sixth version uploaded while a suspected-fraud flag is open - nothing is purged` |
+| Use case | `version retention - a sixth version uploaded while only a shared-email flag is open - the oldest is still purged` |
 | Use case | `version retention - the flag is later cleared - purging resumes` |
 | Use case | `version retention - the freeze - is read from the employee record and cannot be overridden by the caller` |
 
@@ -448,7 +483,7 @@ requirement returns 409.
 - [ ] `[derived]` Given any response from this route, then it carries no original filename, storage
       key or URL
 - [ ] `[derived]` Given the upload, then it is recorded in the access trail with action `UPLOAD`
-- [ ] `[derived]` Given no verified session, then the PIN prompt is returned and nothing is stored
+- [ ] `[derived]` Given no verified session, then the request is refused and nothing is stored
 
 **Tests**
 | Level | Test |
@@ -553,7 +588,7 @@ is added.
       applies (§6.4)
 - [ ] `[derived]` Given the absolute ceiling is nearer, then the touch never extends access past it
 - [ ] `[derived]` Given a failed or denied action, then the idle clock does not move — an attacker
-      guessing PINs must not keep the link alive
+      guessing recovery PINs must not keep the link alive
 - [ ] `[derived]` Given the schema, then no `last_accessed_at` column is added
 
 **Tests**

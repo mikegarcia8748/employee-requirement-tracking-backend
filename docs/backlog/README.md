@@ -3,16 +3,18 @@
 Every unit of work, one row each. Open [docs/roadmap.md](../roadmap.md) for sequencing, the decision
 register, the escalation list, and the pointer to what is next.
 
-**10 epics · 49 tickets · 17 sub-tasks.**
+**11 epics · 55 tickets · 17 sub-tasks.**
 Phase 0 and Phase 1 are specified to ticket depth. Phases 2–4 are epic-level entries in the roadmap,
-expanded when their predecessor closes.
+expanded when their predecessor closes. ERT-1100 is cross-cutting and its tickets carry gates rather
+than a phase.
 
 Status values: `Not started` · `In progress` · `Done` · `Blocked`. A session updates the status of the
-ticket it takes, both here and in the ticket's own block.
+ticket it takes **in two places** — here and in the ticket's own block. Sub-tasks carry a Status row
+too, because a session working one opens the epic file and never opens this page.
 
 ## [ERT-100](ERT-100-foundations.md) — Runtime foundations
 
-Phase 0 · depends on —
+Phase 0 · depends on — · **In progress — ten of eleven Done; ERT-190 is the last**
 
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
@@ -25,12 +27,12 @@ Phase 0 · depends on —
 | [ERT-160](ERT-100-foundations.md#ert-160--deterministic-token-digest-separate-from-pin-hashing) | Deterministic token digest, separate from PIN hashing | Ticket | — | Done |
 | [ERT-170](ERT-100-foundations.md#ert-170--architecture-guards-for-the-write-mostly-rule) | Architecture guards for the write-mostly rule | Ticket | — | Done |
 | [ERT-180](ERT-100-foundations.md#ert-180--short-alphanumeric-identifiers-replace-uuids) | Short alphanumeric identifiers replace UUIDs | Ticket | ERT-120, ERT-130 | Done |
-| [ERT-190](ERT-100-foundations.md#ert-190--hr-user-accounts-and-the-persona-model) | HR user accounts and the persona model | Ticket | ERT-180, Q4 | Blocked |
+| [ERT-190](ERT-100-foundations.md#ert-190--hr-user-accounts-roles-and-sign-in) | HR user accounts, roles and sign-in | Ticket | ERT-180, ERT-240, ERT-330 | Not started |
 | [ERT-195](ERT-100-foundations.md#ert-195--dev-only-tracing-of-use-case-execution) | Dev-only tracing of use case execution | Ticket | ERT-150 | Done |
 
 ## [ERT-200](ERT-200-test-harness.md) — Test harness
 
-Phase 0 · depends on ERT-120
+Phase 0 · depends on ERT-120 · **Done**
 
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
@@ -41,15 +43,15 @@ Phase 0 · depends on ERT-120
 
 ## [ERT-300](ERT-300-catalogue-policy.md) — Requirement catalogue and link policy
 
-Phase 1 · depends on ERT-130, ERT-240
+Phase 1 · depends on ERT-130, ERT-240 · **Done**
 
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
-| [ERT-310](ERT-300-catalogue-policy.md#ert-310--appsettingsrepository-adapter-with-64-bounds-enforcement) | `AppSettingsRepository` adapter with §6.4 bounds enforcement | Ticket | ERT-130, ERT-240 | **Done** |
-| [ERT-320](ERT-300-catalogue-policy.md#ert-320--requirementtemplaterepository-adapter) | `RequirementTemplateRepository` adapter | Ticket | ERT-130, ERT-240 | Not started |
-| [ERT-330](ERT-300-catalogue-policy.md#ert-330--auditlog-adapter) | `AuditLog` adapter | Ticket | ERT-240 | **Done** |
-| [ERT-340](ERT-300-catalogue-policy.md#ert-340--get-apirequirement-templates) | `GET /api/requirement-templates` | Ticket | ERT-140, ERT-320 | Not started |
-| [ERT-350](ERT-300-catalogue-policy.md#ert-350--referencedatarepository-for-departments-and-employment-types) | `ReferenceDataRepository` for departments and employment types | Ticket | ERT-130, ERT-140, ERT-240 | Not started |
+| [ERT-310](ERT-300-catalogue-policy.md#ert-310--appsettingsrepository-adapter-with-64-bounds-enforcement) | `AppSettingsRepository` adapter with §6.4 bounds enforcement | Ticket | ERT-130, ERT-240 | Done |
+| [ERT-320](ERT-300-catalogue-policy.md#ert-320--requirementtemplaterepository-adapter) | `RequirementTemplateRepository` adapter | Ticket | ERT-130, ERT-240 | Done |
+| [ERT-330](ERT-300-catalogue-policy.md#ert-330--auditlog-adapter) | `AuditLog` adapter | Ticket | ERT-240 | Done |
+| [ERT-340](ERT-300-catalogue-policy.md#ert-340--get-apirequirement-templates) | `GET /api/requirement-templates` | Ticket | ERT-140, ERT-320 | Done |
+| [ERT-350](ERT-300-catalogue-policy.md#ert-350--referencedatarepository-for-departments-and-employment-types) | `ReferenceDataRepository` for departments and employment types | Ticket | ERT-130, ERT-140, ERT-240 | Done |
 
 ## [ERT-400](ERT-400-hire-creation.md) — Hire creation
 
@@ -57,15 +59,15 @@ Phase 1 · depends on ERT-300
 
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
-| [ERT-410](ERT-400-hire-creation.md#ert-410--employeerepository-adapter-and-rowdomain-mapper) | `EmployeeRepository` adapter and row↔domain mapper | Ticket | ERT-240 | Not started |
+| [ERT-410](ERT-400-hire-creation.md#ert-410--employeerepository-adapter-and-rowdomain-mapper) | `EmployeeRepository` adapter and row↔domain mapper | Ticket | ERT-190, ERT-240 | Not started |
 | [ERT-420](ERT-400-hire-creation.md#ert-420--uploadlinkrepository-adapter-resolved-by-token-hash) | `UploadLinkRepository` adapter, resolved by token hash | Ticket | ERT-160, ERT-240 | Not started |
-| [ERT-430](ERT-400-hire-creation.md#ert-430--createhireusecase) | `CreateHireUseCase` | Ticket | ERT-210, ERT-230, ERT-310, ERT-320, ERT-410, ERT-420, ERT-440 | Not started |
+| [ERT-430](ERT-400-hire-creation.md#ert-430--createhireusecase) | `CreateHireUseCase` | Ticket | ERT-190, ERT-210, ERT-230, ERT-310, ERT-320, ERT-350, ERT-410, ERT-420, ERT-440 | Not started |
 | [ERT-431](ERT-400-hire-creation.md#ert-431--email-validation-and-duplicate-on-active-with-typed-reason) | ↳ Email validation and duplicate-on-active with typed reason | Sub-task | ERT-210, ERT-230 | Not started |
 | [ERT-432](ERT-400-hire-creation.md#ert-432--requirement-set-snapshot-from-the-template-catalogue) | ↳ Requirement-set snapshot from the template catalogue | Sub-task | ERT-431 | Not started |
-| [ERT-433](ERT-400-hire-creation.md#ert-433--token-and-pin-issue-hashed-with-expiresat-computed-from-policy) | ↳ Token and PIN issue, hashed, with `expiresAt` computed from policy | Sub-task | ERT-432 | Not started |
+| [ERT-433](ERT-400-hire-creation.md#ert-433--token-issue-digested-with-expiresat-computed-from-policy) | ↳ Token issue, digested, with `expiresAt` computed from policy | Sub-task | ERT-432 | Not started |
 | [ERT-434](ERT-400-hire-creation.md#ert-434--invitation-dispatch-and-surviving-delivery-failure) | ↳ Invitation dispatch and surviving delivery failure | Sub-task | ERT-433, ERT-440 | Not started |
 | [ERT-440](ERT-400-hire-creation.md#ert-440--notifier-dev-adapter-outbox-table-no-smtp) | `Notifier` dev adapter: outbox table, no SMTP | Ticket | ERT-120 | Not started |
-| [ERT-450](ERT-400-hire-creation.md#ert-450--post-apiemployees-and-its-dtos) | `POST /api/employees` and its DTOs | Ticket | ERT-140, ERT-430 | Not started |
+| [ERT-450](ERT-400-hire-creation.md#ert-450--post-apiemployees-and-its-dtos) | `POST /api/employees` and its DTOs | Ticket | ERT-140, ERT-190, ERT-430 | Not started |
 
 ## [ERT-500](ERT-500-hr-read-side.md) — HR read side
 
@@ -86,13 +88,13 @@ Phase 1 · depends on ERT-160, ERT-170, ERT-400
 |---|---|---|---|---|
 | [ERT-610](ERT-600-portal-access.md#ert-610--portalaccesstrail-adapter-append-only) | `PortalAccessTrail` adapter, append-only | Ticket | ERT-240 | Not started |
 | [ERT-620](ERT-600-portal-access.md#ert-620--portalsessionrepository-and-the-server-side-session-cookie) | `PortalSessionRepository` and the server-side session cookie | Ticket | ERT-120, ERT-160, ERT-610 | Not started |
-| [ERT-630](ERT-600-portal-access.md#ert-630--get-apiportaltoken-pin-prompt-only-no-packet-data) | `GET /api/portal/{token}`: PIN prompt only, no packet data | Ticket | ERT-170, ERT-620 | Not started |
-| [ERT-640](ERT-600-portal-access.md#ert-640--verifyportalpinusecase) | `VerifyPortalPinUseCase` | Ticket | ERT-210, ERT-310, ERT-610 | Not started |
-| [ERT-641](ERT-600-portal-access.md#ert-641--identical-failure-for-wrong-pin-and-unknown-token) | ↳ Identical failure for wrong PIN and unknown token | Sub-task | ERT-210 | Not started |
+| [ERT-630](ERT-600-portal-access.md#ert-630--get-apiportaltoken-resolve-the-link-and-open-a-session) | `GET /api/portal/{token}`: resolve the link and open a session | Ticket | ERT-170, ERT-620, **ERT-1110** | Not started |
+| [ERT-640](ERT-600-portal-access.md#ert-640--redeemrecoverypinusecase) | `RedeemRecoveryPinUseCase` | Ticket | ERT-210, ERT-310, ERT-610 | Not started |
+| [ERT-641](ERT-600-portal-access.md#ert-641--identical-failure-for-a-wrong-pin-and-an-unrecognised-address) | ↳ Identical failure for a wrong PIN and an unrecognised address | Sub-task | ERT-210 | Not started |
 | [ERT-642](ERT-600-portal-access.md#ert-642--temporary-lockout) | ↳ Temporary lockout | Sub-task | ERT-641, ERT-220 | Not started |
 | [ERT-643](ERT-600-portal-access.md#ert-643--auto-suspend-with-hr-notified) | ↳ Auto-suspend with HR notified | Sub-task | ERT-642 | Not started |
 | [ERT-644](ERT-600-portal-access.md#ert-644--session-issue-and-link-state-gates) | ↳ Session issue and link-state gates | Sub-task | ERT-643, ERT-620 | Not started |
-| [ERT-650](ERT-600-portal-access.md#ert-650--post-apiportaltokenverify) | `POST /api/portal/{token}/verify` | Ticket | ERT-630, ERT-640, ERT-660 | Not started |
+| [ERT-650](ERT-600-portal-access.md#ert-650--post-apiportalrecover-and-post-apiemployeesidrecovery-pin) | `POST /api/portal/recover` and `POST /api/employees/{id}/recovery-pin` | Ticket | ERT-630, ERT-640, ERT-660 | Not started |
 | [ERT-660](ERT-600-portal-access.md#ert-660--rate-limiting-on-every-public-portal-endpoint) | Rate limiting on every public portal endpoint | Ticket | ERT-140 | Not started |
 
 ## [ERT-700](ERT-700-document-upload.md) — Document upload
@@ -141,7 +143,21 @@ Phase 1 · depends on ERT-900
 
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
-| [ERT-1010](ERT-1000-notifications-link-lifecycle.md#ert-1010--notifier-production-adapter) | `Notifier` production adapter | Ticket | ERT-440 | **Blocked on Q12** |
+| [ERT-1010](ERT-1000-notifications-link-lifecycle.md#ert-1010--notifier-production-adapter-smtp-relay) | `Notifier` production adapter: SMTP relay | Ticket | ERT-440 | Not started |
 | [ERT-1020](ERT-1000-notifications-link-lifecycle.md#ert-1020--expiry-sweep-idle-and-absolute-clocks-one-warning-if-incomplete) | Expiry sweep: idle and absolute clocks, one warning if incomplete | Ticket | ERT-420, ERT-440 | Not started |
 | [ERT-1030](ERT-1000-notifications-link-lifecycle.md#ert-1030--resend-link-extend-link-revoke-link) | `resend-link`, `extend-link`, `revoke-link` | Ticket | ERT-450, ERT-520 | Not started |
 | [ERT-1040](ERT-1000-notifications-link-lifecycle.md#ert-1040--portal-terminal-states) | Portal terminal states | Ticket | ERT-740, ERT-1020 | Not started |
+
+## [ERT-1100](ERT-1100-operability-hardening.md) — Operability and hardening
+
+Cross-cutting · depends on —
+
+| ID | Title | Type | Depends on | Status |
+|---|---|---|---|---|
+| [ERT-1110](ERT-1100-operability-hardening.md#ert-1110--redact-the-request-uri-in-statuspages-logging) | Redact the request URI in `StatusPages` logging | Ticket | ERT-140 | Not started |
+| [ERT-1120](ERT-1100-operability-hardening.md#ert-1120--app_env-fails-closed-and-one-deployment-configuration-check) | `APP_ENV` fails closed, and one deployment-configuration check | Ticket | ERT-195 | Not started |
+| [ERT-1130](ERT-1100-operability-hardening.md#ert-1130--token-pepper-rotation-and-credential-re-issue) | Token pepper rotation and credential re-issue | Ticket | ERT-1030 | Not started |
+| [ERT-1140](ERT-1100-operability-hardening.md#ert-1140--documentation-hygiene-root-readme-and-the-unused-r2dbc-dependencies) | Documentation hygiene: root README and the unused R2DBC dependencies | Ticket | — | Not started |
+| [ERT-1150](ERT-1100-operability-hardening.md#ert-1150--malware-scanning-behind-the-isclean-gate) | Malware scanning behind the `isClean` gate | Ticket | ERT-710, ERT-810 | **Blocked on Q22** |
+| [ERT-1160](ERT-1100-operability-hardening.md#ert-1160--ci-build-and-test-on-every-push) | CI: build and test on every push | Ticket | — | Not started |
+

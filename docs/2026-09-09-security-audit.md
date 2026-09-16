@@ -16,10 +16,12 @@ Trigger for this audit: the upload link is a bearer credential, and the PRD does
 
 Inferred from the PRD, because no role model has been confirmed yet (PRD §14, Blocking Q4). **Confirm this before acting on the audit.**
 
+> **Q4 was answered on 2026-09-16**, so the inferred model below is now confirmed in part. HR users authenticate with **local accounts held in this system** — email, bcrypt password, no SSO — in two roles. The roles differ in *configuration* rights only; validation rights are identical, so **SEC-10's disposition is unchanged** and "we have two roles now" does not close it. PRD §2 and §8.13 carry the detail.
+
 | Actor | Authenticates via | May read | May write |
 |---|---|---|---|
-| HR Officer | Unspecified — open question | Every hire record and every submitted document | Create hires, edit details incl. email, approve/reject, resend/revoke links, reopen completed records |
-| HR Admin | Unspecified | As HR Officer | Plus requirement templates and link policy settings |
+| HR Officer | Local account, password, role `HR_OFFICER` (confirmed 2026-09-16) | Every hire record and every submitted document | Create hires, edit details incl. email, approve/reject, resend/revoke links, reopen completed records |
+| HR Admin | Local account, password, role `HR_ADMIN` (confirmed 2026-09-16) | As HR Officer | Plus requirement templates and link policy settings |
 | New Hire | **Possession of a URL. Nothing else.** | Own checklist, own submitted documents, rejection reasons | Upload and replace own documents, submit packet |
 | Anyone holding the URL | — | **Identical to New Hire** | **Identical to New Hire** |
 
@@ -33,9 +35,11 @@ That last row is the entire problem. The PRD never distinguishes "the hire" from
 |---|---|
 | Critical | 4 |
 | High | 3 |
-| Medium | 4 |
+| Medium | 5 |
 | Low | 3 |
-| **Total** | **14** |
+| **Total** | **15** |
+
+> **Count corrected 2026-09-16.** This table read Critical 4 / High 3 / Medium 4 / Low 3, totalling 14. The body has always carried SEC-01 through SEC-15, of which **five** are Medium (SEC-08 through SEC-12). No finding was added, removed or re-graded — only the arithmetic. The wrong figure had propagated to PRD §0 and architecture §1 and is corrected in both. (Roadmap E7, closed.)
 
 The three that matter most:
 
@@ -380,7 +384,7 @@ If these findings are accepted, v0.4 needs:
 
 ## Dispositions
 
-Recorded 2026-09-09 following stakeholder review. All 14 findings accepted; two with modified remedies.
+Recorded 2026-09-09 following stakeholder review. All 15 findings accepted; two with modified remedies. **SEC-01's disposition was superseded on 2026-09-16 — see the block at the end of this section.**
 
 | Finding | Disposition | Where it landed in PRD v0.4 |
 |---|---|---|
@@ -422,3 +426,49 @@ Handling identity binding as manual HR validation is the right call — no techn
 
 1. **The step is unskippable and attributable.** Approve stays disabled until the officer confirms the name matches, and that confirmation is logged with the approval. A rule that lives only in someone's habits disappears the first busy week.
 2. **`COMPLETE` is defined as not meaning identity assurance** (§1), and an *originals sighted* flag records the physical checkpoint separately. Without this, a green progress bar will eventually be read downstream as verification, because that is what a green progress bar looks like.
+
+
+---
+
+## Supersession — SEC-01 re-decided 2026-09-16
+
+**The 2026-09-09 remedy for SEC-01 no longer stands.** That disposition replaced the audit's
+recommended SMS OTP with a 6-digit PIN required to open every portal session. The PIN has now been
+removed from the normal path: **the emailed link alone opens the portal**, and the PIN survives only
+as an HR-issued recovery credential for a hire whose invitation never arrived (PRD §6.6).
+
+**SEC-01 therefore returns to its original severity: Critical.** Possession of the URL is the whole
+of authentication, for the life of the link. Every reachability path listed under SEC-01 above is
+live again — a forwarded link, a mistyped address, a screenshot, a shared-computer browser history, a
+link pasted into a group chat, a compromised or auto-forwarding mailbox.
+
+**What the 2026-09-09 note said the PIN bought was real, and is now spent.** It said a bare URL
+became inert, covering every threat where the URL leaks *separately* from the email. That protection
+is gone. The reasoning is preserved rather than deleted, because it is the argument that the
+compensating controls now have to carry alone.
+
+### Consequences that follow
+
+1. **SEC-02's fix is no longer merely the cheapest control — it is the only one.** A write-mostly
+   portal is what makes a leaked link a fraudulent-upload problem rather than bulk disclosure of a
+   birth certificate, government IDs and medical results. **If document preview, a signed download
+   URL or an original filename is ever returned to the portal, this acceptance is void and must be
+   re-decided.** That condition is now load-bearing and is written into PRD §12.
+2. **SEC-06 does not clear.** A session boundary exists — sessions are issued and bounded by
+   `portal.session_minutes` — but the link re-opens one freely, so access granted once is access
+   granted for the life of the link. This is the state the finding originally described.
+3. **SEC-09 does not clear either**, for the same reason as before: an attacker holding the mailbox
+   can mint fresh links indefinitely. Rate limiting and the access trail remain the mitigation, and
+   remain detective rather than preventive.
+4. **SEC-14 rises in practical importance.** Employee-initiated reporting is now the only detection
+   control that operates while an incident is in progress, and the only one the hire can trigger.
+5. **The recovery PIN is the first genuinely out-of-band factor in the design.** It travels by phone
+   or in person and never by email. It applies to a narrow path, but on that path it is stronger than
+   the single-channel PIN it replaced — which is a small, real gain recorded so the trade is not read
+   as purely a loss.
+
+### Recorded as accepted risk in PRD §12, dated 2026-09-16
+
+Named triggers for revisiting: a leaked or misdirected link observed in practice, expansion of the
+requirement catalogue to more sensitive documents, or any proposal to return document content to the
+portal — which triggers a mandatory re-decision rather than a judgement call.
