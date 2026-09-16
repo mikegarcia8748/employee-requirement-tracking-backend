@@ -20,7 +20,7 @@ document must unlock exactly that requirement, leave approved ones locked, move 
 their PIN. Logic of that shape belongs somewhere it can be exercised exhaustively in milliseconds,
 not behind an HTTP call and a database.
 
-**Several rules are load-bearing security controls.** The audit found 14 issues; all were accepted
+**Several rules are load-bearing security controls.** The audit found 15 issues; all were accepted
 and folded into PRD v0.4. Their remedies are not features that can be added later — they are
 constraints on what the code may do. §15 says as much: the write-mostly portal, the PIN/session
 model and the attestation are Phase 1 precisely because retrofitting them is a rewrite. The
@@ -125,8 +125,9 @@ its own dispatcher and the use case never sees one.
 | `AppSettingsRepository` | the §6.4 policy, read at runtime | `ExposedAppSettingsRepository` — **bound** |
 | `AuditLog` | HR-side actions | `ExposedAuditLog` — **bound** |
 | `PortalAccessTrail` | append-only portal attempts, distinct IPs, failure counts | *(pending)* |
-| `Notifier` | the seven notification kinds | *(pending)* |
-| `DocumentStorage` | object storage; signed URLs **HR-side only** | *(pending)* |
+| `Notifier` | the seven notification kinds | ERT-440 outbox, then ERT-1010 SMTP *(pending)* |
+| `DocumentStorage` | object storage; signed URLs **HR-side only** | filesystem for dev, GCS in production (Q20) *(pending)* |
+| `HrUserRepository` | HR accounts, roles, password hashes | ERT-190 *(pending)* |
 | `Clock`, `EntityIdGenerator`, `PersonIdGenerator`, `TokenGenerator`, `PinGenerator`, `Hasher`, `TokenDigest` | infrastructure | **bound** |
 
 Three of these encode a rule in their *shape* rather than their documentation:
@@ -153,17 +154,24 @@ the architecture test fails the build on a use case that omits it.
 | Use case | Rules | PRD | Phase |
 |---|---|---|---|
 | `CreateHireUseCase` | validate email; duplicate-on-active needs a typed reason; snapshot the requirement set; generate + hash PIN and token; compute `expiresAt` from current policy; send invitation; survive delivery failure | §8.1, §5, §6.4, §6.6 | 1 |
-| `VerifyPortalPinUseCase` | identical failure for wrong PIN and unknown token; lockout at 5; auto-suspend at 10 with HR notified; log every attempt | §6.6, §8.6 | 1 |
+| `OpenPortalUseCase` | a valid token opens a session and returns status only; every other token yields one constant failure; log every attempt | §6.6, §8.6 | 1 |
+| `RedeemRecoveryPinUseCase` | identical failure for a wrong PIN, an unrecognised address, a redeemed PIN and an expired one; lockout at 5; auto-suspend at 10 with HR notified; log every attempt | §6.6, §8.6 | 1 |
 | `UploadDocumentUseCase` | reject server-side when the requirement is locked; enforce size, type, rate and storage caps; new version each time; purge beyond retention **unless a flag is open** | §8.7, §7.1 | 1 |
 | `SubmitPacketUseCase` | blocked until every required requirement has a file; attestation required and versioned; lock all requirements; notify HR | §7.2 | 1 |
 | `ApproveSubmissionUseCase` | blocked until the packet is submitted; name-match confirmation required; photo-match for photo ID; log the identity confirmation with the approval | §8.5 | 2 |
 | `RejectSubmissionUseCase` | reason required; unlock only that requirement; extend link expiry; flag at 3 rejections | §7.3, §7.1 | 2 |
-| `ChangeHireEmailUseCase` | out-of-band verification method required; second approver when approved documents exist; revoke old token+PIN, issue new; notify the old address | §7.4, §8.8 | 2 |
+| `ChangeHireEmailUseCase` | out-of-band verification method required; second approver when approved documents exist; revoke the old token and issue a new one; notify the old address | §7.4, §8.8 | 2 |
+| `AuthenticateHrUserUseCase` | uniform failure for an unknown email, a wrong password and a deactivated account; every attempt audited | §2, Q4 | 0 |
+| `ChangeHrPasswordUseCase` | current password required; clears the change-required flag | §2, Q4 | 0 |
+| `IssueRecoveryPinUseCase` | single-use, expiring, returned once and never emailed; audited with the issuing officer | §6.6 | 1 |
+| `RedeemRecoveryPinUseCase` | constant response whether or not the address is known; lockout and suspend thresholds apply | §6.6 | 1 |
 | `ReopenRecordUseCase` | never revive the old token; issue fresh credentials; require a reason | §7.3, SEC-08 | 2 |
 | `RequestNewLinkUseCase` | constant response whether or not the address exists; rate-limited | Appendix B, SEC-09 | 2 |
 
 **Test naming** is `<rule> - <scenario> - <outcome>`, e.g.
-`hire creation - email duplicates an active hire with no reason given - fails with DuplicateEmailRequiresReason`.
+`hire creation - email duplicates an active hire with no reason given - fails with ReasonRequired`.
+
+> **`DuplicateEmailRequiresReason` is not an `AppError` case and never was** — an earlier revision of this line, of `CLAUDE.md` and of ERT-431 all named it, which would have prescribed a specification change nobody approved (`AppError.kt`: "Adding a case here is a specification change"). The rule is carried by `ReasonRequired(code, action)`, whose `action` field exists precisely to name the thing needing justification. (C2, corrected 2026-09-16.)
 A failing test should say which business rule broke without opening the file.
 
 ---
@@ -220,15 +228,26 @@ Files live in object storage; the database holds keys and metadata only.
 
 **HR creates a hire** — `POST /api/employees`
 `EmployeeRoutes` → `CreateHireUseCase` → reads policy and templates → snapshots the requirement set →
-`TokenGenerator` + `PinGenerator` → `Hasher` → persists link with a computed `expiresAt` →
-`Notifier.sendInvitation` (the one message carrying both halves) → `AuditLog`. The route maps the
-sealed result to 201 or 409/422; it makes no decision.
+`TokenGenerator` → `TokenDigest` → persists the link with a computed `expiresAt` →
+`Notifier.sendInvitation`, which renders the message at send time and persists no copy of it →
+`AuditLog`. The route maps the sealed result to 201 or 422; it makes no decision. **No PIN is
+generated here** — since 2026-09-16 the link is the credential, and a recovery PIN is minted only on
+demand.
 
-**Portal PIN verification** — `POST /api/portal/{token}/verify`
-`PortalRoutes` hashes the token, resolves the link, calls `VerifyPortalPinUseCase`. Wrong PIN and
-unknown token return the **same** failure, so the endpoint cannot be used to test whether a link
-exists. Every attempt is written to `PortalAccessTrail` first. On success a `PortalSession` opens for
-`sessionMinutes`; access is carried by the session from then on, not the URL.
+**Portal entry** — `GET /api/portal/{token}`
+`PortalRoutes` digests the token, resolves the link, calls `OpenPortalUseCase`. Unknown, malformed,
+expired, suspended and revoked tokens all return the **same** failure, so the endpoint cannot be used
+to test whether a link exists. Every attempt is written to `PortalAccessTrail` first — before the
+outcome is known, so a denied attempt cannot escape through an early return. On success a
+`PortalSession` opens for `sessionMinutes`, and access within the visit is carried by the session
+rather than by the URL.
+
+**Portal recovery** — `POST /api/portal/recover`
+For a hire whose invitation never arrived. The request carries an address and a PIN and **no token**,
+because the hire has none. `RedeemRecoveryPinUseCase` resolves the employee, verifies the PIN against
+their current link, and marks it used. A wrong PIN, an unrecognised address, an already-redeemed PIN
+and an expired one are one response — and the unrecognised-address path performs a dummy verification
+so that bcrypt's cost does not become a timing oracle for who has been hired.
 
 **Portal upload against a locked requirement** — `POST /api/portal/{token}/requirements/{id}/upload`
 Session checked, then `UploadDocumentUseCase` consults `RequirementStatus.employeeCanUpload` and
@@ -250,16 +269,17 @@ The spec is **generated from the live route tree**, not maintained by hand.
 `OpenApiDocSource.Routing` reads the mounted routes, so an endpoint cannot exist without appearing in
 the docs. Per-route detail is attached with `describe { }` beside the handler; `hide()` withholds a
 route. The `hr-jwt` security scheme is derived from the `authenticate` blocks rather than restated.
-With ~38 endpoints in Appendix B, a hand-maintained file would drift within a sprint — and a spec
+With roughly forty endpoints in Appendix B, a hand-maintained file would drift within a sprint — and a spec
 that lies is worse than none.
 
-`route/dto/` types are what the schema is generated from — but only where a route declares them. Verified, not assumed: the generator infers nothing from `call.respond`, so every route needs a `responses { response(200) { schema = jsonSchema<...>() } }` block in its `describe { }` or it publishes an operation with no body type (ERT-145). That gives the DTO layer a second job
+**A route's schema comes from the `describe { }` block it declares, not from its `route/dto/` type.** An earlier revision of this section claimed the DTO types were the source; they are the source only where a route names one in `responses { }`, which is a different and weaker claim, and the two were left standing in the same sentence. Verified, not assumed: the generator infers nothing from `call.respond`, so every route needs a `responses { response(200) { schema = jsonSchema<...>() } }` block in its `describe { }` or it publishes an operation with no body type (ERT-145). That gives the DTO layer a second job
 beyond wire-format isolation and is a further reason domain models never reach a route: a model
 serialised directly would publish whatever fields it happens to carry, and §8.6 forbids the portal
 returning an original filename or storage key.
 
 **The Swagger surface is gated outside dev** (open in dev, HR-authenticated otherwise). Swagger UI
-publishes the exact shape of `/api/portal/{token}/verify`, its error contract and its rate limits to
+publishes the exact shape of `GET /api/portal/{token}` and `POST /api/portal/recover`, their error
+contracts and their rate limits to
 anyone who asks, and that surface is what the audit is about.
 
 **When portal routes are documented,** their descriptions must present the deliberate behaviours as
@@ -351,13 +371,13 @@ Structural, not incidental. Weakening any of these re-opens a finding the audit 
 | Invariant | Where it lives | Source |
 |---|---|---|
 | The portal returns document **status** — never content, signed URLs, or original filenames | `DocumentStorage` is HR-side only; `route/dto` never carries `fileKey`/`originalFilename` | §8.6, SEC-02 |
-| A bare link resolves to a PIN prompt and nothing else | `VerifyPortalPinUseCase`, portal DTOs | Appendix B, SEC-01 |
-| Wrong PIN and unknown token are indistinguishable | `AppError.Denied` is a **`data object`**, so there is exactly one value and differing bodies are unrepresentable; the mapper sends it to one shared envelope constant, so it cannot carry a per-instance message or `details`; an unmatched route renders the same body; `PortalOutcome.DENIED` does not record which | §6.6 |
-| Tokens and PINs stored hashed; PIN in the invitation only | `TokenDigest` (keyed, reproducible — tokens are looked up by digest); `Hasher` (bcrypt, salted — PINs are verified); `Notifier` signature | §6.6, §12 |
+| A bare link resolves to the holder's own checklist — and to nothing at all if the token is unknown, expired, suspended or revoked. The **recovery** page discloses nothing before the PIN is verified | `OpenPortalUseCase`, `RedeemRecoveryPinUseCase`, portal DTOs | Appendix B, §6.6 |
+| A wrong recovery PIN and an unrecognised address are indistinguishable, as are an unknown and an expired token | `AppError.Denied` is a **`data object`**, so there is exactly one value and differing bodies are unrepresentable; the mapper sends it to one shared envelope constant, so it cannot carry a per-instance message or `details`; an unmatched route renders the same body; `PortalOutcome.DENIED` does not record which | §6.6 |
+| Tokens and PINs stored hashed; a recovery PIN is **never emailed** and reaches exactly one response, once; no stored artefact holds a live PIN or plaintext token — the invitation body is rendered at send time and never persisted | `TokenDigest` (keyed, reproducible — tokens are looked up by digest); `Hasher` (bcrypt, salted — PINs are verified); `Notifier` signature; the outbox stores no invitation body | §6.6, §12 |
 | Locked-state upload rejection is server-side | `RequirementStatus.employeeCanUpload`, checked in the use case | §8.7 |
 | Requirement sets and `expiresAt` snapshotted at creation | snapshot columns | §5, §6.4 |
 | Every portal access is an append-only record | `PortalAccessLogs`; no `last_accessed_at` | §8.12, SEC-05 |
-| No version purging while an anomaly flag is open | `Employee.retentionFrozen`, checked before purge | §7.1, SEC-13 |
+| No version purging while an **evidentiary** flag is open | `AnomalyFlag.freezesRetention`, read by `Employee.retentionFrozen` and checked before purge — the classification lives on the flag, so a new flag must choose | §7.1, SEC-13 |
 | `COMPLETE` is not identity assurance | `originalsSightedAt` separate; stated in the API description | §1, SEC-04 |
 
 ---
@@ -420,7 +440,7 @@ past comfortable.
 `Dispatchers.IO` hop confined to `DatabaseFactory`. More battle-tested than Exposed's R2DBC path, and
 the audit trail and access log are transactional writes where maturity matters more than non-blocking
 I/O. `exposed-r2dbc` and `h2database-r2dbc` remain declared in `module.yaml` but are now unused —
-harmless, and left for the owner to remove.
+harmless, and removed by **ERT-1140**. "Left for the owner to remove" was a to-do with no owner.
 
 **Two credentials, two primitives — bcrypt for the PIN, a keyed digest for the token** (ERT-160,
 superseding the earlier "bcrypt for both"). They are used differently, and one primitive cannot serve
@@ -453,20 +473,61 @@ Amper's Ktor catalog has no key for it.
 **Koin over compile-time DI.** Already declared and adequate. The domain doesn't depend on it either
 way, so this is reversible.
 
-**JWT is a marked placeholder.** PRD §14 **Q4 — who the HR users are, whether they share an account,
-and whether an SSO provider exists — is blocking and unanswered.** The current scheme reads its
-secret from `JWT_SECRET` and refuses to start on a default key outside dev, which is enough to keep
-`authenticate` blocks honest. It should be replaced, not extended, once Q4 is answered.
+**HR authentication is local, and Q4 is answered (2026-09-16).** A handful of HR staff, accounts held
+here, two roles, bcrypt, no SSO. The JWT *mechanism* survives and its placeholder framing does not:
+the scheme stops signing with a per-run random key and starts issuing tokens against a `users` row
+(ERT-190). Token lifetime is the revocation window and that is a trade — resolving the subject
+against `users` on every request would make deactivation instant at the cost of a query in front of
+every HR call, so the verifier validates claims only and a deactivated account stays live for up to
+`JWT_TTL_MINUTES`. Stated here rather than discovered later: the immediate control for an account
+disabled for cause is revoking what the person can reach, not the token.
+
+**The link opens the portal; the PIN is a recovery credential (2026-09-16).** This reverses the
+2026-09-09 decision that required a PIN on every session. The engineering consequence is that
+`GET /api/portal/{token}` becomes the credential check rather than a prompt, so it carries the rate
+limit that used to sit on `verify`, and the recovery path needs an entry point **not keyed by the
+token** — the hire who needs it does not have a link. PRD §12 carries the risk acceptance; the
+compensating control is the write-mostly portal, which is now load-bearing rather than merely cheap.
+
+**The invitation is sent inline and its body is never persisted (ERT-440).** An outbox row holding a
+rendered invitation holds a live credential at rest, and "purge the row after delivery" only shrinks
+the window — it does not remove the credential from a backup, a replica, or a write-ahead log. The
+only reason to store it would be to resend the *same* credential, and nothing needs that: `resend-link`
+reissues. So the invitation renders at send time from the token held in memory for the duration of
+`CreateHireUseCase`, and its outbox row records recipient, kind, employee, status, attempts and last
+error — enough to answer "was it sent?" and to drive §8.1's failure indicator, with nothing in it
+worth stealing. The other six kinds carry no credential and queue normally. This is the `Notifier`
+port's own rule one layer down: only `sendInvitation` may carry a credential, and therefore only the
+invitation may not be stored.
+
+**Object storage: filesystem now, GCP Cloud Storage as the target (Q20).** Nothing in Phase 1 depends
+on the provider, because `DocumentStorage` hides it — but "undecided" is only free while the key
+scheme leaks no structure a migration would have to undo. ERT-710's opaque key
+(`{employeeId}/{requirementId}/v{version}/{random}`, no filename component) ports unchanged. Naming
+the target is what makes the adapter's *shape* right now: it is written against put / get / delete /
+**presign-with-a-TTL**, so `signedUrlFor` is designed as a short-lived signed URL rather than a path
+this application serves. The filesystem adapter must therefore mint its own expiring, MAC'd URL —
+reusing `TokenDigest` and the existing pepper, so no new secret appears — or ERT-810 is rewritten
+when the provider lands.
+
+**GCP is multi-instance by default, and two tickets assume one instance.** The PIN counters are safe
+(DB-backed, via `countRecentFailures`) and ERT-1010's poller claims rows with a conditional update, so
+a double send is impossible. **Rate limiting is what actually breaks**: ERT-660 is in-memory, and on
+Cloud Run or GKE each instance would keep its own counter. Either pin Phase 1 to a single instance and
+record it, or ERT-660 needs a shared store. ERT-1120 carries the constraint.
 
 ### Open questions that block architectural work
 
-| # | Question | Blocks |
-|---|---|---|
-| 4 | How do HR users authenticate? SSO? | the whole auth model |
-| 16 | Is a phone number available for out-of-band verification (§7.4)? | `ChangeHireEmailUseCase` — without a channel, SEC-03 is unremediated in practice regardless of what §7.4 says |
-| 5 | What consent notice must appear on the portal? | the attestation text and its versioning |
-| 6 | How does `COMPLETE` reach account provisioning? | the handoff seam |
-| 1 | How do tenured employees enter the system? | Phase 4 only |
+| # | Question | Blocks | Owner | Due |
+|---|---|---|---|---|
+| 5 | What consent notice must appear on the portal? | the attestation *text* — not its versioning, which is the expensive half and is built | Legal / compliance | Phase 1 exit |
+| 6 | How does `COMPLETE` reach account provisioning? | the handoff seam | IT | Phase 1 exit |
+| 16 | Is a phone number available for out-of-band verification (§7.4)? | `ChangeHireEmailUseCase` — without a channel, SEC-03 is unremediated in practice regardless of what §7.4 says. It also now gates the **recovery-PIN** hand-off in §6.6, which needs the same channel | HR | Phase 2 |
+| 22 | Is ClamAV acceptable, and who runs it? | `DocumentStorage.isClean` stays stubbed open until this lands — a named Phase 1 exit risk, not a delivered control | Engineering / Security | Phase 1 exit |
+| 1 | How do tenured employees enter the system? | Phase 4 only | HR / IT | Before Phase 4 |
+
+**Answered since the last revision:** Q4 (local accounts, two roles, no SSO), Q12 (SMTP relay),
+Q20 (GCP Cloud Storage), Q21 (the §8.4 preview set, sniffed). PRD §14 holds the register.
 
 ---
 

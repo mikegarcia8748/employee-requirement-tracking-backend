@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Epic |
 | **Phase** | 1 |
-| **Status** | **Done** |
+| **Status** | Done |
 | **Depends on** | ERT-130, ERT-240 |
 | **PRD** | §6.4, §8.10, §8.11, §5 |
 | **Architecture** | §4, §12 invariant 6 |
@@ -44,7 +44,7 @@ entry can be recorded, and HR can list the catalogue over HTTP.
 | **Parent** | ERT-300 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | **Done** |
+| **Status** | Done |
 | **Depends on** | ERT-130, ERT-240 |
 | **PRD** | §6.4, §8.10 |
 | **Architecture** | §4 |
@@ -122,7 +122,7 @@ fails loudly rather than defaulting.
 | **Parent** | ERT-300 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | **Done** |
+| **Status** | Done |
 | **Depends on** | ERT-130, ERT-240 |
 | **PRD** | §5, §8.11 |
 | **Architecture** | §4, §12 invariant 6 |
@@ -188,7 +188,7 @@ reach a new hire.
 | **Parent** | ERT-300 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | **Done** |
+| **Status** | Done |
 | **Depends on** | ERT-240 |
 | **PRD** | §12, §8.10, §8.13 |
 | **Architecture** | §4 |
@@ -258,7 +258,7 @@ and no route by which a credential reaches the metadata.
 | **Parent** | ERT-300 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | **Done** |
+| **Status** | Done |
 | **Depends on** | ERT-140, ERT-320 |
 | **PRD** | §8.11, Appendix B |
 | **Architecture** | §3, §9 |
@@ -319,7 +319,7 @@ spec.
 | **Parent** | ERT-300 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | **Done** |
+| **Status** | Done |
 | **Depends on** | ERT-130, ERT-140, ERT-240 |
 | **PRD** | §8.1, §8.2, §11 |
 | **Architecture** | §4 |
@@ -370,19 +370,26 @@ fails as a domain error rather than a constraint violation.
 > want a `FakeReferenceDataRepository` in `test/testdata/fake/`; ERT-350 has only a local fake in its
 > route test, because a shared fake exists for use-case tests and there is no use case yet.
 
-> **Escalated, not resolved: is an unknown reference id a 404 or a 422?** This ticket says
-> `AppError.NotFound`, which `AppErrorMapper` maps to **404**. ERT-450 and `docs/api-contract.md`
-> both say **422**. These cannot both hold, and nothing detects the disagreement until ERT-450 writes
-> its route test. `PathIds.kt` is explicit that a body-field id belongs to `Validation` → 422 and
-> that `orNotFound` exists for *path* ids, because the path/body distinction is what stops an
-> endpoint becoming an enumeration oracle — so the 422 is very likely right and this ticket's wording
-> is the loose one. **ERT-431 settles it in one place.** Recorded as E8 in the roadmap.
+> **Settled 2026-09-16 (E8): it is a 422.** This ticket previously specified `AppError.NotFound`,
+> which `AppErrorMapper` sends to 404, while ERT-450 and `docs/api-contract.md` both said 422 — and
+> nothing would have detected the disagreement until ERT-450 wrote its route test.
+>
+> **422 wins, and this ticket's wording was the loose one.** Both ids arrive in the `POST /api/employees`
+> **body**, where `PathIds.kt` is explicit that a body-field id belongs to `Validation` → 422 and that
+> `orNotFound` is reserved for *path* ids. The path/body distinction is what stops an endpoint becoming
+> an enumeration oracle, and a body field carries no such risk: the caller already knows what they
+> sent. A 404 would also assert that the endpoint was not found, which is false.
+>
+> Two codes rather than one — `department_unknown` and `employment_type_unknown` — because both ids are
+> 12-character `EntityId`s and structurally indistinguishable, so a single code could not tell HR which
+> picker to fix. That is this epic's own two-existence-checks argument (ERT-350) reached again from the
+> wire side. **The rule is stated once, in the API contract; ERT-431 implements it.**
 
 **Tests**
 | Level | Test |
 |---|---|
 | Repository | `reference data - the seeded catalogue - returns departments and employment types` |
-| Use case | `hire creation - an employment type id that does not exist - fails with NotFound rather than creating one` |
+| Use case | `hire creation - an employment type id that does not exist - fails with a validation error naming which id` |
 | Route | `reference data - no credentials - is refused` |
 
 **Files**

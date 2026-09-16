@@ -1,14 +1,16 @@
 # Employee Requirements Tracker — Product Requirements Document
 
-**Status:** Draft v0.4
-**Owner:** _TBD_
-**Last updated:** 2026-09-09
+**Status:** Draft v0.5
+**Owner:** _Unassigned_ — escalated 2026-09-16, due 2026-09-30 (HR sponsor). Four escalated contradictions (E1, E3, E4, E8) route to "PRD owner"; until one exists they route nowhere.
+**Last updated:** 2026-09-16
 
 **Changes since v0.1:** Non-goals confirmed against the existing HRIS. Added CSV bulk import, an employee-controlled review-and-submit phase, document expiry tracking for existing employees, upload/correction limits, full link lifecycle, and HR email correction.
 
 **Changes since v0.2:** Link expiry raised to a 90-day ceiling and made admin-configurable (§6.4, §8.10), with an idle clock, rejection-based extension, expiry warning email, and per-link extension.
 
-**Changes since v0.3:** Incorporates the security and business-rules audit of 2026-09-09 (14 findings). Adds portal access PIN and sessions (§6.6), a write-mostly portal (§8.6), out-of-band verification of email changes (§7.4), identity-binding rules at validation (§8.5), employee attestation at submission (§7.2), a portal access trail with anomaly flags (§8.12), an HR exception report (§8.13), and evidence-retention freezes (§7.1). One residual risk is formally accepted in §12.
+**Changes since v0.4:** **The portal access model changed** — the link alone now opens a session and the 6-digit PIN becomes an HR-issued, out-of-band recovery credential for invitations that never arrive (§5, §6.3, §6.6, §8.1, §8.6). §12's residual-risk acceptance is replaced accordingly, dated 2026-09-16. Q4 and Q12 answered; Q20, Q21 and Q22 opened, with Q20 and Q21 answered. §7.2's thumbnails removed (E1); §7.1's retention freeze scoped to evidentiary flags (E3); §8.1's delivery indicator sourced from the outbox (E4); §8.1 gains the E8 ruling. §11 gains `users`, `notification_outbox` and `portal_session.token_hash`, and `anomaly_flag` is corrected to `anomaly_flags`. §2 records the HR role model; §8.13 records that it does not close SEC-10. Audit finding count corrected from 14 to 15.
+
+**Changes since v0.3:** Incorporates the security and business-rules audit of 2026-09-09 (15 findings). Adds portal access PIN and sessions (§6.6), a write-mostly portal (§8.6), out-of-band verification of email changes (§7.4), identity-binding rules at validation (§8.5), employee attestation at submission (§7.2), a portal access trail with anomaly flags (§8.12), an HR exception report (§8.13), and evidence-retention freezes (§7.1). One residual risk is formally accepted in §12.
 
 ---
 
@@ -36,6 +38,15 @@ That second line is not a limitation to be engineered away later — it is a pro
 | **New Hire** | Recently hired, has no company account yet, will not get one until requirements are complete | Upload documents once, from any device, without creating an account |
 | **HR Admin** (secondary) | Configures the requirement catalog and expiry policies | Change the checklist without a developer |
 | **Existing Employee** (Phase 4) | Tenured staff with an expiring document that needs re-collection | Renew one document without a full onboarding flow |
+
+**How HR users authenticate (Q4, answered 2026-09-16).** A small team — a handful of HR staff, not a directory. Accounts are **local to this system**: an email, a bcrypt-hashed password and one of two roles. **There is no SSO integration in v1** and none is planned; introducing one later replaces the sign-in path and touches nothing else, because the token this system already issues is what every route verifies.
+
+- **HR Officer** creates hires, validates documents, manages links, and issues recovery PINs.
+- **HR Admin** does all of that, plus the §6.4 policy settings, the requirement catalogue, and user administration.
+
+`SYSTEM_ADMIN` and `RECRUITMENT`, which appeared as intended JWT roles, are dropped: nothing in §8 asks for either, and a role with no requirement behind it becomes the place people put permissions nobody has thought about. Operator access is database access, not an application role.
+
+**Separation of duties is not enforced** — see §8.13. Two roles that differ only in configuration rights leave one effective role for validation, which is exactly what the exception report exists to compensate for.
 
 ---
 
@@ -69,9 +80,9 @@ That second line is not a limitation to be engineered away later — it is a pro
 - **Requirement Set** — the requirements that apply to a given employee, derived from Employment Type at creation. This is the **denominator of the progress bar**.
 - **Submission** — an uploaded file against one requirement. Versioned; carries a status.
 - **Packet** — the employee's complete set of submissions, submitted for review as a unit. The employee controls when the packet is submitted.
-- **Upload Link** — a tokenized, expiring URL pointing at one employee's own checklist. On its own it grants nothing; it must be paired with the access PIN.
-- **Access PIN** — a 6-digit code issued with the hire record and delivered once, in the invitation email. Required to open every portal session.
-- **Portal Session** — a short-lived, authenticated window opened by link + PIN. Access is carried by the session, not by the URL.
+- **Upload Link** — a tokenized, expiring URL pointing at one employee's own checklist. Possession of it opens the portal (§6.6).
+- **Access PIN** — a 6-digit **recovery** code, issued by HR on request and delivered out-of-band, for a hire whose invitation never arrived. Single-use and expiring. It is never sent by email (§6.6).
+- **Portal Session** — a short-lived window opened by following the link, or by redeeming a recovery PIN. Within a visit, access is carried by the session rather than by the URL.
 - **Validity Window** — for documents that expire (clearances, medical results), the period during which the document is considered current.
 
 ### Requirement Set snapshotting
@@ -117,7 +128,7 @@ stateDiagram-v2
 |---|---|---|
 | `ACTIVE` | Working checklist | Created with the hire |
 | `EXPIRED` | Explanation + "request a new link" | Expiry lapsed (see §6.4) |
-| `SUSPENDED` | Explanation + "contact HR" | Too many failed PIN attempts (§6.6), or the employee reported a problem |
+| `SUSPENDED` | Explanation + "contact HR" | Too many failed recovery-PIN attempts (§6.6), or the employee reported a problem |
 | `REVOKED` | Explanation + "contact HR" | Email changed, or HR revoked manually |
 | `COMPLETED` | Read-only confirmation of what was accepted | Employee reached `COMPLETE` |
 | `CLOSED` | Generic "this link is no longer available" | Grace window after `COMPLETED` elapsed |
@@ -133,7 +144,7 @@ Every duration below is an **admin-configurable setting**, not a constant in cod
 | `link.extend_on_rejection_days` | 30 days | Pushes the absolute expiry out when HR rejects a document, so HR's own review time never eats the employee's window. |
 | `link.warn_before_expiry_days` | 7 days | When the employee receives an expiry warning email. |
 | `link.completed_grace_days` | 14 days | How long the read-only confirmation page stays reachable after `COMPLETE` before `CLOSED`. |
-| `portal.session_minutes` | 45 minutes | How long a PIN-verified session lasts before the PIN is required again. |
+| `portal.session_minutes` | 45 minutes | How long a portal session lasts. When it lapses, re-opening the link starts a new one (§6.6). |
 | `portal.pin_attempts_before_lockout` | 5 | Failed PIN entries before a temporary lockout. |
 | `portal.lockout_minutes` | 15 minutes | Length of that lockout. |
 | `portal.pin_failures_before_suspend` | 10 | Cumulative failures before the link is suspended and HR notified. |
@@ -157,44 +168,58 @@ Every duration below is an **admin-configurable setting**, not a constant in cod
 
 ### 6.6 Portal access control
 
-The link on its own opens nothing. Access requires **two things: the URL and a 6-digit access PIN.**
+**The link opens the portal.** A valid, unexpired token resolves to the employee's own checklist and opens a session directly. There is no second factor on the normal path.
 
-- The PIN is generated when the hire record is created, delivered **once** in the invitation email alongside the link, and stored hashed like the token.
-- It is entered every time a session is opened. A verified session lasts `portal.session_minutes`; when it lapses, the PIN is required again.
-- The PIN is **never repeated in a later email**. Rejection notices, reminders, and expiry warnings point at the portal without restating the credential, so a forwarded notification carries nothing useful.
-- The PIN rotates on email change, on reopen after `COMPLETE`, on HR revocation, and on employee request.
+- The token is long, random, single-purpose, and stored as a keyed digest so that it can be looked up.
+- Opening the portal issues a **Portal Session** lasting `portal.session_minutes`. When it lapses, re-opening the link starts a new one — the session, not the URL, carries access within a visit.
+- Every access, successful or not, is an append-only record in the access trail (§8.12).
+
+#### The access PIN is a recovery credential, not a gate
+
+An invitation that never arrives is the ordinary failure, not the exotic one: a mistyped address, a spam folder, a mailbox that is full or closed. The PIN exists for that case and no other.
+
+- **The PIN is not in the invitation email.** A code that travels with the link cannot be the remedy for the link never arriving.
+- HR issues one on request. It is generated on demand, shown **once** on the HR screen, and passed to the hire through a channel HR already trusts — a phone call to the number on the recruitment record, or the recruiter who met them. §7.4 names the same channels for the same reason.
+- The hire enters it on a **recovery page that needs no link**, identifying themselves by the address the invitation was sent to. The response is constant whether or not that address is known, so the page cannot be used to discover who has been hired.
+- It is stored hashed, is single-use, and expires. Redeeming it opens a session exactly as a link does.
+
+This is the first genuinely **out-of-band** factor in the design — the link travels by email and the PIN does not. It covers a narrow path, but on that path it is stronger than the single-channel PIN it replaces.
 
 #### What this covers, and what it does not
 
-Both the link and the PIN travel in the same email. This is a **single-channel control**, and the spec should say so plainly rather than imply more protection than exists.
+Possession of the URL is the whole of authentication on the normal path. The spec should say so plainly rather than imply protection that is not there.
 
 | Threat | Covered? |
 |---|---|
-| URL leaks on its own — shared-computer browser history, screenshot, pasted into a group chat, referrer leakage | **Yes.** The URL alone is inert. |
-| Employee forwards the link casually | **Partly.** Forwarding the whole email still hands over both parts. |
-| HR mistypes the address and a stranger receives the invitation | **No.** The stranger receives both. |
+| URL leaks on its own — shared-computer browser history, screenshot, pasted into a group chat, referrer leakage | **No.** The URL is a working credential. |
+| Employee forwards the link casually | **No.** |
+| HR mistypes the address and a stranger receives the invitation | **No.** |
 | The employee's mailbox is compromised or has a forwarding rule | **No.** |
 | Attacker persuades HR to resend to a new address | **No** — mitigated separately by §7.4 out-of-band verification. |
+| Attacker reaches the portal without holding the link | **Yes.** The recovery PIN is out-of-band, single-use and expiring. |
 
-**An alternative was considered and rejected:** asking the holder to type the employee's email address instead of a PIN. The address is printed in the `To:` field of the message they are already reading, and is often guessable from a name. It adds a step without adding a secret.
+**This is a deliberate trade, recorded in §12 with a date.** It buys an onboarding flow with no credential to mislay and no support call when one is, at the cost of every row above. What makes it survivable is unchanged from the analysis that preceded it — and is now the only thing standing between a leaked link and a reportable breach:
 
-**Two consequences follow, and neither is optional.** They are what make the accepted risk (§12) survivable:
+1. **The portal must never return document content** (§8.6). A leaked link then costs a fraudulent upload, which HR catches at validation, rather than bulk disclosure of a person's birth certificate, government IDs and medical results. **If preview is ever added to the portal, the §12 acceptance is void and must be re-decided.**
+2. **Email changes must be verified out-of-band** (§7.4), because that path is the softest way in.
+3. **The hire must be able to report a compromised link** (§8.6). They are the only party positioned to notice, and reporting suspends the link immediately.
 
-1. **The portal must never return document content** (§8.6). Mailbox compromise then costs a fraudulent upload — recoverable — rather than bulk disclosure of a person's birth certificate, IDs and medical results, which is a reportable breach.
-2. **Email changes must be verified out-of-band** (§7.4), because that path is now the softest way in.
+#### Brute-force protection on the recovery path
 
-#### Brute-force protection
+**Six digits, not four.** A million combinations instead of ten thousand, at no usability cost. Four digits is defensible only with aggressive lockout, and lockout is itself a denial of service against the employee, who then cannot submit anything.
 
-**Six digits, not four.** A million combinations instead of ten thousand, at no usability cost — six-digit codes are routine. Four digits is defensible only with aggressive lockout, and lockout is itself a denial of service against the employee, who then cannot submit anything.
+These controls guard the recovery page, which is now the only place a PIN is entered.
 
 | Control | Default |
 |---|---|
 | Failed attempts before temporary lockout | `portal.pin_attempts_before_lockout` (5), then `portal.lockout_minutes` (15) |
 | Cumulative failures before the link auto-suspends | `portal.pin_failures_before_suspend` (10), with HR notified |
-| Failure response | Identical for a wrong PIN and an unknown link — never reveal which was wrong |
+| Failure response | Identical for a wrong PIN and an unrecognised address — never reveal which was wrong |
 | Logging | Every attempt, success or failure, to the access trail (§8.12) |
 
 A burst of failed attempts is one of the few signals of an attack while it is still happening. It must reach a person, not only a log file.
+
+**Rate limiting carries more weight than it did.** With no second factor on the normal path, the token check on `GET /api/portal/{token}` is the only barrier to guessing a link, so the §12 limits apply to it as firmly as to the recovery page.
 
 ---
 
@@ -214,7 +239,9 @@ These are the four scenarios raised in review, with a recommended resolution for
 | File size | 10 MB per file | Comfortably fits a phone photo or scanned PDF |
 | Total storage per employee | 100 MB | Backstop against pathological cases |
 | Version retention | Current + last 4 versions | Enough for audit; older versions purged automatically |
-| Retention freeze | **No purging while a fraud or anomaly flag is open** | The superseded version is the evidence. An attacker with portal access could otherwise erase a forgery by uploading five innocuous replacements. |
+| Retention freeze | **No purging while an evidentiary flag is open** | The superseded version is the evidence. An attacker with portal access could otherwise erase a forgery by uploading five innocuous replacements. |
+
+**Which flags freeze retention (E3, settled 2026-09-16).** Freezing applies to `SUSPECTED_FRAUD`, `ACCESS_ANOMALY`, `PIN_FAILURE_SUSPENSION` and `REPEATED_REJECTIONS` — each says the uploads themselves may be contested, and §7.1's own threat, erasing a forgery by uploading replacements, *is* repeated replacement. It does **not** apply to `SHARED_EMAIL` or `SEPARATION_OF_DUTIES`, which are administrative facts about how a record was handled rather than about the documents. `SEPARATION_OF_DUTIES` decides it: with §14 Q4 answered as a handful of staff and no enforced separation, it would fire on nearly every record and disable retention entirely. The outer question — evidence preservation against data minimisation — is Q18 and stays with Legal.
 | Rejection-loop flag | After 3 rejections of the same requirement, flag the record for HR attention | Not a block — a signal that the instructions are unclear, which is an HR problem to fix, not the employee's |
 
 Every replacement creates a new `submission` version. The previous version is retained (subject to retention limit) so HR can see what changed, and the audit log records each upload.
@@ -227,7 +254,9 @@ The employee uploads documents individually, then **explicitly reviews and submi
 
 Flow:
 1. Employee uploads documents one by one. Each lands in `UPLOADED`. All are freely replaceable.
-2. When every required requirement has a file, a **Review & Submit** step unlocks, showing a summary of all documents with thumbnails and a last chance to replace any of them.
+2. When every required requirement has a file, a **Review & Submit** step unlocks, showing a checklist of requirement names and "file present" and a last chance to replace any of them.
+
+   **No thumbnails.** An earlier revision asked for them here, which §8.6 forbids: the portal returns document status, never content. §8.6 wins — it carries the audit disposition for SEC-02, and §15 names the write-mostly portal as non-negotiable. Recorded rather than silently dropped, so a future reader does not re-file the gap. (E1, resolved 2026-09-16.)
 3. Employee **attests and confirms**. The packet moves to `UNDER_REVIEW`; every requirement locks.
 4. HR is notified that a packet is ready for validation.
 
@@ -286,14 +315,17 @@ HR can edit the email on the hire record. Because this action redirects access t
 ### P0 — Must have
 
 #### 8.1 Create hire record
-Fields: First Name, Middle Initial (optional), Last Name, Department, Position, Employment Type, Email. Email format-validated and checked for duplicates against active hires. On save, the requirement set is snapshotted, an access PIN is generated, and the invite is sent.
+Fields: First Name, Middle Initial (optional), Last Name, Department, Position, Employment Type, Email. Email format-validated and checked for duplicates against active hires. On save, the requirement set is snapshotted, an upload link is issued, and the invite is sent.
 
 - [ ] Given all required fields, when HR saves, then the hire appears in the list at 0% progress
-- [ ] Given a hire is created, then a 6-digit access PIN is generated, stored hashed, and included in the invitation email
+- [ ] Given a hire is created, then a link token is generated and stored as a keyed digest, and the invitation carries the link and **no PIN** (§6.6)
 - [ ] Given a duplicate email on an active hire, then HR sees a warning and must enter a typed reason before proceeding, which is written to the audit log and surfaced in the exception report (§8.13)
 - [ ] Given an invalid email format, then the form blocks submission with a field-level message
 - [ ] Given a hire is created, then the invite email is sent within 1 minute
 - [ ] Given email delivery fails, then HR sees a failure indicator on the record and a retry action
+- [ ] Given an unknown department or employment type id, then the request is rejected with a validation error naming **which** id was unknown (E8, settled — see the API contract)
+
+**The delivery-failure indicator is derived, not stored (E4, settled 2026-09-16).** It reads the latest invitation row in the notification outbox — status, attempt count and last error — with the audit log as history. §11 models no column for it and should not gain one: a column would be a second copy of a fact the outbox already owns, and the two would drift the first time a retry succeeded.
 
 #### 8.2 Bulk import via CSV
 Downloadable template with the same columns as §8.1. Import runs as **validate → preview → confirm**, never as a single blind action.
@@ -347,10 +379,15 @@ No company account. Mobile-first: camera capture and gallery upload must work in
 
 **Write-mostly.** The portal reports document *status*; it never returns document *content*. The employee needs to know whether a document was accepted, not to re-read their own birth certificate. This single rule removes most of the consequence of a leaked link, and costs nothing.
 
-- [ ] Given a valid link and no verified session, when the portal is opened, then only the PIN prompt is returned and no requirement data of any kind
-- [ ] Given a correct PIN, then a session opens for `portal.session_minutes` and the checklist is shown
-- [ ] Given a wrong PIN, then the response is indistinguishable from an unknown link, and the attempt is logged
-- [ ] Given the lockout or suspend thresholds in §6.6 are reached, then access is blocked and HR is notified
+**Since 2026-09-16 it is load-bearing rather than merely cheap.** With the link alone opening the portal (§6.6), write-mostly is what keeps a leaked link a fraudulent-upload problem instead of bulk disclosure of one person's birth certificate, government IDs and medical results. The §12 risk acceptance is conditional on it.
+
+- [ ] Given a valid, unexpired link, when the portal is opened, then a session opens for `portal.session_minutes` and the checklist is shown
+- [ ] Given an unknown, expired, suspended or revoked token, then the response reveals nothing about whether that link ever existed, and the attempt is logged
+- [ ] Given a hire whose invitation never arrived, then HR can issue a recovery PIN, which is displayed exactly once and never emailed
+- [ ] Given the recovery page, then nothing about the employee is returned before the PIN is verified — not a name, not a requirement count
+- [ ] Given a wrong recovery PIN, then the response is indistinguishable from an unrecognised address, and the attempt is logged
+- [ ] Given a recovery PIN already redeemed once, or past its expiry, then it is refused
+- [ ] Given the lockout or suspend thresholds in §6.6 are reached on the recovery page, then access is blocked and HR is notified
 - [ ] Given a verified session, then the employee sees only their own requirements
 - [ ] Given a submitted document, then no portal response contains a preview, a signed download URL, or the original filename
 - [ ] Given the portal, then a "this wasn't me — report a problem" action is available which immediately suspends the link and notifies HR
@@ -400,7 +437,9 @@ Admin settings screen exposing every value in §6.4, stored in the database and 
 - [ ] Given an admin changes an expiry setting, then links already issued keep their stored `expires_at`
 - [ ] Given a value outside the allowed bounds, then the form rejects it with a message stating the permitted range
 - [ ] Given `link.idle_expiry_days` is `0`, then only the absolute ceiling applies
-- [ ] Given the settings screen, then the session and PIN controls in §6.6 are configurable within bounds alongside the expiry values
+- [ ] Given the settings screen, then the session duration and the recovery-PIN lockout and suspend thresholds in §6.6 are configurable within bounds alongside the expiry values
+
+**PIN length is not among them (C12, settled 2026-09-16).** `portal.session_minutes`, `portal.pin_attempts_before_lockout`, `portal.lockout_minutes` and `portal.pin_failures_before_suspend` are stored settings and change without a deployment. **PIN length is a compiled constant** and changing it is a release, because the value type validates against it and a mid-flight change would invalidate every unredeemed recovery PIN. Q17 may confirm the number; it does not make it configurable.
 - [ ] Given HR views a hire, then the link's expiry date and remaining days are visible on the record
 - [ ] Given HR needs more time for one hire, then HR can extend that single link without changing the global setting
 - [ ] Given any settings change, then it is written to the audit log with the old value, new value, actor, and timestamp
@@ -421,7 +460,9 @@ Every portal access is an append-only record, not a mutable timestamp. This is w
 - [ ] Given a flagged record, then the flag is visible in the hire list, not only on the detail screen
 
 #### 8.13 Exception report and separation of duties
-As specified, one HR officer can create a hire, change its email, approve every document, and drive it to `COMPLETE`. For v1 the single role is retained, but the log is made actionable — an unread log is not a control.
+As specified, one HR officer can create a hire, change its email, approve every document, and drive it to `COMPLETE`. For v1 that stands, and the log is made actionable instead — an unread log is not a control.
+
+**Q4's answer does not close this.** The two roles it introduces (§2) differ in *configuration* rights — settings, catalogue, user administration — and not at all in *validation* rights. An HR Officer can still create a hire, change its email and approve every document unaided, so there is still one effective role where it matters. Do not read "we have two roles now" as SEC-10 being remediated.
 
 - [ ] Given a record where the same officer created the hire, changed the email, and approved every document, then it appears in the exception report
 - [ ] Given records sharing an email address, then they appear in the exception report
@@ -484,17 +525,19 @@ This is Open Question #1 and it is blocking for Phase 4, though not for Phase 1.
 
 ## 10. Screens
 
+0. **HR sign-in** — email and password; forced password change on first use.
 1. **Hire list** — search, filters, progress bars, "Add hire" and "Import CSV".
 2. **Add / edit hire** — form per §8.1, showing which requirements will be assigned before saving; email change confirmation per §7.4.
 3. **CSV import** — upload, validation preview with row errors, confirm, then separate send-invites action.
 4. **Hire detail** — header with progress, requirement checklist, preview pane, validation actions, version history, resend link.
 5. **Requirement template settings** — catalog CRUD, employment-type mapping, validity periods.
-6. **Portal PIN entry** — the only thing a link resolves to before a session exists.
+6. **Portal recovery** — address plus PIN, for a hire whose invitation never arrived. The only way in without the link.
 7. **Employee upload portal** — checklist with statuses, per-requirement upload, review & attest & submit screen, rejection reasons, "report a problem" action.
 8. **Portal terminal states** — expired, suspended, revoked, completed-read-only, closed.
 9. **Access trail** — on the hire detail screen, with anomaly flags.
 10. **Exception report** — separation-of-duties and anomaly review for HR.
-11. **Expiring documents dashboard** (Phase 4).
+11. **User administration** (HR Admin) — create, deactivate and reset HR accounts.
+12. **Expiring documents dashboard** (Phase 4).
 
 ---
 
@@ -515,18 +558,22 @@ erDiagram
 
 | Entity | Key fields |
 |---|---|
-| `employee` | id, first_name, middle_initial, last_name, department_id, position, employment_type_id, email, packet_status, submitted_at, submitted_by_hr, attestation_version, attested_at, attested_ip, originals_sighted_at, originals_sighted_by, anomaly_flag, completed_at, created_at, created_by |
+| `employee` | id, first_name, middle_initial, last_name, department_id, position, employment_type_id, email, packet_status, submitted_at, submitted_by_hr, attestation_version, attested_at, attested_ip, originals_sighted_at, originals_sighted_by, anomaly_flags, completed_at, created_at, created_by |
 | `requirement_template` | id, name, instructions, is_required, expires, validity_months, renewal_lead_days, is_active, sort_order |
 | `template_assignment` | employment_type_id, requirement_template_id |
 | `employee_requirement` | id, employee_id, template_id, name_snapshot, is_required_snapshot, status, rejection_count |
 | `submission` | id, employee_requirement_id, version, file_key, original_filename, mime_type, size_bytes, uploaded_at, status, valid_from, valid_until, reviewed_by, reviewed_at, rejection_reason, is_current |
-| `upload_link` | id, employee_id, token_hash, **pin_hash**, scope, status, issued_at, expires_at, idle_expires_at, extended_count, failed_pin_count, locked_until, warned_at, revoked_at, revoked_reason |
-| `portal_session` | id, upload_link_id, started_at, expires_at, ip, user_agent, ended_at |
+| `upload_link` | id, employee_id, token_hash, **recovery_pin_hash**, **recovery_pin_expires_at**, **recovery_pin_used_at**, scope, status, issued_at, expires_at, idle_expires_at, extended_count, failed_pin_count, locked_until, warned_at, revoked_at, revoked_reason |
+| `portal_session` | id, upload_link_id, **token_hash**, started_at, expires_at, ip, user_agent, ended_at |
 | `portal_access_log` | id, upload_link_id, session_id, timestamp, ip, user_agent, action, outcome |
 | `app_setting` | key, value, value_type, min_value, max_value, updated_by, updated_at |
-| `audit_log` | id, actor, action, entity, entity_id, timestamp, metadata |
+| `audit_log` | id, actor, **actor_user_id** (nullable), action, entity, entity_id, timestamp, metadata |
+| `users` | id, email, password_hash, role, is_active, password_change_required, created_at |
+| `notification_outbox` | id, employee_id, recipient, kind, status, attempts, last_error, created_at, sent_at |
 
-`last_accessed_at` is deliberately gone from `upload_link` — a single overwritten timestamp cannot answer who, from where, or how often. `portal_access_log` replaces it.
+`last_accessed_at` is deliberately gone from `upload_link` — a single overwritten timestamp cannot answer who, from where, or how often. `portal_access_log` replaces it. `users` carries no `last_login_at` for the same reason: sign-ins are audit rows.
+
+`audit_log.actor` stays free text and gains a **nullable** `actor_user_id` beside it, because the trail must record actors who are not users — the seed, the expiry sweep, a future import job. A trail that can refuse a write because it cannot name a user is worse than one carrying a string; §8.13's report joins on the id, everything else reads the text.
 
 Files live in object storage; the database holds keys and metadata only.
 
@@ -537,29 +584,43 @@ Files live in object storage; the database holds keys and metadata only.
 This system holds government IDs, birth certificates, and medical records — among the most sensitive personal data an employer handles.
 
 **P0 controls:**
-- Tokens are long, random, single-purpose, stored hashed, with sliding expiry from last activity.
-- Access PINs are stored hashed, never logged, never included in any email but the invitation, and rotated on email change, reopen, and revocation.
-- PIN verification is rate-limited and lockout-protected (§6.6), with identical responses for a wrong PIN and an unknown link.
+- Tokens are long, random, single-purpose, and stored as a keyed digest. Expiry runs on **two clocks — an idle clock and an absolute ceiling, the earlier winning** (§6.4). Stating only the idle clock here, as an earlier revision did, would have produced a link that never dies if it is touched periodically.
+- Recovery PINs are stored hashed, never logged, **never sent by email at all**, single-use, expiring, and shown exactly once to the HR officer who issues one (§6.6). Issuing one is an audit row naming the officer.
+- Recovery-PIN verification is rate-limited and lockout-protected (§6.6), with identical responses for a wrong PIN and an unrecognised address. **Link resolution is rate-limited on the same footing**, because it is the only credential check on the normal path.
 - The portal returns document status only — never content, a signed URL, or an original filename (§8.6).
-- Token and PIN revocation is immediate and unconditional on email change, cancellation, suspension, and closure.
+- Token and recovery-PIN revocation is immediate and unconditional on email change, cancellation, suspension, and closure.
 - Email changes require recorded out-of-band verification (§7.4).
 - Every portal access attempt is logged with IP and user agent; anomalies are surfaced to a person (§8.12).
-- Document access uses short-lived signed URLs; object storage is never publicly readable.
-- File type allowlist and size cap enforced **server-side**, not only in the browser.
+- Document access uses short-lived signed URLs; object storage is never publicly readable. **Target is GCP Cloud Storage with V4 signed URLs (Q20)**, private, encrypted at rest, in a region consistent with Q5. A local filesystem adapter serves dev and tests behind the same port.
+- File type allowlist and size cap enforced **server-side**, not only in the browser. The v1 allowlist is `image/jpeg`, `image/png`, `image/heic`, `image/heif` and `application/pdf` — the §8.4 preview set — **judged on sniffed content, never on the declared header**, and held in configuration so that adding a type is a decision rather than a default (Q21).
 - Locked-state upload rejection enforced server-side.
-- Malware scanning on upload before a file becomes previewable.
+- Malware scanning on upload before a file becomes previewable. **ClamAV via `clamd` on a local socket (Q22)** — deliberately not a hosted scanning API, because shipping government IDs and medical results to a third party is a disclosure decision, not a procurement one. Until it lands the gate is stubbed open and this is a **named Phase 1 exit risk, not a delivered control**.
 - Rate limiting on all public endpoints.
 - Audit log of every view, approve, reject, download, email change, and reopen.
 - Closed and revoked link pages leak no personal data — no name, no requirement list.
-- Retention policy for hires who withdraw or never complete, with scheduled deletion, suspended while a fraud or anomaly flag is open.
+- Retention policy for hires who withdraw or never complete, with scheduled deletion, suspended while an **evidentiary** flag is open — the four enumerated in §7.1, not every anomaly.
+- HR accounts are **local to this system**: email, bcrypt-hashed password, one of two roles, no SSO (§2, Q4). A failed sign-in returns the same response for an unknown email and a wrong password, so the endpoint cannot enumerate who works in HR.
 
 ### Accepted residual risk
 
-**Portal access is single-channel.** The link and the PIN both travel in the invitation email, so compromise of the employee's mailbox — or delivery of the invitation to the wrong address — yields portal access. This was accepted deliberately, in exchange for avoiding the cost and deliverability problems of SMS one-time codes.
+**Portal access is link-only. Accepted 2026-09-16, superseding the 2026-09-09 acceptance.**
 
-The compensating controls are the write-mostly portal (§8.6), out-of-band verification of email changes (§7.4), the access trail and anomaly flags (§8.12), and HR's identity binding at validation (§8.5). Together they mean a compromised mailbox costs a fraudulent upload that HR should catch, rather than a bulk disclosure of one person's most sensitive documents.
+Possession of the upload link is the whole of authentication. Whoever holds the URL can open the portal, upload, replace and submit as the hire, for the life of the link. This is a deliberate reversal: the 2026-09-09 decision required a 6-digit PIN on every session, and the PIN has been moved to a recovery role (§6.6) so that the ordinary hire needs nothing but the email they were sent.
 
-**Revisit this decision if** incident data shows mailbox compromise happening in practice, if volume grows enough to make a per-message SMS cost trivial against the exposure, or if the requirement catalog expands to documents whose disclosure would be materially worse.
+**What was bought.** An onboarding flow with no credential to mislay, no second step on a phone, and no support call when a code is lost or mistyped — for a population that has no company account, may be using a borrowed device, and gets exactly one chance to find this easy.
+
+**What was given up.** Every threat where the URL reaches someone other than the hire: a forwarded email, a mistyped address, a screenshot, a shared-computer browser history, a link pasted into a group chat, a compromised or auto-forwarding mailbox. The 2026-09-09 note argued a bare URL should be inert; it is now a working credential, and that reasoning is superseded rather than refuted — it remains why the compensating controls below are not optional.
+
+**The compensating controls, in order of how much weight they now carry:**
+
+1. **The write-mostly portal (§8.6).** A leaked link yields a fraudulent *upload*, which HR is positioned to catch at validation — not bulk disclosure of a birth certificate, government IDs and medical results, which would be a reportable breach. **This acceptance is conditional on it. If document preview, a signed download URL or an original filename is ever returned to the portal, this decision is void and must be re-taken.**
+2. **Employee-initiated reporting (§8.6).** The hire is the only party who can notice "I never uploaded that". The report action suspends the link immediately and notifies HR.
+3. **The access trail and anomaly flags (§8.12).** Detective, not preventive: it is how "was this really the employee?" is answered afterwards, and how multi-IP or multi-country access surfaces to a person.
+4. **Out-of-band verification of email changes (§7.4).** Now the softest remaining way in, and unchanged.
+5. **HR identity binding at validation (§8.5).** The control that survives every technical failure above, and the reason `COMPLETE` is not identity assurance (§1).
+6. **Rate limiting on link resolution (§12).** The only barrier to guessing a token.
+
+**Revisit this decision if** a leaked or misdirected link is observed in practice, if the requirement catalogue expands to documents whose disclosure would be materially worse, or if anyone proposes returning document content to the portal — which triggers a mandatory re-decision rather than a judgement call.
 
 **To confirm with legal/compliance:** applicable data-protection obligations, consent language on the portal, breach-notification duties, storage jurisdiction, and retention periods — particularly for Phase 4, where documents are held for years rather than weeks.
 
@@ -575,8 +636,8 @@ The compensating controls are the write-mostly portal (§8.6), out-of-band verif
 | % of documents received via portal vs email/physical | ≥ 80% |
 | % of packets submitted without HR nudging | ≥ 70% |
 | Upload error rate | < 5% |
-| PIN entry failure rate on first session | < 10% — a high rate means the invitation email is confusing, not that people are careless |
-| Portal sessions blocked by lockout | < 1% |
+| Recovery PINs issued, as a share of hires | < 5% — a high rate means invitations are not arriving, which is a deliverability problem, not a user problem |
+| Recovery attempts blocked by lockout | < 1% |
 | Median time from invitation to first upload | < 24h |
 
 ### Lagging (1 quarter)
@@ -595,42 +656,56 @@ The compensating controls are the write-mostly portal (§8.6), out-of-band verif
 
 ## 14. Open Questions
 
+Numbers are permanent. A question that is answered keeps its number and moves to the table below it; nothing is ever renumbered, because more than twenty references across the architecture doc, the API contract, the roadmap and the backlog cite these by number.
+
+> **Numbering note.** The 2026-09-09 audit proposed its own questions 15–19, and they were renumbered when folded in here. Audit Q15 (whether SMS OTP was acceptable) was answered by the disposition itself and never became a PRD question; audit Q17 became **Q15** here; and **Q17** below is an unrelated question that reused the number. Cross-reference the audit by wording, not by number.
+
+### Answered
+
+| # | Question | Answer | Decided |
+|---|---|---|---|
+| 4 | Who are the HR users, how do they authenticate, does SSO exist? | A handful of HR staff; local accounts, two roles, bcrypt, **no SSO**. See §2. | 2026-09-16 |
+| 12 | Email delivery mechanism and sending domain | **SMTP relay on internal mail.** The sending domain, and its SPF/DKIM/DMARC alignment, remains with IT — tracked on the Phase 1 exit checklist. | 2026-09-16 |
+| 20 | Object storage target | **GCP Cloud Storage**, V4 signed URLs, private and encrypted at rest. Filesystem adapter for dev and tests. See §12. | 2026-09-16 |
+| 21 | The upload MIME allowlist | The §8.4 preview set, judged on sniffed content, held in configuration. See §12. | 2026-09-16 |
+
 ### Blocking
-| # | Question | Owner |
-|---|---|---|
-| 1 | For Phase 4, how do tenured employees get into this system — HRIS sync, manual entry, or onboarding-only coverage? (§9.2) Blocking for Phase 4, not Phase 1. | HR / IT |
-| 2 | What is the actual requirement checklist, and does it genuinely differ by employment type — or only by department, or not at all? | HR stakeholder |
-| 3 | Which documents have validity periods, and how long? | HR stakeholder |
-| 4 | Who are the HR users — one shared account or several? How do they authenticate, and does an SSO provider already exist? | Stakeholder / IT |
-| 5 | What data-protection regime applies, and what consent notice must appear on the portal? | Legal / compliance |
-| 6 | How does `COMPLETE` reach the account-provisioning process — manual handoff, export, or API? | IT |
-| 7 | Are documents retained here long-term, or archived into the HRIS after completion? | HR / IT |
-| 15 | Who owns the day-1 originals-sighting checkpoint, and what happens when originals do not match what was submitted? | HR |
-| 16 | Is a phone number available on the recruitment record for out-of-band verification of email changes (§7.4)? If not, what channel replaces it? | HR |
+
+| # | Question | Owner | Due |
+|---|---|---|---|
+| 1 | For Phase 4, how do tenured employees get into this system — HRIS sync, manual entry, or onboarding-only coverage? (§9.2) Blocking for Phase 4, not Phase 1. | HR / IT | Before Phase 4 is scheduled |
+| 2 | What is the actual requirement checklist, and does it genuinely differ by employment type — or only by department, or not at all? | HR stakeholder | Phase 1 exit |
+| 3 | Which documents have validity periods, and how long? | HR stakeholder | Before Phase 4 is scheduled |
+| 5 | What data-protection regime applies, and what consent notice must appear on the portal? | Legal / compliance | Phase 1 exit — gates the attestation text, not its versioning |
+| 6 | How does `COMPLETE` reach the account-provisioning process — manual handoff, export, or API? | IT | Phase 1 exit |
+| 7 | Are documents retained here long-term, or archived into the HRIS after completion? | HR / IT | Phase 2 |
+| 15 | Who owns the day-1 originals-sighting checkpoint, and what happens when originals do not match what was submitted? | HR | Phase 2 — §8.5 and the hire-detail screen both build to it |
+| 16 | Is a phone number available on the recruitment record for out-of-band verification of email changes (§7.4)? If not, what channel replaces it? | HR | Phase 2 |
+| 22 | Is ClamAV acceptable, and who runs it? | Engineering / Security | Phase 1 exit — the gate ships stubbed until then |
 
 ### Non-blocking
-| # | Question | Owner |
-|---|---|---|
-| 8 | Expected volume: hires per month, and peak? Determines whether CSV import is used weekly or twice a year. | HR |
-| 9 | Confirm the §7.1 upload limits and the §6.4 expiry defaults — particularly whether the 30-day idle clock should be on at launch or disabled in favour of the 90-day ceiling alone. | HR |
-| 10 | Should HR be able to reopen a `COMPLETE` record, and should that require a second approver? | HR |
-| 11 | Multiple files per requirement in v1, or one file each? | Design / HR |
-| 12 | Email delivery mechanism and sending domain. | Engineering / IT |
-| 13 | Reminder cadence, and whether reminders send automatically or need HR approval. | HR |
-| 14 | Is a Filipino-language portal needed? | HR |
-| 17 | Confirm the §6.6 defaults — PIN length, session duration, lockout and suspend thresholds. | HR / IT |
-| 18 | Where evidence preservation (§7.1 retention freeze) conflicts with data minimisation, which wins? | Legal |
-| 19 | Who owns the exception report (§8.13), and on what cadence is it reviewed? | HR |
+
+| # | Question | Owner | Due |
+|---|---|---|---|
+| 8 | Expected volume: hires per month, and peak? Determines whether CSV import is used weekly or twice a year. | HR | Phase 3 |
+| 9 | Confirm the §7.1 upload limits and the §6.4 expiry defaults — particularly whether the 30-day idle clock should be on at launch or disabled in favour of the 90-day ceiling alone. | HR | Phase 1 exit |
+| 10 | Should HR be able to reopen a `COMPLETE` record, and should that require a second approver? | HR | Phase 2 |
+| 11 | Multiple files per requirement in v1, or one file each? | Design / HR | Phase 1 exit — v1 ships one file per requirement |
+| 13 | Reminder cadence, and whether reminders send automatically or need HR approval. | HR | Phase 3 |
+| 14 | Is a Filipino-language portal needed? | HR | Phase 3 |
+| 17 | Confirm the §6.6 defaults — PIN length, session duration, lockout and suspend thresholds. | HR / IT | Phase 1 exit |
+| 18 | Where evidence preservation (§7.1 retention freeze) conflicts with data minimisation, which wins? | Legal | Phase 2 |
+| 19 | Who owns the exception report (§8.13), and on what cadence is it reviewed? | HR | Phase 3 — an unowned report is not a control |
 
 ---
 
 ## 15. Phasing
 
-**Phase 1 — Core loop and access model.** Create hire → invite with link and PIN → PIN-gated session → employee uploads → review, attest, submit → HR sees progress and previews documents. §8.1, 8.3, 8.4, 8.6, 8.7, 8.9, plus a configurable requirement list.
+**Phase 1 — Core loop and access model.** Create hire → invite with a link → link opens a session → employee uploads → review, attest, submit → HR sees progress and previews documents. Plus HR sign-in (§2) and the recovery-PIN path for invitations that never arrive. §8.1, 8.3, 8.4, 8.6, 8.7, 8.9, plus a configurable requirement list.
 
 Three things belong in Phase 1 that might look deferrable, and are not:
 - **The write-mostly portal** (§8.6) — a rule about what the API returns. Deciding it later means unbuilding a preview feature and re-testing every portal endpoint.
-- **The PIN and session model** (§6.6) — retrofitting authentication onto a live public endpoint is a rewrite, not an addition.
+- **The session model and the recovery path** (§6.6) — retrofitting a session boundary onto a live public endpoint is a rewrite, not an addition, and the access trail it feeds cannot be backfilled.
 - **The review-and-submit phase with attestation** (§7.2) — it changes the data model, and every status depends on it.
 
 **Phase 2 — Validation loop and accountability.** Approve/reject with reasons and identity binding (§8.5), `CHANGES_REQUESTED` handling, the full link lifecycle including the completed read-only state (§7.3), admin-managed templates, email correction with out-of-band verification (§7.4), the portal access trail (§8.12), audit log in the UI.
@@ -674,9 +749,10 @@ POST   /api/employees/import/commit            create validated rows, no emails 
 POST   /api/employees/import/{batchId}/invite  explicit send step
 GET    /api/employees?status=&department=      list with progress
 GET    /api/employees/{id}                     detail with requirements + submissions
-PATCH  /api/employees/{id}                     edit; email change rotates token + PIN,
+PATCH  /api/employees/{id}                     edit; email change rotates the token,
                                                requires { verificationMethod, reason }
-POST   /api/employees/{id}/resend-link          reissues link and PIN
+POST   /api/employees/{id}/resend-link          reissues the link
+POST   /api/employees/{id}/recovery-pin         issues a one-time PIN, returned once, never emailed
 POST   /api/employees/{id}/extend-link          body: { days, reason }
 POST   /api/employees/{id}/revoke-link          body: { reason }
 GET    /api/employees/{id}/access-trail         portal access records + anomaly flags
@@ -693,14 +769,19 @@ GET    /api/employee-requirements/{id}/versions
 POST   /api/submissions/{id}/approve
 POST   /api/submissions/{id}/reject            body: { reason }
 GET    /api/requirement-templates
+GET    /api/departments                        reference data for the create form
+GET    /api/employment-types                   reference data for the create form
+POST   /api/auth/login                         body: { email, password }
+POST   /api/auth/change-password               body: { currentPassword, newPassword }
+GET    /api/auth/me                            the signed-in officer and their role
 GET    /api/documents/expiring?withinDays=60   Phase 4
 POST   /api/employees/{id}/renewal-request     Phase 4, scoped link
 ```
 
-**Public (link + PIN)**
+**Public (link, or recovery PIN)**
 ```
-GET    /api/portal/{token}                                 PIN prompt only; no packet data
-POST   /api/portal/{token}/verify                          body: { pin } — opens a session
+GET    /api/portal/{token}                                 resolves the link and opens a session
+POST   /api/portal/recover                                 body: { email, pin } — opens a session; always 200
 GET    /api/portal/{token}/checklist                       session required; status only
 POST   /api/portal/{token}/requirements/{reqId}/upload     multipart; 409 if locked
 DELETE /api/portal/{token}/requirements/{reqId}/file       remove before submission
@@ -709,10 +790,11 @@ POST   /api/portal/{token}/report-problem                  suspends the link, no
 POST   /api/portal/request-new-link                        body: { email } — always 200
 ```
 
-Three rules bind these endpoints:
+Four rules bind these endpoints:
 
-- `GET /api/portal/{token}` returns **nothing about the employee** before a session exists — not a name, not a requirement count, not a progress figure. The PIN prompt is all a bare link resolves to.
-- `verify` returns an identical failure for a wrong PIN and an unknown token, so the endpoint cannot be used to test whether a link is real.
-- `request-new-link` returns an identical response whether or not the email exists, so it cannot be used to discover who has been hired.
+- `GET /api/portal/{token}` returns **nothing about the employee** unless the token is valid — an unknown, expired, suspended or revoked token yields one constant response, so the endpoint cannot be used to test whether a link is real.
+- `POST /api/portal/recover` returns **nothing about the employee** before the PIN is verified, and returns an identical response for a wrong PIN and an unrecognised address — so it can be used neither to guess a PIN by elimination nor to discover who has been hired.
+- `request-new-link` returns an identical response whether or not the email exists, for the same reason.
+- No endpoint, public or HR, ever echoes a link token or a recovery PIN back to the client that created it. The PIN reaches exactly one place: the response to `POST /api/employees/{id}/recovery-pin`, displayed once to the officer who asked for it.
 
 No public endpoint returns document bytes, a signed URL, or an original filename.

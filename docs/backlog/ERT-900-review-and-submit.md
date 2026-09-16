@@ -73,6 +73,7 @@ Every §7.2 rule is proven against fakes before any route exists.
 |---|---|
 | **Parent** | ERT-910 |
 | **Type** | Sub-task |
+| **Status** | Not started |
 | **Depends on** | ERT-210 |
 | **PRD** | §7.2, §8.6, §6.5 |
 
@@ -103,6 +104,7 @@ Every §7.2 rule is proven against fakes before any route exists.
 |---|---|
 | **Parent** | ERT-910 |
 | **Type** | Sub-task |
+| **Status** | Not started |
 | **Depends on** | ERT-911 |
 | **PRD** | §7.2; SEC-07 |
 
@@ -119,7 +121,11 @@ in an evidentiary record is worse than no address.
 
 **Acceptance criteria**
 - [ ] `[derived]` Given no attestation version is supplied, then submission is refused
-- [ ] `[derived]` Given a stale attestation version, then submission is refused with `Conflict` — the
+- [ ] `[derived]` Given a **stale** attestation version — a newer text is current — then submission is
+      refused with `Conflict` → **409**, carrying the current version so the client can re-present it
+- [ ] `[derived]` Given a **missing** attestation version, then submission is refused with
+      `Validation` → **422** naming the field. The two are different failures and the API contract
+      previously collapsed both into 422 (C4, settled 2026-09-16) — the
       employee must see the current wording
 - [ ] Given a valid attestation, then the version of the text agreed to, the timestamp, and the IP are
       persisted with the packet (§7.2)
@@ -147,6 +153,7 @@ in an evidentiary record is worse than no address.
 |---|---|
 | **Parent** | ERT-910 |
 | **Type** | Sub-task |
+| **Status** | Not started |
 | **Depends on** | ERT-912 |
 | **PRD** | §6.1, §6.2, §7.2, §8.9 |
 
@@ -194,7 +201,7 @@ packet `UNDER_REVIEW` with unlocked requirements — the exact state §7.1 block
       client-supplied body
 - [ ] `[derived]` Given submission, then it is recorded in the access trail with action
       `SUBMIT_PACKET`
-- [ ] `[derived]` Given no verified session, then the PIN prompt is returned and nothing is submitted
+- [ ] `[derived]` Given no verified session, then the request is refused and nothing is submitted
 
 **Tests**
 | Level | Test |

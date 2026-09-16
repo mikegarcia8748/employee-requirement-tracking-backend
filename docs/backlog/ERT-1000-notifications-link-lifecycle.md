@@ -16,7 +16,8 @@ packet-ready-for-review, link-expiring warning, completion confirmation, suspend
 and manual resend. The seventh (rejection with reasons) arrives with the Phase 2 reject flow.
 
 One rule governs all of them and is already enforced by the type system: **no email other than the
-invitation ever contains the access PIN.** Only `sendInvitation` accepts an `AccessPin`, so a
+email ever contains an access PIN, and only the invitation carries a link.** Only `sendInvitation`
+accepts an `AccessPin` — a signature kept for the recovery path, which does not send mail — so a
 forwarded rejection notice, reminder or expiry warning carries nothing useful. Do not add an
 `AccessPin` parameter anywhere else to make a template easier.
 
@@ -38,60 +39,128 @@ extend, revoke or resend a single link.
 
 ---
 
-## ERT-1010 — `Notifier` production adapter
+## ERT-1010 — `Notifier` production adapter: SMTP relay
 
 | | |
 |---|---|
 | **Parent** | ERT-1000 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | **Blocked on Q12** |
+| **Status** | Not started |
 | **Depends on** | ERT-440 |
-| **PRD** | §8.9, §12 |
-| **Architecture** | §4 |
+| **PRD** | §8.9, §12, §14 Q12 |
+| **Architecture** | §4, §14 |
 
 **Description**
 
-**Q12 — the email delivery mechanism and the sending domain — is unanswered**, and it is owned by
-Engineering/IT rather than by this backlog. ERT-440's outbox keeps every other ticket moving; this
-one drains it through a real transport.
+**Q12 is answered (2026-09-16): an SMTP relay on internal mail.** No transactional-email provider and
+no API integration — which also settles a §12 question nobody asked. The invitation names a hire and
+carries a live credential; an internal relay keeps both inside the organisation's mail estate.
 
-Because the outbox already persists what would be sent, this is genuinely an adapter swap: no use
-case changes, and §8.1's retry action already has something durable to retry.
+So this is the adapter swap ERT-440 was built for. Jakarta Mail (Angus Mail) over SMTP with STARTTLS,
+declared directly in `libs.versions.toml` and `module.yaml` — **expect no Amper catalog key**, the
+same trap architecture §15 records for `ktor-server-routing-openapi`.
 
-Two rules carry over from the outbox. The invitation body holds a live credential, so a delivered
-invitation must not leave a usable PIN in the table. And a delivery failure is a specified path, not
-an exception — `DeliveryResult.Failed` is returned and the caller decides.
+**What drains the outbox, and what does not.** The six credential-free kinds queue and are drained by
+a poller started from the application lifecycle: claim `PENDING` rows oldest-first with a conditional
+update, send, then mark sent or schedule a retry. **The invitation is not in that queue.** ERT-440
+decided that an invitation is sent inline and its body never persisted, because a stored body is a
+stored credential; its outbox row is a record of the attempt, not a work item. This adapter therefore
+has two paths — a synchronous one behind `sendInvitation`, and the poller for everything else. Do not
+resolve the asymmetry by queueing the invitation: there is nothing in the row to send from, by design.
+
+**Failure is a value, not an exception.** `DeliveryResult.Failed(reason)` is returned and the caller
+decides; `CreateHireUseCase` creates the hire regardless (§8.1, ERT-434). A permanent SMTP 5xx — an
+unknown recipient, a rejected sender — fails terminally on the first attempt, because retrying a 550
+five times produces five identical failures and a slower answer for HR. A transient 4xx or a
+connection failure retries at 1m, 5m, 15m, 1h, 4h, then stops at `OUTBOX_MAX_ATTEMPTS` keeping the
+last error.
+
+**The inline path needs a timeout.** With a real relay, `sendInvitation` makes a network call inside
+`CreateHireUseCase`, after the hire has committed. A relay that hangs would hold the HTTP request open
+for the socket default. Connect and read timeouts are 5 seconds, and a timeout is `Failed` — a
+specified path, not an error.
+
+**Mail is off by default.** `MAIL_ENABLED` defaults to false and binds ERT-440's outbox adapter, so a
+checkout, a test run, or a staging box pointed at the real relay cannot email a real hire.
+`MAIL_REDIRECT_TO`, when set, rewrites every recipient to one address and names the intended one in
+the subject. **There is no way to un-send an invitation carrying a live link**, which is why the safe
+default is the one that transmits nothing.
+
+**Startup must not depend on mail.** No connection is opened at boot; the poller logs and backs off.
+Mail being down must not take the portal down.
+
+**The sending domain is the half of Q12 this ticket does not own.** SPF, DKIM and DMARC alignment for
+`MAIL_FROM` belong to whoever runs the relay. It is on the Phase 1 exit checklist with IT as owner: an
+invitation that lands in spam is indistinguishable from one never sent, and §13's "≥85% open the link
+within 48h" is measured against it. A hire whose invitation is filtered is also exactly the case
+ERT-650's recovery PIN exists for, so the two are worth reading together.
 
 **Goal**
 
-Outbox rows are delivered by a real transport, failures are visible and retryable, and no delivered
-row retains a credential.
+Queued notifications are delivered by the internal relay, the invitation is delivered inline and
+recorded without its credential, failures are bounded and visible, and no environment mails a real
+person by accident.
+
+**Stories**
+- As a New Hire, I want the invitation to come from an address my employer actually uses, so that it
+  does not read as phishing.
+- As an HR Officer, I want a failed send to say why and to be retryable, so that a transient relay
+  problem is not a re-created hire.
+- As an engineer, I want a staging deployment that cannot email a candidate.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given a pending outbox row, then it is delivered and marked sent
-- [ ] `[derived]` Given delivery fails, then the row is marked failed with the reason and remains
-      retryable
-- [ ] `[derived]` Given a delivered invitation, then the stored row retains no usable PIN
+- [ ] `[derived]` Given a pending row of a queued kind, then it is delivered and marked sent
+- [ ] `[derived]` Given a transient failure, then the row is marked for retry with the reason, the
+      attempt count increments, and the next attempt follows the backoff schedule
+- [ ] `[derived]` Given a permanent SMTP 5xx, then the row fails terminally on the first attempt
+- [ ] `[derived]` Given `OUTBOX_MAX_ATTEMPTS` failures, then the row is terminal with its last error
+- [ ] `[derived]` Given an invitation, then it is sent inline and no row, log line, trace line or
+      error message contains the plaintext token
 - [ ] Given a hire is created, then the invite email is sent within 1 minute (§8.1)
-- [ ] `[derived]` Given the transport is unreachable at startup, then the application still starts —
-      mail being down must not take the portal down
+- [ ] `[derived]` Given the relay is unreachable at startup, then the application still starts
+- [ ] `[derived]` Given a relay that hangs, then the send times out within 5 seconds as `Failed`
+- [ ] `[derived]` Given `MAIL_ENABLED` unset, then the outbox adapter is bound and nothing is
+      transmitted
+- [ ] `[derived]` Given `MAIL_REDIRECT_TO` is set, then every recipient is rewritten and the subject
+      names the intended one
+- [ ] `[derived]` Given `MAIL_ENABLED` is true with `SMTP_HOST` or `MAIL_FROM` unset, then startup
+      fails
+- [ ] `[derived]` Given two pollers claiming one row, then it is sent once
 
 **Tests**
 | Level | Test |
 |---|---|
 | Repository | `notification delivery - a pending row - is delivered and marked sent` |
-| Repository | `notification delivery - a transport failure - marks the row failed and retryable` |
-| Repository | `notification delivery - a delivered invitation - retains no usable pin` |
+| Repository | `notification delivery - a transient failure - marks the row for retry and schedules the next attempt` |
+| Repository | `notification delivery - a permanent rejection - fails terminally without retrying` |
+| Repository | `notification delivery - the attempt ceiling - stops retrying and keeps the last error` |
+| Repository | `notification delivery - two pollers claiming one row - deliver it once` |
+| Use case | `invitation delivery - a successful send - persists a row carrying no token` |
+| Use case | `invitation delivery - a relay that hangs - times out and returns Failed` |
+| Use case | `transport selection - mail disabled - binds the outbox adapter and transmits nothing` |
+| Use case | `transport selection - a redirect address is set - every recipient is rewritten` |
+| Use case | `transport selection - mail enabled with no host - startup fails` |
 
 **Files**
-- modify [`libs.versions.toml`](../../libs.versions.toml) and [`module.yaml`](../../module.yaml) —
-  add a mail library once Q12 is answered
-- create `src/data/notify/SmtpNotifier.kt` or the chosen transport
-- modify [`src/di/DataModule.kt`](../../src/di/DataModule.kt) — swap the binding
+- modify [`libs.versions.toml`](../../libs.versions.toml), [`module.yaml`](../../module.yaml)
+- create `src/data/notify/SmtpNotifier.kt` — both paths
+- create `src/data/notify/OutboxPoller.kt` — claim, send, schedule
+- create `src/data/notify/MailConfig.kt` — the env seam and the startup checks
+- modify [`src/Application.kt`](../../src/Application.kt) — start and stop the poller on the lifecycle
+- modify [`src/di/DataModule.kt`](../../src/di/DataModule.kt) — bind by `MAIL_ENABLED`
+- create `test/data/notify/SmtpNotifierTest.kt`, `test/data/notify/OutboxPollerTest.kt`, `test/data/notify/MailConfigTest.kt`
+- modify [`.env.example`](../../.env.example) — the mail block
 
 **Out of scope**
-- Templating beyond plain text and a minimal HTML alternative. Design is not a Phase 1 concern.
+- **Templating beyond plain text with a minimal HTML alternative.** Design is not a Phase 1 concern.
+- **Bounce and complaint handling.** An internal relay does not webhook; a hard bounce surfaces as an
+  SMTP 5xx on the next attempt, and §8.1's indicator is what HR sees.
+- **The sending domain, SPF, DKIM, DMARC.** IT owns it; Phase 1 exit checklist.
+- **Escalating reminders.** P1, Phase 3.
+- **Leader election for the poller.** The conditional claim makes a double send impossible, but the
+  schedule is per instance. GCP runs multiple instances by default (Q20) — if this service is ever run
+  more than once, revisit. ERT-1120 carries the constraint.
 
 ---
 
@@ -134,7 +203,7 @@ lapsed links are marked `EXPIRED` for the HR list.
       receives one expiry warning email (§8.9)
 - [ ] Given a packet is already `COMPLETE`, then no expiry warning is sent (§8.9)
 - [ ] `[derived]` Given the sweep runs twice inside the window, then a second warning is not sent
-- [ ] Given any email other than the invitation, then it never contains the access PIN (§8.9)
+- [ ] Given any email at all, then it never contains an access PIN (§8.9, §6.6)
 - [ ] `[derived]` Given a link past its absolute or idle expiry, then its status becomes `EXPIRED`
 - [ ] `[derived]` Given the sweep has not run, then an expired link is still refused at access time
 - [ ] `[derived]` Given `link.completed_grace_days` has elapsed since completion, then the link moves
@@ -178,9 +247,11 @@ lapsed links are marked `EXPIRED` for the HR list.
 
 Three HR controls over one link, each requiring a reason and each audited.
 
-**Resend rotates the PIN.** §6.6 says the PIN rotates on HR revocation and on employee request, and
-a resend that repeated the old PIN would restate a credential in a second email — exactly what §8.9
-forbids. Rotation also means a resend genuinely recovers a link whose PIN the employee lost, rather
+**Resend rotates the token.** A resend that repeated the old link would restate the same credential in
+a second email, and would not recover a hire whose link was lost to a mistyped address. Rotation also
+means the previous token stops resolving, which is what makes resend the route by which HR unsuspends
+a link. Since 2026-09-16 no PIN is involved: the link is the credential, and a hire who never received
+either email needs ERT-650's recovery PIN instead, rather
 than sending them the same code again.
 
 **Extend moves one link, not the policy.** §8.10 requires HR to be able to give one hire more time
@@ -192,7 +263,7 @@ rather than silent.
 **Goal**
 
 HR can reissue, extend or revoke a single link, each with a recorded reason, and a resend always
-carries a fresh PIN.
+carries a fresh link.
 
 **Stories**
 - As an HR Officer, I want to extend one hire's link so that a slow employee does not force me to
@@ -202,7 +273,7 @@ carries a fresh PIN.
 **Acceptance criteria**
 - [ ] Given HR needs more time for one hire, then HR can extend that single link without changing the
       global setting (§8.10)
-- [ ] `[derived]` Given a resend, then a new PIN is issued and the previous one stops verifying
+- [ ] `[derived]` Given a resend, then a new token is issued and the previous one stops resolving
 - [ ] `[derived]` Given a revoke, then the link stops opening the portal immediately and any live
       session is ended
 - [ ] `[derived]` Given an extend, then `extendedCount` increases and the new expiry is stored
@@ -259,7 +330,7 @@ not a requirement count, not a company-specific detail.
 
 | Status | What the holder sees |
 |---|---|
-| `EXPIRED` | Explanation plus a "request a new link" action |
+| `EXPIRED` | Explanation only in Phase 1; the "request a new link" action arrives with the endpoint in Phase 2 |
 | `SUSPENDED` | Explanation plus "contact HR" |
 | `REVOKED` | Explanation plus "contact HR" |
 | `COMPLETED` | Read-only confirmation: requirement names and outcomes, plus the completion date |
@@ -275,8 +346,18 @@ detail.
   whether it went through.
 - As a stranger who found a closed link, I want it to tell me nothing.
 
+> **This ticket owns the terminal-state copy; ERT-644 owns the link-state *gate*.** Both previously
+> carried the same two acceptance criteria word for word, so whichever ran second would either
+> duplicate the work or silently drop it (C17, settled 2026-09-16). ERT-644 proves that a suspended,
+> revoked or expired link **opens no session**; ERT-1040 proves that what comes back **says the right
+> thing and leaks nothing**.
+
 **Acceptance criteria**
-- [ ] Given an expired token, then an explanatory page with a "request a new link" action is shown
+- [ ] Given an expired token, then an explanatory response is returned carrying no personal data.
+      **Phase 1 names no "request a new link" action**, because `POST /api/portal/request-new-link` is
+      Phase 2 — an affordance pointing at a 404 is worse than none (C18). PRD §6.4's claim that
+      "expiry is recoverable" is therefore only true from Phase 2; until then recovery is HR-initiated
+      through `resend-link`, or ERT-650's recovery PIN
       (§8.6)
 - [ ] Given a completed packet within the grace window, then a read-only confirmation page lists
       requirement names and outcomes only (§8.6)

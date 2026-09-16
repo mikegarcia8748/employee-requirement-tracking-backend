@@ -13,7 +13,7 @@
 
 The first business capability, and the one every other Phase 1 flow starts from. Creating a hire does
 six things at once — validates an email, checks it against active hires, snapshots a requirement set,
-issues a token and a PIN, computes an expiry from stored policy, and sends an invitation — which is
+issues a token, computes an expiry from stored policy, and sends an invitation — which is
 why [`CreateHireUseCase`](../../docs/architecture.md) is split into four sub-tasks rather than
 attempted in one sitting.
 
@@ -22,16 +22,18 @@ edit from moving an in-flight hire's progress (§5). The **computed `expiresAt`*
 later policy change from silently extending or killing links already in the wild (§6.4). Both are
 copies, deliberately, not joins.
 
-The invitation is the only message in the entire system that carries the access PIN. That is
+The invitation is the only message in the entire system that carries a live credential — the link
+itself. Since 2026-09-16 it carries **no PIN**: the link alone opens the portal, and the recovery PIN
+is minted on demand by ERT-650 and returned to HR, never emailed. That is
 enforced by the shape of [`Notifier`](../../src/domain/port/Notifier.kt): only `sendInvitation`
-accepts an `AccessPin`, so §8.9's "no email but the invitation contains the PIN" is a compile-time
+accepts an `AccessPin`, so §8.9's "no email carries a credential except the invitation" is a compile-time
 property rather than a review checklist item. Do not add an `AccessPin` parameter to any other
 method.
 
 **Goal**
 
 HR can create a hire over HTTP; the hire appears at 0% progress with a snapshotted requirement set, a
-hashed token and PIN, a stored expiry, and a recorded invitation — and a delivery failure does not
+a digested token, a stored expiry, and a recorded invitation — and a delivery failure does not
 lose the record.
 
 **Stories**
@@ -54,7 +56,7 @@ lose the record.
 | **Type** | Ticket |
 | **Phase** | 1 |
 | **Status** | Not started |
-| **Depends on** | ERT-240 |
+| **Depends on** | ERT-190, ERT-240 |
 | **PRD** | §8.1, §11, §7.1 |
 | **Architecture** | §4, §7 |
 
@@ -142,7 +144,7 @@ port says why: the plaintext token exists only in the invitation email, and a lo
 would imply it was recoverable from storage. Do not add a by-plaintext overload for convenience.
 
 ERT-160 resolved the primitive this adapter depends on: the token is digested with a keyed HMAC so
-lookup is reproducible, while the PIN stays on bcrypt. Use `TokenDigest` here, not `Hasher` — using
+lookup is reproducible, while the recovery PIN stays on bcrypt. Use `TokenDigest` here, not `Hasher` — using
 bcrypt for `tokenHash` compiles, passes a round-trip test written against a single in-memory row,
 and fails only when a *second* link exists.
 
@@ -163,7 +165,7 @@ A link is resolvable by presented token without the plaintext ever being stored 
 - [ ] `[derived]` Given the adapter, then no method accepts a plaintext token
 - [ ] `[derived]` Given the same plaintext token presented twice, then both lookups resolve to the
       same row — the token digest is deterministic
-- [ ] `[derived]` Given a stored link, then neither the plaintext token nor the plaintext PIN is
+- [ ] `[derived]` Given a stored link, then neither the plaintext token nor any plaintext PIN is
       recoverable from any column
 - [ ] `[derived]` Given `LinkScope.Only`, then it round-trips with its template ids intact
 - [ ] `[derived]` Given an employee with a revoked link and a new active one, then
@@ -197,7 +199,7 @@ A link is resolvable by presented token without the plaintext ever being stored 
 | **Type** | Ticket — **split into ERT-431…434** |
 | **Phase** | 1 |
 | **Status** | Not started |
-| **Depends on** | ERT-210, ERT-230, ERT-310, ERT-320, ERT-350, ERT-410, ERT-420, ERT-440 |
+| **Depends on** | ERT-190, ERT-210, ERT-230, ERT-310, ERT-320, ERT-350, ERT-410, ERT-420, ERT-440 |
 | **PRD** | §8.1, §5, §6.4, §6.6 |
 | **Architecture** | §5, §8 |
 
@@ -225,6 +227,7 @@ The use case satisfies every §8.1 acceptance criterion against fakes, before an
 |---|---|
 | **Parent** | ERT-430 |
 | **Type** | Sub-task |
+| **Status** | Not started |
 | **Depends on** | ERT-210, ERT-230 |
 | **PRD** | §8.1 |
 
@@ -239,6 +242,26 @@ another's link. §8.1 makes proceeding require a **typed reason**, written to th
 surfaced in the exception report. A boolean `force` flag would defeat the point entirely: the reason
 is the artefact.
 
+**This sub-task settles two status codes that three documents disagreed about.** Both are decided in
+`docs/api-contract.md` and implemented here; neither is re-argued anywhere else.
+
+- **An unknown `departmentId` or `employmentTypeId` is a 422, not a 404** (E8). They arrive in the
+  request body, and the API contract's rule is that a body field's failure is a validation error
+  naming the field. ERT-350's wording said `NotFound`, which maps to 404; that wording was the loose
+  one. Two codes, not one — `department_unknown` and `employment_type_unknown` — because both ids are
+  12-character `EntityId`s and a single code could not tell HR which picker to fix.
+- **A duplicate with no reason is `ReasonRequired` → 422, not `Conflict` → 409** (C1). The system does
+  not refuse the request; it asks for a justification and then proceeds, which is a statement about an
+  incomplete request rather than a conflicting resource. Routing it through `Conflict` would also drop
+  the `details` entry naming `duplicateReason`, which is the entire reason `ReasonRequired` exists as
+  a separate case.
+
+> **`DuplicateEmailRequiresReason` is not an `AppError` case** and never has been. An earlier version
+> of the test name below said it was, as did `CLAUDE.md` and architecture §5 — three documents
+> prescribing a specification change nobody approved (`AppError.kt`: "Adding a case here is a
+> specification change"). The rule is carried by `ReasonRequired(code, action)`. (C2, corrected
+> 2026-09-16.)
+
 **Acceptance criteria**
 - [ ] Given an invalid email format, then the form blocks submission with a field-level message
       (§8.1)
@@ -250,20 +273,33 @@ is the artefact.
 - [ ] `[derived]` Given a duplicate email belonging to a completed or cancelled hire, then no reason
       is required
 - [ ] `[derived]` Given an empty or whitespace-only reason, then it is treated as absent
+- [ ] `[derived]` Given an unknown department id, then the failure is `Validation` naming
+      `departmentId` with code `department_unknown` — **not** `NotFound` (E8)
+- [ ] `[derived]` Given an unknown employment type id, then the failure names `employmentTypeId` with
+      code `employment_type_unknown`
+- [ ] `[derived]` Given a department id supplied in the `employmentTypeId` field, then it is rejected
+      — the two existence checks are separate for exactly this reason (ERT-350)
 
 **Tests**
 | Level | Test |
 |---|---|
 | Use case | `hire creation - an invalid email format - fails with a field-level validation error` |
-| Use case | `hire creation - email duplicates an active hire with no reason given - fails with DuplicateEmailRequiresReason` |
+| Use case | `hire creation - email duplicates an active hire with no reason given - fails with ReasonRequired naming the reason field` |
 | Use case | `hire creation - email duplicates an active hire with a typed reason - creates the hire and records the reason` |
 | Use case | `hire creation - a duplicate with a reason - flags the record as shared email` |
 | Use case | `hire creation - email duplicates a cancelled hire - needs no reason` |
 | Use case | `hire creation - a whitespace-only reason - is treated as no reason given` |
+| Use case | `hire creation - a department id that does not exist - fails with a validation error naming which id` |
+| Use case | `hire creation - an employment type id that does not exist - fails with a validation error naming which id` |
+| Use case | `hire creation - a department id supplied as the employment type - is rejected rather than accepted` |
 
 **Files**
 - create `src/domain/usecase/CreateHireUseCase.kt`
 - create `test/domain/usecase/CreateHireUseCaseTest.kt`
+- create `test/testdata/fake/FakeReferenceDataRepository.kt` — **the eleventh port has no fake.**
+  ERT-210 built ten; `ReferenceDataRepository` arrived later with ERT-350, which needed only a local
+  fake in its route test. This is the first use-case test that needs a shared one, and nothing
+  currently records it as anyone's job (C9)
 
 ---
 
@@ -273,6 +309,7 @@ is the artefact.
 |---|---|
 | **Parent** | ERT-430 |
 | **Type** | Sub-task |
+| **Status** | Not started |
 | **Depends on** | ERT-431 |
 | **PRD** | §5, §8.11, §6.5 |
 
@@ -309,45 +346,51 @@ the snapshot into a join will pass every other test in the suite.
 
 ---
 
-### ERT-433 — Token and PIN issue, hashed, with `expiresAt` computed from policy
+### ERT-433 — Token issue, digested, with `expiresAt` computed from policy
 
 | | |
 |---|---|
 | **Parent** | ERT-430 |
 | **Type** | Sub-task |
+| **Status** | Not started |
 | **Depends on** | ERT-432 |
 | **PRD** | §6.4, §6.6, §8.1, §12 |
 
 **Description**
 
-The link is created with the hire. `TokenGenerator` and `PinGenerator` produce the plaintext,
-`Hasher` and the ERT-420 token digest store it, and neither plaintext survives past the invitation.
+The link is created with the hire. `TokenGenerator` produces the plaintext and the ERT-420 token
+digest stores it; the plaintext does not survive past the invitation, which is rendered at send time
+and never persisted (ERT-440).
+
+**No PIN is issued here (2026-09-16).** The link alone opens the portal, and the 6-digit PIN is now an
+HR-issued recovery credential minted on demand by ERT-650 — not at creation. `PinGenerator` and
+`Hasher` keep their place in the design; they are simply called from a different use case. A PIN
+generated at creation could not serve its new purpose anyway: it would arrive in the same email whose
+non-arrival it exists to remedy.
 
 `expiresAt` is computed from the policy read at this moment and **stored**, exactly like the
 requirement snapshot. Changing `link.absolute_expiry_days` tomorrow must not move this link (§6.4).
 The idle clock is the second of two clocks — when `idleExpiryDays` is 0 it is disabled and
 `idleExpiresAt` is null, and where both apply the earlier one wins.
 
-Six digits, not four: a million combinations instead of ten thousand, at no usability cost.
-
 **Acceptance criteria**
-- [ ] Given a hire is created, then a 6-digit access PIN is generated, stored hashed, and included in
-      the invitation email (§8.1)
-- [ ] `[derived]` Given a link is issued, then neither the plaintext token nor the plaintext PIN is
-      persisted anywhere
+- [ ] Given a hire is created, then a link token is generated and stored as a keyed digest, and the
+      invitation carries the link and **no PIN** (§8.1, §6.6)
+- [ ] `[derived]` Given a link is issued, then the plaintext token is persisted nowhere, and no
+      recovery PIN exists on the record until HR issues one
 - [ ] Given an admin changes an expiry setting, then links already issued keep their stored
       `expires_at` (§8.10)
 - [ ] `[derived]` Given a policy with `absoluteExpiryDays = 90`, then `expiresAt` is 90 days after
       `issuedAt` as measured by the injected clock
 - [ ] Given `link.idle_expiry_days` is `0`, then `idleExpiresAt` is null and only the absolute ceiling
       applies (§6.4)
-- [ ] `[derived]` Given a new link, then its status is `ACTIVE`, `failedPinCount` is 0 and
-      `extendedCount` is 0
+- [ ] `[derived]` Given a new link, then its status is `ACTIVE`, `failedPinCount` is 0,
+      `extendedCount` is 0, and the recovery-PIN fields are null
 
 **Tests**
 | Level | Test |
 |---|---|
-| Use case | `link issue - a hire is created - stores a hashed token and a hashed six-digit pin` |
+| Use case | `link issue - a hire is created - stores a token digest and no pin` |
 | Use case | `link issue - a link is issued - persists no plaintext credential` |
 | Use case | `link expiry - policy of ninety days - stores an expiry ninety days after issue` |
 | Use case | `link expiry - the policy changes after issue - the stored expiry is unchanged` |
@@ -361,6 +404,7 @@ Six digits, not four: a million combinations instead of ten thousand, at no usab
 |---|---|
 | **Parent** | ERT-430 |
 | **Type** | Sub-task |
+| **Status** | Not started |
 | **Depends on** | ERT-433, ERT-440 |
 | **PRD** | §8.1, §8.9, §6.6 |
 
@@ -371,7 +415,7 @@ retry action, not a lost record. [`DeliveryResult`](../../src/domain/port/Notifi
 explicitly, so a `Failed` result must not roll back the creation.
 
 The invitation is the one message carrying both halves of the credential. Every later message points
-at the portal without restating the PIN, so a forwarded rejection notice or expiry warning carries
+at the portal without restating the link, so a forwarded rejection notice or expiry warning carries
 nothing useful. The `Notifier` shape enforces this; this sub-task must not work around it.
 
 **Acceptance criteria**
@@ -380,7 +424,8 @@ nothing useful. The `Notifier` shape enforces this; this sub-task must not work 
       (§8.1)
 - [ ] `[derived]` Given delivery fails, then the hire, its requirement set and its link still exist
       and are unchanged
-- [ ] Given any email other than the invitation, then it never contains the access PIN (§8.9) —
+- [ ] Given any email at all, then it never contains an access PIN, and only the invitation carries a
+      link (§8.9, §6.6) —
       structurally guaranteed by the `Notifier` signature
 - [ ] `[derived]` Given a successful creation, then an audit entry records the creating actor and
       timestamp
@@ -409,19 +454,33 @@ nothing useful. The `Notifier` shape enforces this; this sub-task must not work 
 
 **Description**
 
-**Q12 — the email delivery mechanism and sending domain — is unanswered**, and no mail library is
-declared. Rather than block hire creation on it, `Notifier` is implemented as an outbox: each send
-writes a row with recipient, kind, body and status. ERT-1010 later drains that outbox through a real
-transport, and no use case changes when it does.
+**Q12 is answered (2026-09-16): an SMTP relay on internal mail.** No mail library is declared yet and
+ERT-1010 lands the transport, so `Notifier` is still implemented here as an outbox: each queued send
+writes a row with recipient, kind, status, attempts and last error. ERT-1010 drains it, and no use
+case changes when it does.
 
-The outbox is genuinely useful beyond being a placeholder. It gives the §8.1 "retry action" something
+The outbox is genuinely useful beyond being a staging post. It gives the §8.1 "retry action" something
 to retry, makes "was the invitation sent?" answerable, and survives a restart in a way an in-memory
 queue does not.
 
-One rule applies to the outbox as much as to the audit log: the PIN appears in the invitation body
-and nowhere else. Storing rendered bodies means the invitation row contains a live credential, so
-that row must be purged once delivered, or the PIN redacted from the stored copy. Decide it here and
-write it down.
+**Decided here, as this ticket asked: the invitation body is never stored.** A rendered invitation
+contains a live credential, and "purge the row after delivery" only shrinks the window — it does not
+remove the credential from a backup, a replica, or a write-ahead log. The only reason to keep it would
+be to resend the *same* credential, and nothing needs that: `resend-link` reissues.
+
+So the invitation renders **at send time**, from the token held in memory for the duration of
+`CreateHireUseCase`, and its outbox row records recipient, kind, employee, status, attempts and last
+error — enough to answer "was it sent?" and to drive §8.1's failure indicator, with nothing in it worth
+stealing. The other six kinds carry no credential and queue normally, bodies included.
+
+This is the `Notifier` port's own rule one layer down. Only `sendInvitation` may carry a credential,
+and therefore only the invitation may not be stored. **Note the criterion below is testable at write
+time, not after delivery** — the earlier wording, "retains no usable PIN *after delivery*", was
+satisfiable by a row that held one for an hour first.
+
+**`PORTAL_BASE_URL` is required and does not exist yet.** The invitation body contains a link, and
+nothing among the thirteen documented environment variables configures the host it points at. Without
+it this ticket cannot be executed as written: the body would carry a path with no origin.
 
 **Goal**
 
@@ -437,7 +496,10 @@ with no live credential left sitting in the table.
 **Acceptance criteria**
 - [ ] `[derived]` Given each of the seven `Notifier` methods, when called, then a row is written with
       recipient, kind, payload and a pending status
-- [ ] `[derived]` Given the invitation row after delivery, then it retains no usable PIN
+- [ ] `[derived]` Given an invitation outbox row **at any point in its life**, then it contains no
+      plaintext token and no PIN — not before sending, not after, not in a failed row's last error
+- [ ] `[derived]` Given `PORTAL_BASE_URL` is unset outside dev, then startup fails rather than
+      rendering a link with no origin
 - [ ] `[derived]` Given a row, then it can be marked sent or failed, and a failed row can be retried
 - [ ] `[derived]` Given the adapter, then it returns `DeliveryResult.Sent` on a successful write and
       `Failed` when the write fails
@@ -447,11 +509,13 @@ with no live credential left sitting in the table.
 | Level | Test |
 |---|---|
 | Repository | `outbox notifier - an invitation is sent - writes a pending row for the recipient` |
-| Repository | `outbox notifier - a delivered invitation - retains no usable pin` |
+| Repository | `outbox notifier - an invitation at any point in its life - stores no token and no pin` |
+| Repository | `outbox notifier - a failed invitation - records the error without echoing the link` |
 | Repository | `outbox notifier - a failed row - can be retried` |
 
 **Files**
-- create `resources/db/migration/V4__notification_outbox.sql`
+- create `resources/db/migration/V5__notification_outbox.sql` — V4 is taken by ERT-190's `users`
+- modify [`.env.example`](../../.env.example) — `PORTAL_BASE_URL`
 - create `src/data/notify/OutboxNotifier.kt`
 - modify [`src/di/DataModule.kt`](../../src/di/DataModule.kt) — bind it
 - create `test/data/notify/OutboxNotifierTest.kt`
@@ -469,7 +533,7 @@ with no live credential left sitting in the table.
 | **Type** | Ticket |
 | **Phase** | 1 |
 | **Status** | Not started |
-| **Depends on** | ERT-140, ERT-430 |
+| **Depends on** | ERT-140, ERT-190, ERT-430 |
 | **PRD** | §8.1, Appendix B |
 | **Architecture** | §3, §8, §9 |
 
@@ -478,7 +542,7 @@ with no live credential left sitting in the table.
 A thin adapter: parse the body, call `CreateHireUseCase`, map the sealed result onto a status. The
 route makes no decision — every rule was settled and tested in ERT-431…434.
 
-The response must not echo the PIN or the plaintext token. They travel in the invitation email and
+The response must not echo the plaintext token. It travels in the invitation email and
 nowhere else; returning them to the creating HR client would put a live credential into a browser,
 a proxy log and the OpenAPI examples.
 
@@ -486,8 +550,8 @@ a proxy log and the OpenAPI examples.
 |---|---|
 | created | 201 with the hire id and its requirement set |
 | invalid email | 422 naming the field |
-| duplicate with no reason | 409 signalling a reason is required |
-| unknown department or employment type | 422 |
+| duplicate with no reason | 422 `ReasonRequired`, with a `details` entry naming `duplicateReason` (C1) |
+| unknown department or employment type | 422 `department_unknown` / `employment_type_unknown` (E8) |
 | created but delivery failed | 201 with a delivery-failure indicator on the body |
 
 **Goal**
@@ -501,21 +565,25 @@ leaves the server except by email.
 
 **Acceptance criteria**
 - [ ] `[derived]` Given a valid body, then 201 is returned with the hire id and its requirement set
-- [ ] `[derived]` Given a duplicate email and no reason, then 409 is returned identifying the rule
+- [ ] `[derived]` Given a duplicate email and no reason, then **422** is returned with a `details`
+      entry naming `duplicateReason` — not 409 (C1, settled in the API contract)
 - [ ] `[derived]` Given an invalid email, then 422 is returned naming the field
 - [ ] `[derived]` Given delivery failed, then 201 is still returned, carrying a failure indicator
-- [ ] `[derived]` Given any response from this endpoint, then it contains neither the access PIN nor
+- [ ] `[derived]` Given any response from this endpoint, then it contains neither a PIN nor
       the plaintext token
 - [ ] `[derived]` Given no credentials, then the request is refused
-- [ ] `[derived]` Given the generated spec, then the endpoint appears with its 201, 409 and 422
+- [ ] `[derived]` Given the generated spec, then the endpoint appears with its 201 and 422
       contract described
 
 **Tests**
 | Level | Test |
 |---|---|
 | Route | `create hire - a valid body - returns 201 with the hire id` |
-| Route | `create hire - a duplicate email with no reason - returns 409` |
+| Route | `create hire - a duplicate email with no reason - returns 422 naming the reason field` |
 | Route | `create hire - an invalid email - returns 422 naming the field` |
+| Route | `create hire - a duplicate with no reason - returns 422 naming the reason field` |
+| Route | `create hire - an unknown department - returns 422 naming which id` |
+| Route | `create hire - a token minted by this application - reaches the handler` |
 | Route | `create hire - delivery failed - returns 201 carrying a failure indicator` |
 | Route | `create hire - any response - carries no pin and no plaintext token` |
 | Route | `create hire - no credentials - is refused` |

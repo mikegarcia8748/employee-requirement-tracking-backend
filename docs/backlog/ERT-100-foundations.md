@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Epic |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | In progress — ten of eleven Done; ERT-190 is the last |
 | **Depends on** | — |
 | **PRD** | §6.4, §8.10, §11 |
 | **Architecture** | §7, §11, §14 |
@@ -85,12 +85,12 @@ connect stops startup loudly rather than surfacing on the first query.
   traffic it cannot serve.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given the application starts, then `DatabaseFactory.connect()` has run before any
+- [x] `[derived]` Given the application starts, then `DatabaseFactory.connect()` has run before any
       route handles a request
-- [ ] `[derived]` Given the application stops, then the Hikari pool is closed
-- [ ] `[derived]` Given `DATABASE_URL` points at an unreachable server, then startup fails with the
+- [x] `[derived]` Given the application stops, then the Hikari pool is closed
+- [x] `[derived]` Given `DATABASE_URL` points at an unreachable server, then startup fails with the
       underlying cause, and the server does not begin listening
-- [ ] `[derived]` Given no `DATABASE_URL` is set, then the in-memory H2 default is used, so a fresh
+- [x] `[derived]` Given no `DATABASE_URL` is set, then the in-memory H2 default is used, so a fresh
       checkout and the test suite need no external service
 
 **Tests**
@@ -156,20 +156,20 @@ A fresh database reaches the full 12-table schema by running migrations, and CI 
   the two cannot quietly diverge.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given an empty database, when the application starts, then all 12 tables in
+- [x] `[derived]` Given an empty database, when the application starts, then all 12 tables in
       `allTables` exist
-- [ ] `[derived]` Given `portal_sessions`, then it carries a unique `token_hash` column. The table as
+- [x] `[derived]` Given `portal_sessions`, then it carries a unique `token_hash` column. The table as
       defined today has none, so a session cookie would have to carry the primary key — storing live
       session bearer tokens in plaintext. Adding the column now is free; adding it later is a
       migration plus a forced logout of everyone mid-upload.
-- [ ] `[derived]` Given migrations have already run, when the application starts again, then no
+- [x] `[derived]` Given migrations have already run, when the application starts again, then no
       migration is re-applied and startup succeeds
-- [ ] `[derived]` Given migrations have run, then
+- [x] `[derived]` Given migrations have run, then
       `statementsRequiredToActualizeScheme(*allTables)` is empty
-- [ ] `[derived]` Given the same migration SQL, then it applies cleanly on both H2 in PostgreSQL mode
+- [x] `[derived]` Given the same migration SQL, then it applies cleanly on both H2 in PostgreSQL mode
       and PostgreSQL
-- [ ] Given the schema, then `upload_links` has no `last_accessed_at` column (§11, SEC-05)
-- [ ] `[derived]` Given the schema, then `upload_links.token_hash` is uniquely indexed
+- [x] Given the schema, then `upload_links` has no `last_accessed_at` column (§11, SEC-05)
+- [x] `[derived]` Given the schema, then `upload_links.token_hash` is uniquely indexed
 
 **Tests**
 | Level | Test |
@@ -232,14 +232,14 @@ hire to be created and assigned a requirement set.
   a requirement set snapshot without inventing fixtures.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given a migrated database, then every `LinkPolicy` field has a corresponding
+- [x] `[derived]` Given a migrated database, then every `LinkPolicy` field has a corresponding
       `app_setting` row carrying its default, type, and min/max
-- [ ] Given `link.absolute_expiry_days`, then its stored bounds are 7 to 180 (§6.4)
-- [ ] `[derived]` Given the seed runs twice, then it is idempotent and overwrites nothing an admin
+- [x] Given `link.absolute_expiry_days`, then its stored bounds are 7 to 180 (§6.4)
+- [x] `[derived]` Given the seed runs twice, then it is idempotent and overwrites nothing an admin
       has since changed
-- [ ] `[derived]` Given the seed, then the Appendix A catalogue exists with `is_required`, `expires`
+- [x] `[derived]` Given the seed, then the Appendix A catalogue exists with `is_required`, `expires`
       and `sort_order` populated, and is recorded in the migration as illustrative pending Q2
-- [ ] `[derived]` Given the seed, then at least one department and each employment type exist, with a
+- [x] `[derived]` Given the seed, then at least one department and each employment type exist, with a
       `template_assignment` row set per employment type
 
 **Tests**
@@ -417,11 +417,14 @@ Four shapes were rejected along the way, and the reasons belong with the ticket:
 
 **Acceptance criteria**
 
-- Every `/api` response carries `result`, derived from the status class, never passed by a handler.
-- A one-field and a four-field validation failure render the same shape.
-- A `result: "error"` body carries no `details`.
-- A wrong PIN and an unknown token stay byte-identical, and an unmatched route still matches both.
-- `GET /health` is unchanged and still outside the envelope.
+- [x] `[derived]` Every `/api` response carries `result`, derived from the status class, never passed
+      by a handler.
+- [x] `[derived]` A one-field and a four-field validation failure render the same shape.
+- [x] `[derived]` A `result: "error"` body carries no `details`.
+- [x] `[derived]` Two `Denied` responses stay byte-identical, and an unmatched route still matches
+      both. (Written as "a wrong PIN and an unknown token" before the 2026-09-16 access change; the
+      guarantee is unchanged, the example moved to the recovery path.)
+- [x] `[derived]` `GET /health` is unchanged and still outside the envelope.
 
 **Implementation notes**
 
@@ -449,8 +452,9 @@ from the route tree; they must be declared:
 responses { response(200) { schema = jsonSchema<ApiResponse<HireDto>>() } }
 ```
 
-So architecture §9's "`route/dto/` types are what the schema is generated from" was aspirational.
-Both §9 and this ticket now say what is actually required, and `/health` carries the first such
+So architecture §9's "`route/dto/` types are what the schema is generated from" was aspirational,
+and §9 now states the corrected claim outright rather than appending a retraction to it (C20).
+Both §9 and this ticket say what is actually required, and `/health` carries the first such
 block as the pattern to copy. **Every route from ERT-340 onward needs one**, or the published spec
 has no body type and the front-end has nothing to generate a client from.
 
@@ -461,8 +465,10 @@ has no body type and the front-end has nothing to generate a client from.
   [api-contract.md](../api-contract.md).
 - A correlation id. It belongs in an `X-Request-Id` **header**, not the body: a per-request body
   field would break the byte-identity test outright.
-- `ReasonRequired.action` has no wire slot under the new error shape. Confirm the flow against
-  ERT-431 when that ticket is taken.
+- `ReasonRequired.action` has no wire slot under the new error shape. **Settled with C1 in the API
+  contract**: the duplicate-email case renders as 422 with a `details` entry naming
+  `duplicateReason`, so `action` stays off the wire and the field it names is carried by `details`.
+  ERT-431 implements it.
 
 ---
 
@@ -578,7 +584,7 @@ The resolution is that the two credentials need different primitives, for differ
 | Link token, session token | HMAC-SHA-256 keyed by a server-side pepper | It is **looked up**, so the digest must be reproducible. 256 bits of entropy has no offline guessing attack worth a work factor. |
 | Access PIN | bcrypt, cost 12 | It is **verified** against one known row, never looked up. The keyspace is 10⁶, which is exactly what a work factor defends — architecture §14 makes this argument and it still holds. |
 
-This has to land in Phase 0. `CreateHireUseCase` writes `tokenHash` and `VerifyPortalPinUseCase`
+This has to land in Phase 0. `CreateHireUseCase` writes `tokenHash` and `OpenPortalUseCase`
 reads by it; discovering the problem after either ships means re-issuing every live credential and
 re-inviting every hire — through a bulk send path §8.2 deliberately makes hard.
 
@@ -880,53 +886,181 @@ every insert names its own id.
 
 ---
 
-## ERT-190 — HR user accounts and the persona model
+## ERT-190 — HR user accounts, roles and sign-in
 
 | | |
 |---|---|
 | **Parent** | ERT-100 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Blocked |
-| **Depends on** | ERT-180 · **PRD §14 Q4** |
-| **PRD** | §2, §8.13, §14 Q4 |
-| **Architecture** | §14 |
+| **Status** | Not started |
+| **Depends on** | ERT-180, ERT-240, ERT-330 |
+| **PRD** | §2, §8.13, §12, §14 Q4 |
+| **Architecture** | §4, §5, §11, §12, §14 |
 
 **Description**
 
-There is no user or admin table. `SYSTEM_ADMIN`, `HR_ADMIN`, `HR_OFFICER` and `RECRUITMENT` exist
-only as intended JWT roles, and the people behind them are stored as free text —
-`employees.created_by`, `employees.originals_sighted_by`, `submissions.reviewed_by`,
-`audit_logs.actor` and `app_settings.updated_by`, all `varchar(128)`.
+**Q4 is answered (2026-09-16): a small team, simple accounts.** A handful of HR staff, local accounts
+held here, two roles, no SSO, and no separation-of-duties enforcement in v1. Architecture §14 said the
+JWT scheme should be **replaced, not extended**, once Q4 landed. It is now replaced: the mechanism
+survives, the placeholder framing does not. The scheme stops signing with a per-run random key and
+starts issuing tokens against a row.
 
-**Blocked on Q4**, not merely unscheduled. Q4 asks who the HR users are, whether they share an
-account, and whether an SSO provider already exists. If identity lives in an IdP, a local `users`
-table is a mirror rather than a source of truth, and building it first means building the wrong
-shape. `Security.kt` says the same thing about the JWT scheme: replace it once Q4 is answered, do not
-extend it.
+**Two roles, not four.** `HR_OFFICER` creates hires, validates documents, manages links and issues
+recovery PINs. `HR_ADMIN` does all of that plus the §6.4 settings, the requirement catalogue and user
+administration. `SYSTEM_ADMIN` and `RECRUITMENT` are dropped — nothing in §8 asks for either, and a
+role with no requirement behind it becomes a place to put permissions nobody has thought about.
+Operator access is database access, not an application role.
 
-Note also that PRD §8.13 retains a **single role** for v1 and mitigates it with an exception report,
-and "multiple HR roles with department-scoped permissions" is a P2 future consideration. This ticket
-therefore widens v1 scope and should be taken deliberately, not by default.
+**The roles differ in configuration rights, not validation rights.** §8.13 retains one effective role
+for v1 and mitigates it with the exception report, and Q4's answer does not change that: an HR Officer
+can still create a hire, change its email and approve every document unaided. **Do not read a second
+role as having closed SEC-10.**
 
-When it is built, HR users should reuse `PersonId` rather than introduce a third identifier width —
-that keeps `Identifier.of`'s length dispatch unambiguous. An 8-character value in
-`audit_logs.entity_id` then means "an employee or a user", which is correct, because
-`AuditEntry.entity` already names which.
+HR users reuse `PersonId` rather than introducing a third identifier width, so `Identifier.of`'s
+length dispatch stays unambiguous. An 8-character value in `audit_logs.entity_id` then means "an
+employee or a user", which is correct — `AuditEntry.entity` already names which. Note the column is
+`varchar(12)` and a `PersonId` is 8: store it unpadded and read it back through `Identifier.of`, which
+dispatches on length. `V1__baseline.sql` already warns about the trailing-space trap here.
+
+**Four of the five actor columns become foreign keys; `audit_logs.actor` does not.**
+`employees.created_by`, `employees.originals_sighted_by`, `submissions.reviewed_by` and
+`app_settings.updated_by` each name a person who must exist, so each narrows from `varchar(128)` to a
+`PersonId` referencing `users(id)` `on delete restrict` — a user who acted cannot be deleted out from
+under the record. `audit_logs.actor` keeps its free text and gains a **nullable** `actor_user_id`
+beside it, because the trail must record actors who are not users: the ERT-130 seed, the ERT-1020
+expiry sweep, a future import job. An append-only trail that can refuse a write because it cannot name
+a user is worse than one carrying a string. §8.13's exception report joins on `actor_user_id`;
+everything else reads `actor`. **This corrects the pre-Q4 version of this ticket, which put a foreign
+key on all five.**
+
+**No `last_login_at`.** The reasoning that removed `upload_links.last_accessed_at` (§11, SEC-05): one
+overwritten timestamp cannot answer who, from where, or how often. Sign-ins are audit rows.
+
+**Token lifetime is the revocation window, and it is a trade.** Resolving the subject against `users`
+on every request would make deactivation instant and put a query in front of every HR call. The
+verifier validates claims only, so deactivating a user takes effect within `JWT_TTL_MINUTES`, default
+60. Stated now rather than discovered later: an account disabled for cause is live for up to an hour,
+and the immediate control is revoking what the person could reach, not the token.
+
+**A failed sign-in is uniform.** An unknown email, a wrong password and a deactivated account return
+the same 401 with the same body, for the reason §6.6 gives about the portal — otherwise the endpoint
+enumerates who works in HR. Every attempt, success or failure, is an audit row.
+
+**Bootstrap, once.** With no SSO and no self-registration the first account must come from somewhere.
+On start, if `users` is empty, one `HR_ADMIN` is created from `HR_BOOTSTRAP_EMAIL` and
+`HR_BOOTSTRAP_PASSWORD` with `password_change_required` set. Outside dev, startup **refuses** if the
+table is empty and those are unset — the same shape as `JWT_SECRET` and `TOKEN_PEPPER`, for the same
+reason: a deployment that comes up with no way in, or with a known way in, is worse than one that does
+not come up.
+
+**Why this runs before ERT-410.** Three costs, all rework rather than delay:
+
+1. **ERT-410 writes the mapper for `employees.created_by`.** If the column changes from `varchar(128)`
+   to a `PersonId` foreign key afterwards, the mapper, its round-trip test and the drift baseline are
+   all redone.
+2. **ERT-430 writes the first actor value.** A `created_by` written as free text before `users` exists
+   is a backfill against rows that have no correct answer.
+3. **ERT-450 is the fourth HR route behind a scheme no test can satisfy.** ERT-340 recorded that gap
+   in its test class and said it closes with Q4. ERT-450's "given no credentials, then the request is
+   refused" can only be tested negatively today; the positive half — a valid token reaches the handler
+   — has never been tested at all.
 
 **Goal**
 
-An HR action is attributable to a row rather than to a typed-in name, without pre-empting Q4.
+An HR action is attributable to a row rather than to a typed-in name, a test can mint a token this
+application accepts, and `authenticate(HR_AUTH)` protects something real.
+
+**Stories**
+- As an HR Admin, I want each officer to have their own account so that the audit trail names a person
+  rather than whatever they typed.
+- As an engineer on the next session, I want to sign in as a test user and call an HR route end to
+  end, so that "requires HR auth" is a tested property rather than a mounting convention.
+- As an HR Officer, I want my own password rather than a shared one, so that a departure means
+  disabling an account instead of telling everyone the new password.
 
 **Acceptance criteria**
-- [ ] Given Q4 is answered, then this ticket is rewritten against that answer before any code is
-      written
-- [ ] `[derived]` Given a `users` table, then its primary key is a `PersonId`
-- [ ] `[derived]` Given the five actor columns, then each references `users(id)` with `on delete
-      restrict`, so a user who acted cannot be deleted out from under the audit trail
+- [ ] `[derived]` Given a `users` table, then its primary key is a `PersonId` and email is unique,
+      case-insensitively
+- [ ] `[derived]` Given a password, then it is stored through the existing `Hasher` port and never
+      appears in a log, a response, a trace line or an audit row
+- [ ] `[derived]` Given valid credentials, then a token is returned carrying the user id as `sub` and
+      the role as a claim, and `authenticate(HR_AUTH)` accepts it
+- [ ] `[derived]` Given an unknown email, a wrong password and a deactivated account, then all three
+      responses are byte-identical
+- [ ] `[derived]` Given any sign-in attempt, then an audit row records outcome, actor and source IP
+- [ ] `[derived]` Given `password_change_required`, then every route except change-password refuses
+      until the password is changed
+- [ ] `[derived]` Given an `HR_OFFICER` on an `HR_ADMIN`-only route, then it is refused with 403 and
+      the attempt is audited
+- [ ] `[derived]` Given the four actor columns, then each references `users(id)` with
+      `on delete restrict`
+- [ ] `[derived]` Given an audit row written by no user, then it still writes, with `actor_user_id`
+      null
+- [ ] `[derived]` Given an empty `users` table outside dev and no bootstrap variables, then startup
+      fails rather than booting with no way in
+- [ ] `[derived]` Given the bootstrap account, then it is created only when `users` is empty and
+      carries `password_change_required`
+- [ ] `[derived]` Given `JWT_SECRET` is unset outside dev, then startup still refuses — unchanged
+- [ ] `[derived]` Given the generated spec, then sign-in and change-password appear with their
+      200/401 contract, and every HR route shows the `hr-jwt` requirement
+
+**Tests**
+| Level | Test |
+|---|---|
+| Use case | `hr sign in - a correct password - returns a token naming the user and role` |
+| Use case | `hr sign in - an unknown email - fails identically to a wrong password` |
+| Use case | `hr sign in - a deactivated user with the correct password - fails identically to an unknown email` |
+| Use case | `hr sign in - any attempt - is written to the audit trail with its outcome` |
+| Use case | `password change - a new password - is stored hashed and clears the change-required flag` |
+| Use case | `password change - the current password is wrong - is refused and audited` |
+| Repository | `hr user persistence - a user - round-trips including role and active flag` |
+| Repository | `hr user persistence - the same email in another case - is rejected` |
+| Repository | `actor reference - deleting a user who created a hire - is refused by the database` |
+| Repository | `audit trail - a row written by no user - stores a null actor user id` |
+| Route | `hr sign in - valid credentials - returns a token the authenticate block accepts` |
+| Route | `hr routes - a token minted by this application - are reachable` |
+| Route | `hr routes - a token signed with another key - are refused` |
+| Route | `hr routes - an officer on an admin-only route - is refused with 403` |
+| Route | `password change required - any other hr route - is refused until the password is changed` |
+| Route | `bootstrap - an empty users table outside dev with nothing set - startup fails` |
+
+**Files**
+- create `resources/db/migration/V4__hr_users.sql` — `users`, four foreign keys, `audit_logs.actor_user_id`
+- create `src/domain/model/HrUser.kt` — `HrUser`, `HrRole`
+- modify [`src/domain/port/Repositories.kt`](../../src/domain/port/Repositories.kt) — `HrUserRepository`
+- create `src/domain/usecase/AuthenticateHrUserUseCase.kt`, `src/domain/usecase/ChangeHrPasswordUseCase.kt`
+- create `src/data/repository/ExposedHrUserRepository.kt`, `src/data/mapper/HrUserMapper.kt`
+- create `src/data/auth/JwtIssuer.kt`
+- modify [`src/plugin/Security.kt`](../../src/plugin/Security.kt) — real verifier, role claim, change-required gate; the placeholder KDoc goes
+- create `src/route/hr/AuthRoutes.kt`, `src/route/dto/AuthDto.kt`, `src/route/mapper/AuthDtoMapper.kt`
+- modify [`src/route/Routing.kt`](../../src/route/Routing.kt) — sign-in outside `authenticate`, change-password inside
+- modify [`src/di/DataModule.kt`](../../src/di/DataModule.kt), [`src/di/AppModule.kt`](../../src/di/AppModule.kt)
+- modify `src/domain/model/Employee.kt`, `src/domain/model/Submission.kt` — three actor fields become `PersonId`
+- modify [`src/data/db/table/Tables.kt`](../../src/data/db/table/Tables.kt)
+- create `test/testdata/fake/FakeHrUserRepository.kt`; modify [`test/testdata/Builders.kt`](../../test/testdata/Builders.kt)
+- create `test/testdata/HrTokens.kt` — mints a token every route test can use. **This is the gap ERT-340 recorded in its test class.**
+- create the four test files named above
+- modify [`test/data/db/MigrationTest.kt`](../../test/data/db/MigrationTest.kt) — drift baseline
+- modify [`.env.example`](../../.env.example), [`CLAUDE.md`](../../CLAUDE.md), `docs/architecture.md`, `docs/api-contract.md`, `docs/backlog/README.md`
 
 **Out of scope**
-- Department-scoped permissions (PRD P2).
+- **Self-service password reset.** It needs a mail transport (ERT-1010) and introduces a second bearer
+  credential with its own expiry and threat model. An HR Admin resets; the user must change at next
+  sign-in. Enough for a handful of people.
+- **Department-scoped permissions.** PRD P2.
+- **Separation-of-duties enforcement.** Q4's answer is explicit that there is none in v1. The
+  exception report stays the control (§8.13).
+- **A user-administration screen.** The endpoints and the model land here; the screen is Phase 2 with
+  the rest of the admin surface.
+- **Rate limiting on sign-in.** ERT-660 owns it and its scope now names `/api/auth/login`. Until then
+  the audit row is the detection.
+
+> **Split seams, if one session is not enough.** The numbers 191 to 194 are unallocated and fit, in
+> this order: the table, migration and repository; the two use cases against fakes; the routes, the
+> real verifier and `HrTokens`; the four foreign keys. **The third is what closes ERT-340's "no test
+> can mint a token this application accepts"**, so it earns its own commit even if the rest stay
+> together. Allocate them on the board if you split; until then this ticket is one row.
 
 ---
 

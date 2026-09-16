@@ -75,6 +75,7 @@ filterable, without loading every requirement row.
 |---|---|
 | **Parent** | ERT-510 |
 | **Type** | Sub-task |
+| **Status** | Not started |
 | **Depends on** | ERT-230 |
 | **PRD** | §6.5, §8.11 |
 
@@ -121,6 +122,7 @@ and an in-memory count cannot disagree.
 |---|---|
 | **Parent** | ERT-510 |
 | **Type** | Sub-task |
+| **Status** | Not started |
 | **Depends on** | ERT-511 |
 | **PRD** | §8.3 |
 
