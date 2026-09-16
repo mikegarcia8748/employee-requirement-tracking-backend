@@ -1,5 +1,6 @@
 package com.pgsystem.employee.requirement.tracker.testdata.fake
 
+import com.pgsystem.employee.requirement.tracker.core.id.PersonIdGenerator
 import com.pgsystem.employee.requirement.tracker.core.value.EmailAddress
 import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 import com.pgsystem.employee.requirement.tracker.core.value.PersonId
@@ -7,6 +8,7 @@ import com.pgsystem.employee.requirement.tracker.domain.model.Employee
 import com.pgsystem.employee.requirement.tracker.domain.model.EmployeeRequirement
 import com.pgsystem.employee.requirement.tracker.domain.model.RequirementSet
 import com.pgsystem.employee.requirement.tracker.domain.port.EmployeeRepository
+import com.pgsystem.employee.requirement.tracker.testdata.FixedPersonIdGenerator
 
 /**
  * Hires and their requirement sets, in memory.
@@ -19,6 +21,7 @@ import com.pgsystem.employee.requirement.tracker.domain.port.EmployeeRepository
 class FakeEmployeeRepository(
     vararg seed: Employee,
     private val owners: RequirementOwners = RequirementOwners(),
+    private val ids: PersonIdGenerator = FixedPersonIdGenerator(),
 ) : EmployeeRepository {
 
     val failure = FakeFailure()
@@ -26,8 +29,12 @@ class FakeEmployeeRepository(
     private val employees = seed.associateBy { it.id }.toMutableMap()
     private val requirements = mutableMapOf<EntityId, EmployeeRequirement>()
 
+    private val createdEmployees = mutableListOf<Employee>()
     private val savedEmployees = mutableListOf<Employee>()
     private val savedRequirements = mutableListOf<List<EmployeeRequirement>>()
+
+    /** Every [create] call, in order, as stored. Seeded employees do not appear here. */
+    val created: List<Employee> get() = createdEmployees.toList()
 
     /** Every [save] call, in order. Seeded employees do not appear here. */
     val saved: List<Employee> get() = savedEmployees.toList()
@@ -54,6 +61,34 @@ class FakeEmployeeRepository(
     override suspend fun findActiveByEmail(email: EmailAddress): List<Employee> {
         failure.check()
         return employees.values.filter { it.email == email && !it.packetStatus.isTerminal }
+    }
+
+    /**
+     * Insert, redrawing the id while it is already taken — the port's contract, not a convenience.
+     *
+     * A fake that simply overwrote on a taken id would let a use-case test pass while the real
+     * adapter destroyed a record, which is the failure the create/save split exists to prevent. The
+     * redraw needs a generator, so this fake takes one; a test that does not care constructs the
+     * fake with no arguments and never sees it.
+     *
+     * Bounded like the adapter, and for a sharper reason: a generator scripted with one repeated id
+     * is an easy thing to write by accident, and a fake that spun on it would hang the suite with no
+     * failing test to point at. Failing loudly names the mistake.
+     */
+    override suspend fun create(employee: Employee): Employee {
+        failure.check()
+
+        val stored = generateSequence(employee) { employee.copy(id = ids.newPersonId()) }
+            .take(ID_ATTEMPTS)
+            .firstOrNull { candidate -> !employees.containsKey(candidate.id) }
+            ?: error(
+                "FakeEmployeeRepository could not place a hire after $ID_ATTEMPTS identifier draws. " +
+                    "Every candidate was already held -- check what the generator is scripted with."
+            )
+
+        employees[stored.id] = stored
+        createdEmployees += stored
+        return stored
     }
 
     override suspend fun save(employee: Employee): Employee {
@@ -90,4 +125,9 @@ class FakeEmployeeRepository(
 
     fun givenRequirements(set: RequirementSet): FakeEmployeeRepository =
         givenRequirements(*set.requirements.toTypedArray())
+
+    private companion object {
+        /** One original plus four redraws, matching `ExposedEmployeeRepository`. */
+        const val ID_ATTEMPTS = 5
+    }
 }

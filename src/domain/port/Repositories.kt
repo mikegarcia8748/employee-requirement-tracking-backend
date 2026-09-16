@@ -56,7 +56,35 @@ interface EmployeeRepository {
      */
     suspend fun findActiveByEmail(email: EmailAddress): List<Employee>
 
+    /**
+     * Insert a new hire, **redrawing the identifier if it is already taken**.
+     *
+     * Returns what was stored, which may carry a *different* [Employee.id] than the one passed in.
+     * That is the whole reason this returns an `Employee` rather than `Unit`: the caller generated a
+     * candidate id, and only the database can say whether it survived.
+     *
+     * **Why a retry lives here and nowhere else.** A [PersonId] draws from 62^8, so the primary key
+     * is the collision backstop rather than a formality. It matters most under PRD 8.2 CSV bulk
+     * import, which creates many hires in one action and reports created, skipped and failed counts
+     * — a collision must be retried silently and never surface to HR as a failed row. An [EntityId]
+     * draws from 62^12, where a collision is negligible, so those inserts need no retry.
+     * `SecurePersonIdGenerator` cannot do this for itself: a value object cannot know what the
+     * database already holds.
+     *
+     * **Separate from [save] so the adapter never has to guess.** With one upsert, a brand-new hire
+     * whose id collided would be indistinguishable from an edit of the hire already at that id, and
+     * the adapter would overwrite a stranger's record rather than redraw. Creation and modification
+     * are different operations and the port now says so.
+     */
+    suspend fun create(employee: Employee): Employee
+
+    /**
+     * Persist changes to a hire that already exists. Never inserts, and never changes an id.
+     *
+     * An id with no row behind it is a programming error rather than a new hire — see [create].
+     */
     suspend fun save(employee: Employee): Employee
+
     suspend fun requirementsOf(employeeId: PersonId): RequirementSet
     suspend fun saveRequirements(requirements: List<EmployeeRequirement>)
 }

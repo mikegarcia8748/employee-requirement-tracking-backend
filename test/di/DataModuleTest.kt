@@ -5,12 +5,14 @@ import com.pgsystem.employee.requirement.tracker.data.auth.JwtConfig
 import com.pgsystem.employee.requirement.tracker.data.auth.JwtIssuer
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedAppSettingsRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedAuditLog
+import com.pgsystem.employee.requirement.tracker.data.repository.ExposedEmployeeRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedHrUserRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedRequirementTemplateRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.AppSettingsRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.AccessTokenIssuer
 import com.pgsystem.employee.requirement.tracker.domain.port.AuditLog
+import com.pgsystem.employee.requirement.tracker.domain.port.DocumentStorage
 import com.pgsystem.employee.requirement.tracker.domain.port.EmployeeRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.HrUserRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.ReferenceDataRepository
@@ -116,12 +118,22 @@ class DataModuleTest {
     }
 
     @Test
+    fun `wiring - the data module - resolves EmployeeRepository to the Exposed adapter`() =
+        withContainer { koin ->
+            koin.get<EmployeeRepository>().shouldBeInstanceOf<ExposedEmployeeRepository>()
+        }
+
+    @Test
     fun `wiring - a port with no binding yet - still fails at resolution`() = withContainer { koin ->
-        // WHEN THIS FAILS: ERT-410 landed and bound EmployeeRepository. Swap this for another
-        // unbound port and move EmployeeRepository up into the tests above -- do not delete it.
-        // Without a port that genuinely cannot resolve, the three tests above would pass just as
-        // happily against a container that resolved anything at all.
-        assertFailsWith<Exception> { koin.get<EmployeeRepository>() }
+        // WHEN THIS FAILS: ERT-710 landed and bound DocumentStorage. Swap this for another unbound
+        // port and move DocumentStorage up into the tests above -- do not delete it. Without a port
+        // that genuinely cannot resolve, the tests above would pass just as happily against a
+        // container that resolved anything at all.
+        //
+        // ERT-410 bound EmployeeRepository and moved it up, as this comment then instructed.
+        // DocumentStorage is deliberately the furthest-out unbound port rather than the next one, so
+        // ERT-420 does not have to move this again.
+        assertFailsWith<Exception> { koin.get<DocumentStorage>() }
 
         // And the reason must be the missing binding, not a broken container.
         koin.getOrNull<AuditLog>() shouldBe koin.get<AuditLog>()

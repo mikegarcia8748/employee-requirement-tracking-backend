@@ -4,6 +4,7 @@ import com.pgsystem.employee.requirement.tracker.domain.model.AuditAction
 import com.pgsystem.employee.requirement.tracker.domain.model.LinkPolicy
 import com.pgsystem.employee.requirement.tracker.domain.model.PacketStatus
 import com.pgsystem.employee.requirement.tracker.testdata.FixedClock
+import com.pgsystem.employee.requirement.tracker.testdata.FixedPersonIdGenerator
 import com.pgsystem.employee.requirement.tracker.testdata.Fixtures
 import com.pgsystem.employee.requirement.tracker.testdata.aCompletedPacket
 import com.pgsystem.employee.requirement.tracker.testdata.aPortalSession
@@ -118,6 +119,50 @@ class FakesTest {
         repository.requirementsOf(Fixtures.EMPLOYEE_ID).total shouldBe 3
         repository.requirementsOf(other).total shouldBe 2
     }
+
+    @Test
+    fun `fake employee repository - create against a free id - records the hire as created not saved`() =
+        runTest {
+            val repository = FakeEmployeeRepository()
+
+            repository.create(anEmployee())
+
+            repository.created shouldHaveSize 1
+            repository.saved.shouldBeEmpty()
+        }
+
+    @Test
+    fun `fake employee repository - create against a taken id - redraws rather than overwriting`() =
+        runTest {
+            // The fake mirrors the port here rather than taking the shortcut. A fake that overwrote
+            // would let a use-case test pass while ExposedEmployeeRepository destroyed a record --
+            // which is the whole reason create and save are separate operations.
+            val existing = anEmployee(id = personId("EMP00001"))
+            val repository = FakeEmployeeRepository(existing, ids = FixedPersonIdGenerator("EMP00002"))
+
+            val arrival = repository.create(
+                anEmployee(id = personId("EMP00001"), email = anEmail("second@example.com"))
+            )
+
+            arrival.id shouldBe personId("EMP00002")
+            repository.findById(personId("EMP00001")) shouldBe existing
+            repository.all shouldHaveSize 2
+        }
+
+    @Test
+    fun `fake employee repository - create when every draw is taken - fails rather than spinning`() =
+        runTest {
+            // A generator scripted with one repeated id is easy to write by accident, and an
+            // unbounded fake would hang the suite with no failing test to point at.
+            val repository = FakeEmployeeRepository(
+                anEmployee(id = personId("EMP00001")),
+                ids = FixedPersonIdGenerator("EMP00001", "EMP00001", "EMP00001", "EMP00001", "EMP00001"),
+            )
+
+            assertFailsWith<IllegalStateException> {
+                repository.create(anEmployee(id = personId("EMP00001")))
+            }
+        }
 
     // ── FakeUploadLinkRepository ────────────────────────────────────────────────────────────────
 

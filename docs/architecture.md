@@ -116,7 +116,7 @@ its own dispatcher and the use case never sees one.
 
 | Port | Contract | Adapter |
 |---|---|---|
-| `EmployeeRepository` | hires, their requirement sets | `data/repository` *(pending)* |
+| `EmployeeRepository` | hires, their requirement sets; **`create` and `save` are separate** | `ExposedEmployeeRepository` — **bound** |
 | `RequirementTemplateRepository` | the catalogue; read **once** at creation | `ExposedRequirementTemplateRepository` — **bound** |
 | `ReferenceDataRepository` | departments and employment types; **existence**, not entities | `ExposedReferenceDataRepository` — **bound** |
 | `UploadLinkRepository` | links, resolved **by token hash** | *(pending)* |
@@ -131,7 +131,7 @@ its own dispatcher and the use case never sees one.
 | `AccessTokenIssuer` | the bearer credential a signed-in HR user presents | `JwtIssuer` — **bound** |
 | `Clock`, `EntityIdGenerator`, `PersonIdGenerator`, `TokenGenerator`, `PinGenerator`, `Hasher`, `TokenDigest` | infrastructure | **bound** |
 
-Three of these encode a rule in their *shape* rather than their documentation:
+Four of these encode a rule in their *shape* rather than their documentation:
 
 - **`Notifier`** — only `sendInvitation` accepts an `AccessPin`. Every other method is structurally
   incapable of carrying the credential, so "no email but the invitation contains the PIN" (§8.9) is
@@ -140,6 +140,10 @@ Three of these encode a rule in their *shape* rather than their documentation:
   would imply the token was recoverable from storage.
 - **`DocumentStorage.signedUrlFor`** is documented HR-side only, and no portal use case may depend
   on this port. This is the write-mostly rule (§8.6, SEC-02) expressed as a dependency.
+- **`EmployeeRepository.create` is not `save`** (ERT-410). Creation may return a *different* id than
+  it was handed, because the identifier is a 62^8 draw the database gets the final say on; updating
+  never moves a record. Collapsed into one upsert, the adapter could not tell a colliding new hire
+  from an edit of the hire already at that id, and would overwrite it.
 
 **`AccessTokenIssuer` is in `domain/port/` while `Hasher` and `TokenDigest` are in `core/crypto`, and
 the signature decides that rather than the feeling that all three are infrastructure.** The other two
@@ -479,6 +483,21 @@ transaction it already holds anyway, because the port hop is atomic only while
 `useNestedTransactions` stays false and the `Dispatchers.IO` hop preserves the transaction's context
 element, and neither is this codebase's decision. One test pins the join so an upgrade that changed
 it would be visible.
+
+**Creation and modification are different operations on `EmployeeRepository`** (ERT-410). A
+`PersonId` draws from 62^8, so the primary key is a real collision backstop rather than a formality,
+and ERT-410 requires that a colliding draw be retried silently — §8.2 CSV bulk import reports
+created, skipped and failed counts, and a collision is none of those. A single upsert cannot deliver
+that: a brand-new hire whose id collided is byte-for-byte indistinguishable from an edit of the hire
+already at that id, so the adapter would overwrite a record rather than redraw, silently and
+unrecoverably. `create` therefore inserts and may return a **different** id than it was given — which
+is why the port returns an `Employee` rather than `Unit` — and `save` updates and never moves a
+record. The collision is detected by *reading inside the inserting transaction*, not by catching a
+constraint violation, because H2 and PostgreSQL raise different exception types with different
+messages and an adapter branching on either is pinned to whichever database the tests use; the
+genuinely concurrent case is left to the primary key, which is loud. The redraw is bounded at five
+draws, since an unbounded loop against a generator stuck on a constant is a hung request rather than
+an error.
 
 **Single Amper module, package layering.** A multi-module split would make the dependency rule a
 compile error rather than a test failure. Rejected for now: it restructures the build, and

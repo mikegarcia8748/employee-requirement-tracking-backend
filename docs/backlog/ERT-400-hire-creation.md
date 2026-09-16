@@ -55,7 +55,7 @@ lose the record.
 | **Parent** | ERT-400 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-190, ERT-240 |
 | **PRD** | §8.1, §11, §7.1 |
 | **Architecture** | §4, §7 |
@@ -73,6 +73,20 @@ the §7.1 retention freeze silently stops working. And the three attestation col
 nullable [`Attestation`](../../src/domain/model/Employee.kt) object: all three present or all three
 absent, never a half-populated attestation.
 
+**Decided here: `create` and `save` are separate operations on the port.**
+
+The collision criterion below and a single `save` cannot both hold. The precedent set by
+[`ExposedHrUserRepository`](../../src/data/repository/ExposedHrUserRepository.kt) is
+read-then-insert-or-update, under which a row already at that id means *update* — so a brand-new hire
+whose id collided would be indistinguishable from an edit of the hire already there, and the adapter
+would overwrite a stranger's record rather than redraw. The port now names the two operations
+separately, so the adapter never has to guess: `create` inserts and may return a **different** id
+than it was given, `save` updates and never moves a record. `FakeEmployeeRepository.create` redraws
+too, rather than overwriting, so a use-case test cannot pass while the real adapter destroys a row.
+
+Proved by mutation rather than asserted: removing the redraw fails two tests, and making `save`
+tolerate a missing row fails one.
+
 **Goal**
 
 An `Employee` round-trips through the database without loss, including flags and attestation, and
@@ -83,19 +97,19 @@ the active-email lookup honours its scope.
   never see a column.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given an `Employee` with every field populated, when saved and re-read, then it is
+- [x] `[derived]` Given an `Employee` with every field populated, when saved and re-read, then it is
       equal to the original
-- [ ] `[derived]` Given a completed or cancelled hire sharing an email, when `findActiveByEmail` is
+- [x] `[derived]` Given a completed or cancelled hire sharing an email, when `findActiveByEmail` is
       called, then it is not returned
-- [ ] `[derived]` Given an employee with two anomaly flags, when re-read, then both are present and
+- [x] `[derived]` Given an employee with two anomaly flags, when re-read, then both are present and
       `retentionFrozen` is true
-- [ ] `[derived]` Given an employee with no attestation, then all three attestation columns are null
+- [x] `[derived]` Given an employee with no attestation, then all three attestation columns are null
       and `attestation` is null on re-read
-- [ ] `[derived]` Given `requirementsOf`, then a `RequirementSet` is returned whose progress
+- [x] `[derived]` Given `requirementsOf`, then a `RequirementSet` is returned whose progress
       arithmetic matches the stored rows
-- [ ] `[derived]` Given a generated `PersonId` that collides with an existing row, when the insert is
+- [x] `[derived]` Given a generated `PersonId` that collides with an existing row, when the insert is
       attempted, then a fresh id is drawn and the save succeeds rather than surfacing the conflict
-- [ ] `[derived]` Given repeated collisions, then the retry gives up after a bounded number of
+- [x] `[derived]` Given repeated collisions, then the retry gives up after a bounded number of
       attempts and fails loudly rather than looping
 
 > **Why a retry is needed here and nowhere else.** A `PersonId` draws from 62^8, so the primary key

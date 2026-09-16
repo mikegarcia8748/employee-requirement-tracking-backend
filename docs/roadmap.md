@@ -1,16 +1,20 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-410 — `EmployeeRepository` adapter and row↔domain mapper](backlog/ERT-400-hire-creation.md#ert-410--employeerepository-adapter-and-rowdomain-mapper)**
+**Next ticket: [ERT-420 — `UploadLinkRepository` adapter, resolved by token hash](backlog/ERT-400-hire-creation.md#ert-420--uploadlinkrepository-adapter-resolved-by-token-hash)**
 
-> **ERT-190 landed, and Phase 0 is closed.** HR accounts, two roles, sign-in, the real JWT scheme,
-> the bootstrap admin, and the four actor foreign keys. **`domain/usecase/` is no longer empty** —
-> six use cases — so `ArchitectureTest`'s tracing tripwire fired as designed and was flipped from
-> `Vacuous` to `Checked`.
+> **ERT-410 landed, and `ERT-400` is open.** Hires persist. The port grew a **`create` separate from
+> `save`** — the one decision this ticket had to make rather than copy, and the reason is in the
+> section below. **ERT-720 is unblocked**; ERT-430 still waits on ERT-420 and ERT-440.
+>
+> **ERT-190 landed before it, and Phase 0 is closed.** HR accounts, two roles, sign-in, the real JWT
+> scheme, the bootstrap admin, and the four actor foreign keys. **`domain/usecase/` is no longer
+> empty** — six use cases — so `ArchitectureTest`'s tracing tripwire fired as designed and was
+> flipped from `Vacuous` to `Checked`.
 >
 > **A test can now mint a token this application accepts** (`testdata/HrTokens.kt`), which closes the
 > gap ERT-340 recorded in its own test class: "requires HR auth" had never been tested in the positive
-> direction on any route. **ERT-410 is next**, with `employees.created_by` already a `PersonId`
-> foreign key, which is the rework the ordering existed to avoid.
+> direction on any route. ERT-410 then found `employees.created_by` already a `PersonId` foreign key,
+> which is exactly the rework that ordering existed to avoid.
 >
 > **Q12** — an SMTP relay on internal mail — unblocks **ERT-1010**. Nothing on the board is `Blocked`.
 >
@@ -21,8 +25,8 @@
 > ticket.**
 >
 > **ERT-1110 is a hard gate before ERT-630** and is in its `Depends on` row rather than in a
-> sentence. ERT-410, ERT-420, ERT-440, ERT-610, ERT-660 and ERT-710 remain ready; ERT-720 unblocks
-> when ERT-410 lands, ERT-430 once ERT-320/350/410/420/440 are in.
+> sentence. ERT-420, ERT-440, ERT-610, ERT-660, ERT-710 and now ERT-720 are ready; ERT-430 waits on
+> ERT-420 and ERT-440, which are the last two of its five.
 
 The full board is [docs/backlog/README.md](backlog/README.md). This file holds sequencing, the
 decision register, and the pointer above. Each session updates that pointer on the way out.
@@ -33,7 +37,7 @@ decision register, and the pointer above. Each session updates that pointer on t
 
 | | |
 |---|---|
-| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **five Exposed adapters plus a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data and HR accounts · **six use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
+| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **six Exposed adapters plus a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data, HR accounts and **hires with their requirement sets** · **six use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
 | Empty | `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
 | Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics` · `POST /api/auth/login` (the only public `/api` route) · `/api/auth/change-password`, `/api/auth/me` · four `HR_ADMIN`-only routes under `/api/users` · three HR reads — `/api/requirement-templates`, `/api/departments`, `/api/employment-types`. Appendix B specifies the rest. |
@@ -283,6 +287,49 @@ The lesson worth keeping is the one E5, E6 and C22 share: **a gap without a numb
 Malware scanning, the storage target and the token-in-logs defect were all known, all written down,
 and all unowned for three epics — because prose has no status field. Every one of them now has a
 ticket, an owner and a gate.
+
+**ERT-410 then opened ERT-400 with the hire adapter, and one thing there had to be decided rather
+than copied.** The ticket requires that a generated `PersonId` colliding with an existing row draws a
+fresh id; the adapter precedent set by `ExposedHrUserRepository` is read-then-insert-or-update, under
+which a row already at that id means *update*. Both cannot hold. Taken literally together, a
+brand-new hire whose id collided is indistinguishable from an edit of the hire already there, and the
+adapter overwrites a stranger's record instead of redrawing — a silent, unrecoverable data loss on
+the one path §8.2 bulk import exercises hardest. **The port therefore names the two operations
+separately**: `create` inserts and may return a *different* id than it was handed, which is why the
+port returned an `Employee` rather than `Unit` all along; `save` updates and never moves a record.
+`FakeEmployeeRepository.create` redraws as well, so a use-case test cannot pass while the real
+adapter destroys a row.
+
+Three smaller things were settled in place. **The collision is detected by reading, not by catching a
+driver exception** — H2 and PostgreSQL raise different types with different messages, and an adapter
+that branched on either would be pinned to whichever database the tests happen to use; the genuinely
+concurrent case is left to the primary key, which is loud. The redraw is **bounded at five draws**,
+because an unbounded loop against a broken generator is a hung request rather than an error.
+And `findActiveByEmail` derives its scope from `PacketStatus.isTerminal` rather than listing
+statuses, which decides the open question in the safe direction: a status added later counts as
+*active* until someone marks it terminal, so a new state errs toward warning HR rather than staying
+silent.
+
+**The two traps here are both invisible in a green suite, so both were proved by mutation.**
+`anomaly_flags` defaults to `''` and `"".split(",")` yields `[""]`, not `[]` — a mapper that misses it
+reports `retentionFrozen` for *every* hire and silently disables the §7.1 version purge, which fails
+*open* and is exactly the kind of defect no happy-path test notices. And the three attestation columns
+are all-or-nothing: a timestamp without a text version claims the employee agreed to something without
+recording which wording, which is the evidence §7.2's versioning exists to preserve. Eight deliberate
+breakages were run against the finished adapter — scope predicate removed, blank filter removed,
+redraw removed, missing-row check weakened, partial attestation tolerated, a column dropped from the
+shared write list, the statuses hand-listed with `ON_HOLD` forgotten, and the requirement update path
+bypassed — and **each was caught by the test written for it**. The hand-listed-statuses mutation is
+the one worth keeping: it is caught by a *single* test, the one asserting an on-hold hire is still
+returned, which would otherwise have looked like a redundant variation of the test beside it.
+
+One practical gap, recorded because the next repository ticket will hit it too: **`RepositoryTestBase`
+hands out a migrated database whose `users` table is empty**, since the bootstrap admin is created at
+application startup rather than by `V4`. With four actor columns now referencing `users(id)`, any test
+that writes an `employees` row must insert a user first — and the seeded department and employment
+type exist under ids that are *not* the builder fixtures. Without an arrange step for all three, every
+test fails on a constraint rather than on its own rule, which is the least informative way for a suite
+to go red.
 
 ---
 
