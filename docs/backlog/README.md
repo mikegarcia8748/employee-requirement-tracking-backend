@@ -49,7 +49,7 @@ Phase 1 · depends on ERT-130, ERT-240
 | [ERT-320](ERT-300-catalogue-policy.md#ert-320--requirementtemplaterepository-adapter) | `RequirementTemplateRepository` adapter | Ticket | ERT-130, ERT-240 | **Done** |
 | [ERT-330](ERT-300-catalogue-policy.md#ert-330--auditlog-adapter) | `AuditLog` adapter | Ticket | ERT-240 | **Done** |
 | [ERT-340](ERT-300-catalogue-policy.md#ert-340--get-apirequirement-templates) | `GET /api/requirement-templates` | Ticket | ERT-140, ERT-320 | **Done** |
-| [ERT-350](ERT-300-catalogue-policy.md#ert-350--referencedatarepository-for-departments-and-employment-types) | `ReferenceDataRepository` for departments and employment types | Ticket | ERT-130, ERT-140, ERT-240 | Not started |
+| [ERT-350](ERT-300-catalogue-policy.md#ert-350--referencedatarepository-for-departments-and-employment-types) | `ReferenceDataRepository` for departments and employment types | Ticket | ERT-130, ERT-140, ERT-240 | **Done** |
 
 ## [ERT-400](ERT-400-hire-creation.md) — Hire creation
 
@@ -59,7 +59,7 @@ Phase 1 · depends on ERT-300
 |---|---|---|---|---|
 | [ERT-410](ERT-400-hire-creation.md#ert-410--employeerepository-adapter-and-rowdomain-mapper) | `EmployeeRepository` adapter and row↔domain mapper | Ticket | ERT-240 | Not started |
 | [ERT-420](ERT-400-hire-creation.md#ert-420--uploadlinkrepository-adapter-resolved-by-token-hash) | `UploadLinkRepository` adapter, resolved by token hash | Ticket | ERT-160, ERT-240 | Not started |
-| [ERT-430](ERT-400-hire-creation.md#ert-430--createhireusecase) | `CreateHireUseCase` | Ticket | ERT-210, ERT-230, ERT-310, ERT-320, ERT-410, ERT-420, ERT-440 | Not started |
+| [ERT-430](ERT-400-hire-creation.md#ert-430--createhireusecase) | `CreateHireUseCase` | Ticket | ERT-210, ERT-230, ERT-310, ERT-320, ERT-350, ERT-410, ERT-420, ERT-440 | Not started |
 | [ERT-431](ERT-400-hire-creation.md#ert-431--email-validation-and-duplicate-on-active-with-typed-reason) | ↳ Email validation and duplicate-on-active with typed reason | Sub-task | ERT-210, ERT-230 | Not started |
 | [ERT-432](ERT-400-hire-creation.md#ert-432--requirement-set-snapshot-from-the-template-catalogue) | ↳ Requirement-set snapshot from the template catalogue | Sub-task | ERT-431 | Not started |
 | [ERT-433](ERT-400-hire-creation.md#ert-433--token-and-pin-issue-hashed-with-expiresat-computed-from-policy) | ↳ Token and PIN issue, hashed, with `expiresAt` computed from policy | Sub-task | ERT-432 | Not started |

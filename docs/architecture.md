@@ -118,6 +118,7 @@ its own dispatcher and the use case never sees one.
 |---|---|---|
 | `EmployeeRepository` | hires, their requirement sets | `data/repository` *(pending)* |
 | `RequirementTemplateRepository` | the catalogue; read **once** at creation | `ExposedRequirementTemplateRepository` — **bound** |
+| `ReferenceDataRepository` | departments and employment types; **existence**, not entities | `ExposedReferenceDataRepository` — **bound** |
 | `UploadLinkRepository` | links, resolved **by token hash** | *(pending)* |
 | `SubmissionRepository` | versions, retention purge, storage totals | *(pending)* |
 | `PortalSessionRepository` | active sessions; HR termination | *(pending)* |

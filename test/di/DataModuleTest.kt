@@ -3,10 +3,12 @@ package com.pgsystem.employee.requirement.tracker.di
 import com.pgsystem.employee.requirement.tracker.data.db.DatabaseFactory
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedAppSettingsRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedAuditLog
+import com.pgsystem.employee.requirement.tracker.data.repository.ExposedReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedRequirementTemplateRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.AppSettingsRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.AuditLog
 import com.pgsystem.employee.requirement.tracker.domain.port.EmployeeRepository
+import com.pgsystem.employee.requirement.tracker.domain.port.ReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.RequirementTemplateRepository
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
@@ -15,7 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertFailsWith
 
 /**
- * The container actually builds what the ports name (ERT-310, ERT-330, ERT-320).
+ * The container actually builds what the ports name (ERT-310, ERT-320, ERT-330, ERT-350).
  *
  * Koin resolves lazily, so a binding with a wrong constructor arity compiles, starts, serves
  * `/health`, and fails on the first request that needs it. Resolving each port here moves that
@@ -42,6 +44,12 @@ class DataModuleTest {
         withContainer { koin ->
             koin.get<RequirementTemplateRepository>()
                 .shouldBeInstanceOf<ExposedRequirementTemplateRepository>()
+        }
+
+    @Test
+    fun `wiring - the data module - resolves ReferenceDataRepository to the Exposed adapter`() =
+        withContainer { koin ->
+            koin.get<ReferenceDataRepository>().shouldBeInstanceOf<ExposedReferenceDataRepository>()
         }
 
     @Test

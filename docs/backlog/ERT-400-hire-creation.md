@@ -197,7 +197,7 @@ A link is resolvable by presented token without the plaintext ever being stored 
 | **Type** | Ticket — **split into ERT-431…434** |
 | **Phase** | 1 |
 | **Status** | Not started |
-| **Depends on** | ERT-210, ERT-230, ERT-310, ERT-320, ERT-410, ERT-420, ERT-440 |
+| **Depends on** | ERT-210, ERT-230, ERT-310, ERT-320, ERT-350, ERT-410, ERT-420, ERT-440 |
 | **PRD** | §8.1, §5, §6.4, §6.6 |
 | **Architecture** | §5, §8 |
 

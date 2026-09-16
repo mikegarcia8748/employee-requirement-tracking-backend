@@ -1,6 +1,8 @@
 package com.pgsystem.employee.requirement.tracker.route
 
+import com.pgsystem.employee.requirement.tracker.domain.port.ReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.RequirementTemplateRepository
+import com.pgsystem.employee.requirement.tracker.route.hr.referenceRoutes
 import com.pgsystem.employee.requirement.tracker.route.hr.requirementTemplateRoutes
 import io.ktor.server.application.Application
 import io.ktor.server.auth.authenticate
@@ -32,12 +34,14 @@ import org.koin.ktor.ext.inject
  */
 fun Application.configureRouting(authName: String) {
     val requirementTemplates by inject<RequirementTemplateRepository>()
+    val reference by inject<ReferenceDataRepository>()
 
     routing {
         healthRoutes()
 
         authenticate(authName) {
             requirementTemplateRoutes(requirementTemplates)
+            referenceRoutes(reference)
         }
 
         // portal routes -> route/portal, added with their use cases

@@ -449,6 +449,28 @@ Active templates in `sort_order`. No internal identifiers beyond the template id
 currently PRD Appendix A, **seeded as illustrative pending Q2** — it is data, so replacing it is a
 seed change rather than a code change.
 
+#### `GET /api/departments` and `GET /api/employment-types`
+*ERT-350 · PRD §8.1, §8.2, §11*
+
+The reference data the add-hire form binds to, so HR picks from the real list rather than typing an
+id. Both return `id` and `name` only.
+
+Departments come back in name order. Employment types do too — **alphabetical, not an HR
+preference**, because `employment_types` has no `sort_order` column and insertion order is not a
+decision anyone made. A deliberate ordering is an §8.11 change.
+
+Reference data is **seeded, not managed**: there is no create, update or delete in Phase 1. An empty
+list is a `200` with `[]`, never a `404`.
+
+Two resources rather than one `/api/reference-data`, because `meta.total` is meaningless over a
+heterogeneous payload and every other path here is one resource per path. **Neither endpoint appears
+in PRD Appendix B** — the gap was found by ERT-350, which also found that no port exposed either
+table.
+
+The employment type chosen here selects the requirement set a hire is given, and that set is
+**snapshotted at creation** — editing the catalogue afterwards does not move a hire already
+collecting (§5).
+
 #### `GET /api/submissions/{id}/file` — short-lived signed URL
 *ERT-810 · PRD §8.4, §12*
 
@@ -655,7 +677,8 @@ notices the other. Stated here so a reader of §7.2 does not file its absence as
 ## Routes outside Appendix B
 
 Appendix B lists 34 endpoints; architecture §9 refers to "~38". The difference is the operational
-surface, which exists in code today:
+surface, which exists in code today — plus `/api/departments` and `/api/employment-types`, which are
+business endpoints Appendix B simply never named (ERT-350):
 
 | Path | Purpose | Exposure |
 |---|---|---|

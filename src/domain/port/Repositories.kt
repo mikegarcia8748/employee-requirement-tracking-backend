@@ -41,6 +41,46 @@ interface RequirementTemplateRepository {
     suspend fun findAll(includeInactive: Boolean = false): List<RequirementTemplate>
 }
 
+/**
+ * The seeded reference data a hire is created against (ERT-350, PRD 8.1, 8.2, 11).
+ *
+ * `Employee` names a `departmentId` and an `employmentTypeId`, and the tables have existed since the
+ * baseline migration, but nothing exposed them — so HR had no way to offer the real list, and hire
+ * creation had no way to reject an id that does not exist. [EntityId.of] proves an id is well
+ * **formed**; proving it **exists** is what this port adds.
+ *
+ * **Two existence checks rather than one, deliberately.** A department id and an employment type id
+ * are both 12-character [EntityId]s and structurally indistinguishable, so a single
+ * `exists(id: EntityId)` scanning both tables would answer `true` for a department id handed in the
+ * `employmentTypeId` slot — the exact defect 8.2 is about ("flagged rather than silently creating a
+ * new one"), reached through the validator meant to prevent it. Separate methods make the mix-up
+ * unrepresentable, the same device `Notifier.sendInvitation` and
+ * `UploadLinkRepository.findByTokenHash` use. It is also what lets a caller *name* which id was
+ * wrong, which the 8.1 acceptance criterion requires.
+ *
+ * They return `Boolean` rather than the entity. A caller holding a `Department` will eventually
+ * denormalise its name onto the employee, and 11 models that as a foreign key; the rule here needs
+ * the fact, not the row. Resolution **by name** is a different method, and belongs with 8.2's CSV
+ * import rather than being built ahead of it.
+ */
+interface ReferenceDataRepository {
+    /** Every department, in name order. An empty list is data, not a failure. */
+    suspend fun findDepartments(): List<Department>
+
+    /**
+     * Every employment type, in **name** order.
+     *
+     * `employment_types` carries no `sort_order` column, so a deliberate HR ordering is
+     * unrepresentable — name order is the only deterministic choice that is not insertion order
+     * wearing a disguise. Recorded against 8.11, which is where a sort column would be added.
+     */
+    suspend fun findEmploymentTypes(): List<EmploymentType>
+
+    suspend fun departmentExists(id: EntityId): Boolean
+
+    suspend fun employmentTypeExists(id: EntityId): Boolean
+}
+
 interface UploadLinkRepository {
     /**
      * Resolve a link by the hash of a presented token.

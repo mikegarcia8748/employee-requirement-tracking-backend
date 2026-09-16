@@ -1,6 +1,12 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-350 — `ReferenceDataRepository` for departments and employment types](backlog/ERT-300-catalogue-policy.md#ert-350--referencedatarepository-for-departments-and-employment-types)**
+**Next ticket: [ERT-410 — `EmployeeRepository` adapter and row↔domain mapper](backlog/ERT-400-hire-creation.md#ert-410--employeerepository-adapter-and-rowdomain-mapper)**
+
+> **ERT-300 is closed.** ERT-310/330 landing also cleared the last dependency of six further
+> tickets, and the pointer above names only the first. **ERT-410, ERT-420, ERT-440, ERT-610,
+> ERT-660 and ERT-710 are all ready now** — every remaining Phase 1 adapter, plus rate limiting.
+> ERT-720 unblocks the moment ERT-410 lands, and ERT-430 once ERT-320/350/410/420/440 are all in.
+> Only ERT-190 and ERT-1010 are genuinely blocked, on Q4 and Q12 rather than on any ticket.
 
 The full board is [docs/backlog/README.md](backlog/README.md). This file holds sequencing, the
 decision register, and the pointer above. Each session updates that pointer on the way out.
@@ -11,7 +17,7 @@ decision register, and the pointer above. Each session updates that pointer on t
 
 | | |
 |---|---|
-| Built | `core/` value objects and error types · 12 domain models with status logic · 11 ports · 12 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **two Exposed adapters, bound and resolved by a wiring test** — the §6.4 link policy and the append-only audit trail |
+| Built | `core/` value objects and error types · 12 domain models with status logic · 12 ports · 12 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **four Exposed adapters, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue and the reference data · the first three HR routes behind `authenticate(HR_AUTH)` |
 | Empty | `domain/usecase/` · `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
 | Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics`. PRD Appendix B specifies ~38. |
@@ -208,6 +214,29 @@ One nuisance worth recording because it reads as nonsense: **Kotlin block commen
 literal `/*` inside a KDoc — writing a path glob like `route/hr` with a star — opens a comment that
 never closes, and the compiler reports "unclosed comment" against the end of the file.
 
+ERT-350 closed the epic and filled a **gap in the port set rather than a missing implementation**:
+`Employee` has always required a `departmentId` and an `employmentTypeId`, and both tables have
+existed since the baseline, but nothing exposed either — so HR could not offer the real list and hire
+creation could not reject an id that does not exist. `EntityId.of` proves an id is well *formed*;
+this proves it *exists*.
+
+The port carries **two existence checks rather than one**, and the reason is worth keeping: a
+department id and an employment type id are both 12-character `EntityId`s and structurally
+indistinguishable, so a single `exists(id)` scanning both tables would answer `true` for a department
+id handed in the `employmentTypeId` slot — §8.2's exact defect, reached through the validator meant
+to prevent it. It is also what lets a caller *name* which id was wrong. Confirmed by breaking it:
+pointing `employmentTypeExists` at `departments` fails only two tests, one of which exists solely to
+ask the cross question. And as predicted, `findDepartments` with **no `ORDER BY` at all** fails only
+the test that inserts three more departments — the seed holds exactly one, so the ticket's own named
+test proves nothing about ordering. **That is now twice in one epic** that a named test was vacuous
+against seeded data; ERT-410 onward should assume it rather than rediscover it.
+
+Two decisions are recorded rather than assumed. `employment_types` has **no `sort_order` column**, so
+the list is alphabetical — which is not the order HR would choose, and that is the missing column
+speaking; adding one is an §8.11 change. And the reference endpoints are **not in PRD Appendix B at
+all** — two resources (`/api/departments`, `/api/employment-types`) rather than one combined payload,
+because `meta.total` is meaningless over a heterogeneous body; both rows are now in the API contract.
+
 ---
 
 ## Phases
@@ -354,3 +383,4 @@ none should be resolved silently in code. Owners are suggestions.
 | E5 | **Malware scanning is a P0 control in §12 with no library, no owner and no question number.** ERT-710 wires the `isClean` gate and stubs it to `true`; ERT-810 refuses to serve anything that fails it. That makes it a **named Phase 1 exit risk, not a delivered control.** | PRD §12 line 550 | Engineering / Security |
 | E6 | **No object-storage target has been chosen and the PRD asks no question about it.** ERT-710 uses a filesystem adapter with an opaque key scheme so the swap stays a binding change. | PRD §11, §12 | Engineering |
 | E7 | **The audit doc says 14 findings; the dispositions table lists SEC-01 through SEC-15.** Cosmetic, but the count is quoted in the PRD's own changelog. | `2026-09-09-security-audit.md` | Audit author |
+| E8 | **Is an unknown department or employment type a 404 or a 422?** ERT-350 specifies `AppError.NotFound`, which the mapper sends to **404**; ERT-450 and the API contract both say **422**. Nothing detects the disagreement until ERT-450 writes its route test. `PathIds.kt` reserves `orNotFound` for *path* ids and sends body-field ids to `Validation` → 422, so the 422 is probably right and ERT-350's wording is loose — but that is an inference. **ERT-431 must settle it in one place.** | ERT-350 vs ERT-450, `api-contract.md:408` | PRD owner / Engineering |

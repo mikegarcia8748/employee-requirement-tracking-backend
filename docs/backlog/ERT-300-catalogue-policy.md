@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Epic |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | **Done** |
 | **Depends on** | ERT-130, ERT-240 |
 | **PRD** | §6.4, §8.10, §8.11, §5 |
 | **Architecture** | §4, §12 invariant 6 |
@@ -319,7 +319,7 @@ spec.
 | **Parent** | ERT-300 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | **Done** |
 | **Depends on** | ERT-130, ERT-140, ERT-240 |
 | **PRD** | §8.1, §8.2, §11 |
 | **Architecture** | §4 |
@@ -352,13 +352,31 @@ fails as a domain error rather than a constraint violation.
   cannot create a hire against an id that does not exist.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given the seeded reference data, when departments are read, then all are returned
+- [x] `[derived]` Given the seeded reference data, when departments are read, then all are returned
       in name order
 - [ ] `[derived]` Given an employment type id that does not exist, then hire creation fails with
-      `NotFound` naming which one
-- [ ] Given an unrecognized department or employment type, then it is flagged rather than silently
-      creating a new one (§8.2, the same rule applied to single creation)
-- [ ] `[derived]` Given the reference routes, then they require HR authentication
+      `NotFound` naming which one — **carried forward to ERT-430, see below**
+- [x] Given an unrecognized department or employment type, then it is flagged rather than silently
+      creating a new one (§8.2, the same rule applied to single creation) — the *check* lands here
+      as `departmentExists` / `employmentTypeExists`; the flagging is ERT-431's
+- [x] `[derived]` Given the reference routes, then they require HR authentication
+
+> **Carried forward to ERT-430.** The port and both existence checks land here, covered by
+> `reference data - an employment type id that does not exist - is reported as absent`. Turning a
+> `false` into a failure that **names which id was wrong** belongs to `CreateHireUseCase`, which does
+> not exist — `src/domain/usecase/` is empty by design until ERT-430, and writing the use case here
+> would deliver ERT-430 under this ticket's number and flip `ArchitectureTest`'s use-case vacuity
+> tripwire. ERT-430's `Depends on` now names ERT-350 so the criterion is not lost. ERT-430 will also
+> want a `FakeReferenceDataRepository` in `test/testdata/fake/`; ERT-350 has only a local fake in its
+> route test, because a shared fake exists for use-case tests and there is no use case yet.
+
+> **Escalated, not resolved: is an unknown reference id a 404 or a 422?** This ticket says
+> `AppError.NotFound`, which `AppErrorMapper` maps to **404**. ERT-450 and `docs/api-contract.md`
+> both say **422**. These cannot both hold, and nothing detects the disagreement until ERT-450 writes
+> its route test. `PathIds.kt` is explicit that a body-field id belongs to `Validation` → 422 and
+> that `orNotFound` exists for *path* ids, because the path/body distinction is what stops an
+> endpoint becoming an enumeration oracle — so the 422 is very likely right and this ticket's wording
+> is the loose one. **ERT-431 settles it in one place.** Recorded as E8 in the roadmap.
 
 **Tests**
 | Level | Test |
