@@ -1,0 +1,30 @@
+-- V5 The recovery PIN becomes optional (ERT-420). PRD 6.6, reversed 2026-09-16.
+--
+-- Written in the style V1 establishes: unquoted lowercase identifiers, no IF NOT EXISTS, no
+-- dialect-specific syntax. 'MigrationTest.migration portability' checks this file for the same
+-- banned constructs it checks V1 and V4 for.
+--
+-- V1 wrote upload_links.pin_hash NOT NULL because the model then was two credentials at once: the
+-- URL opened nothing without the 6-digit PIN, and both were issued together with the hire. The
+-- 2026-09-16 reversal replaced that. The LINK ALONE opens the portal, and the PIN became an
+-- HR-issued RECOVERY credential minted on demand for the case the invitation never arrives -- so
+-- most links never have one, and a link that has one acquired it long after it was issued.
+--
+-- NOT NULL cannot express that. ERT-433 issues a link with no PIN, which under the old column
+-- means writing SOMETHING: a bcrypt hash of a six-digit value nobody was told and nobody can
+-- redeem. That is worse than null in the way that matters -- it is a credential-shaped digest for
+-- a credential that does not exist, indistinguishable in the column from a live one, so "has this
+-- hire been given a recovery PIN?" stops being answerable by the data. Null answers it.
+--
+-- DROP NOT NULL rather than a drop-and-re-add. V4 rebuilt its four actor columns because it was
+-- changing their TYPE and their contents, and ALTER COLUMN ... TYPE is where H2 and PostgreSQL
+-- disagree. Nullability is not: 'alter column c drop not null' is the same statement in both, and
+-- was verified against H2 2.4.240 in PostgreSQL mode before this file was written. Nothing is
+-- discarded either way -- no code path writes upload_links at all until this ticket's adapter.
+--
+-- The two columns the recovery PIN still needs -- when it expires, and whether it has been used
+-- (6.6: "single-use, and expires") -- are NOT here. They belong with ERT-650, which is what mints
+-- and redeems the PIN and therefore knows what to write in them. A column added ahead of the rows
+-- it describes is a guess.
+
+alter table upload_links alter column pin_hash drop not null;

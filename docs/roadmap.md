@@ -1,15 +1,22 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-420 — `UploadLinkRepository` adapter, resolved by token hash](backlog/ERT-400-hire-creation.md#ert-420--uploadlinkrepository-adapter-resolved-by-token-hash)**
+**Next ticket: [ERT-440 — `Notifier` dev adapter: outbox table, no SMTP](backlog/ERT-400-hire-creation.md#ert-440--notifier-dev-adapter-outbox-table-no-smtp)**
 
-> **ERT-410 landed: the first business adapter, and the first ticket to change a port.** Hires and
-> their snapshotted requirement sets now round-trip through real SQL — eighteen fields, the
-> anomaly-flag set and the attestation triple. The suite went from 518 tests to 549. **ERT-720
-> unblocks**, and ERT-430 now waits only on ERT-420 and ERT-440.
+> **ERT-420 landed: links resolve by token digest, and the 2026-09-16 reversal finally reached the
+> schema.** The suite went from 549 tests to 568. **ERT-1020 unblocks**, and ERT-430 now waits only
+> on ERT-440.
 >
-> **`EmployeeRepository` gained `create` beside `save`, and the ticket could not have been delivered
-> without it.** Read that section before taking ERT-420, which is the next adapter with a `save`.
-> Nothing on the board is `Blocked`.
+> **`upload_links.pin_hash` is nullable from V5, and ERT-440's outbox migration is therefore V6.**
+> The ticket was deliverable without it; ERT-433 was not. Read that section before taking ERT-433.
+>
+> **Two of ERT-420's tests were vacuous on the first pass, in a class whose own comment claimed to
+> have learned that lesson from ERT-410.** The eight-break mutation pass is what found them. Read
+> that section before writing an ordering or an encoding test. Nothing on the board is `Blocked`.
+>
+> **ERT-410 before it: the first business adapter, and the first ticket to change a port.** Hires and
+> their snapshotted requirement sets round-trip through real SQL — eighteen fields, the anomaly-flag
+> set and the attestation triple. **`EmployeeRepository` gained `create` beside `save`, and the
+> ticket could not have been delivered without it.**
 >
 > **ERT-190 closed Phase 0** before it: HR accounts, two roles, sign-in, the real JWT scheme, the
 > bootstrap admin, and the four actor foreign keys. **`domain/usecase/` is no longer empty** — six use
@@ -38,7 +45,7 @@ decision register, and the pointer above. Each session updates that pointer on t
 
 | | |
 |---|---|
-| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **six Exposed adapters plus a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data, HR accounts and **hires with their requirement sets** · **six use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
+| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **seven Exposed adapters plus a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data, HR accounts, **hires with their requirement sets** and **upload links resolved by token digest** · **six use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
 | Empty | `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
 | Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics` · `POST /api/auth/login` (the only public `/api` route) · `/api/auth/change-password`, `/api/auth/me` · four `HR_ADMIN`-only routes under `/api/users` · three HR reads — `/api/requirement-templates`, `/api/departments`, `/api/employment-types`. Appendix B specifies the rest. |
@@ -352,6 +359,58 @@ same top-level import**, and ERT-410 is its first use. The member `ISqlExpressio
 *deprecated* in Exposed 1.3.0 with a `ReplaceWith` naming `org.jetbrains.exposed.v1.core.inList`, so
 the fix is an import rather than a rewrite — but the compiler's deprecation notice reads as advice
 rather than as the missing-import message it actually is.
+
+**ERT-420 then made a link resolvable by its digest, and it is the first ticket where the 2026-09-16
+access-model reversal reached code rather than prose.** The suite went from 549 tests to 568, and
+ERT-1020 unblocks.
+
+Three things were decided rather than assumed, and the first two bind later tickets:
+
+- **`upload_links.pin_hash` is nullable from V5, and ERT-440's outbox migration moves to V6.** V1
+  wrote it `NOT NULL` under the model where the URL opened nothing without the PIN and both were
+  issued with the hire; the link alone now opens the portal and the PIN is minted on demand by
+  ERT-650, so **ERT-433 issues a link that has none.** The adapter would have round-tripped a
+  non-null field perfectly well — **this ticket was not blocked, the next one was** — which is
+  exactly why it is recorded. The alternative is worse than it sounds: a bcrypt hash of a six-digit
+  value nobody was told is a credential-shaped digest for a credential that does not exist, and the
+  column cannot tell it from a live one, so "has this hire been given a recovery PIN?" stops being
+  answerable from the data. The migration is `drop not null` and nothing else, because unlike V4's
+  `ALTER COLUMN ... TYPE` that spelling is identical in H2 and PostgreSQL — verified against H2
+  2.4.240 in PostgreSQL mode before the file was written. `pin_expires_at` and `pin_used_at` stay
+  with ERT-650, on ERT-432's principle that a column belongs with the rows it describes.
+- **`LinkScope` had no serializer, and the ticket read as though it did.** The column has carried a
+  literal `'ALL'` default since V1 with no writer and no reader, so "round-trips with its template
+  ids intact" was undesigned work. It is now `ALL`, or `ONLY:` and the ids, sorted, with `All`
+  encoding to the column's **own default** so a row written by a migration or a psql prompt decodes
+  as the scope it obviously means. Capacity is **39 ids** in `varchar(512)`, recorded in the mapper
+  rather than fixed by widening; Appendix A has 14. **ERT-650 and the Phase 4 renewal links are what
+  would otherwise hit that ceiling silently.**
+- **`findActiveForEmployee` takes no clock, and that is C15's question answered rather than C15
+  unfixed.** A session records only `started_at`, `expires_at` and `ended_at`, so that port had to
+  grow a `now`; a link carries a stored `LinkStatus`. ERT-1020 states the rule this rests on —
+  expiry is evaluated lazily at access time by ERT-644, and the sweep only sends the warning and
+  keeps the status tidy — so the stored status is the whole answer, and a clock here would put a
+  second definition of expiry in the layer that must hold no business rules. It returns `ACTIVE`
+  only, **not** every status with `opensPortal = true`: `COMPLETED` is reachable but is not a link
+  `resend-link` should reuse, and `FakeUploadLinkRepository` had already drawn that line.
+
+**And the vacuity lesson got its fourth instance, which is the one that should change how the next
+ticket works rather than merely what it knows.** ERT-320 found it in `sort_order`, ERT-350 in a
+single seeded department, ERT-410 inside a test written to prevent it. ERT-420's test class opened
+with a KDoc section citing all three by name — and **two of its own tests were vacuous anyway.** The
+ordering test gave the newest link the *lowest* id, so dropping the `ORDER BY` entirely still passed:
+H2 with no ordering returns the primary-key scan, and "lowest id" and "newest" were the same row. The
+scope test used **two** ids given as `[2, 1]`, so replacing `sorted()` with `reversed()` produced the
+sorted order anyway — ERT-410's exact coincidence, reproduced one epic later by a test whose comment
+claimed to have avoided it.
+
+Eight deliberate breaks were applied and the suite re-run each time — the `ACTIVE` filter, widening
+it to every `opensPortal` status, the employee predicate, the `ORDER BY` reversed, the `ORDER BY`
+dropped, the scope decoder's blank filter, the scope encoder's sort, and `save` always inserting. Six
+failed a named test on the first pass; **two did not**, and both tests were rearranged until they
+did. So: **intending to write the anti-coincidence test is not the same as writing it, and writing it
+is not the same as checking that it works.** The mutation pass is the only step that tells the three
+apart, and it is cheap — the whole suite runs in thirteen seconds.
 
 ---
 

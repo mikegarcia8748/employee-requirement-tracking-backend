@@ -223,7 +223,7 @@ class MigrationTest {
     fun `migration portability - the sweep above - is pointed at every migration`() {
         // A listFiles() that matched nothing would make the check above pass forever.
         File(projectDir, "resources/db/migration").listFiles { f -> f.extension == "sql" }.orEmpty()
-            .size shouldBe 4
+            .size shouldBe 5
     }
 }
 

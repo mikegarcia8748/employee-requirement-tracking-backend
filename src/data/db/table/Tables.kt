@@ -149,7 +149,18 @@ object UploadLinks : EntityIdTable("upload_links") {
 
     /** Both credentials stored hashed; neither plaintext is recoverable (PRD 12). */
     val tokenHash = varchar("token_hash", 256).uniqueIndex()
-    val pinHash = varchar("pin_hash", 256)
+
+    /**
+     * The recovery PIN, hashed. **Nullable since V5, and null on almost every row.**
+     *
+     * V1 wrote it NOT NULL under the access model that preceded 2026-09-16, where the URL opened
+     * nothing without the PIN and both were issued with the hire. The link alone now opens the
+     * portal (PRD 6.6) and the PIN is minted on demand by HR only when an invitation fails to
+     * arrive, so a link is created without one. NOT NULL would force a bcrypt hash of a value
+     * nobody was told -- a credential-shaped digest for a credential that does not exist, which the
+     * column could not be distinguished from a live one.
+     */
+    val pinHash = varchar("pin_hash", 256).nullable()
 
     /** Serialised LinkScope. Always "ALL" in v1; the Phase 4 renewal seam (PRD 9.3). */
     val scope = varchar("scope", 512).default("ALL")

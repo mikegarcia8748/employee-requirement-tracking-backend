@@ -119,7 +119,7 @@ its own dispatcher and the use case never sees one.
 | `EmployeeRepository` | hires, their requirement sets; **`create` and `save` are separate** | `ExposedEmployeeRepository` — **bound** |
 | `RequirementTemplateRepository` | the catalogue; read **once** at creation | `ExposedRequirementTemplateRepository` — **bound** |
 | `ReferenceDataRepository` | departments and employment types; **existence**, not entities | `ExposedReferenceDataRepository` — **bound** |
-| `UploadLinkRepository` | links, resolved **by token hash** | *(pending)* |
+| `UploadLinkRepository` | links, resolved **by token hash** | `ExposedUploadLinkRepository` — **bound** |
 | `SubmissionRepository` | versions, retention purge, storage totals | *(pending)* |
 | `PortalSessionRepository` | active sessions; HR termination | *(pending)* |
 | `AppSettingsRepository` | the §6.4 policy, read at runtime | `ExposedAppSettingsRepository` — **bound** |

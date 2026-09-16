@@ -189,7 +189,7 @@ the active-email lookup honours its scope.
 | **Parent** | ERT-400 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-160, ERT-240 |
 | **PRD** | §6.3, §6.4, §12 |
 | **Architecture** | §4, §12 invariant 4 |
@@ -218,15 +218,84 @@ A link is resolvable by presented token without the plaintext ever being stored 
   hand anyone my documents.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given a link, when looked up by the hash of its token, then it is returned
-- [ ] `[derived]` Given the adapter, then no method accepts a plaintext token
-- [ ] `[derived]` Given the same plaintext token presented twice, then both lookups resolve to the
+- [x] `[derived]` Given a link, when looked up by the hash of its token, then it is returned
+- [x] `[derived]` Given the adapter, then no method accepts a plaintext token
+- [x] `[derived]` Given the same plaintext token presented twice, then both lookups resolve to the
       same row — the token digest is deterministic
-- [ ] `[derived]` Given a stored link, then neither the plaintext token nor any plaintext PIN is
+- [x] `[derived]` Given a stored link, then neither the plaintext token nor any plaintext PIN is
       recoverable from any column
-- [ ] `[derived]` Given `LinkScope.Only`, then it round-trips with its template ids intact
-- [ ] `[derived]` Given an employee with a revoked link and a new active one, then
+- [x] `[derived]` Given `LinkScope.Only`, then it round-trips with its template ids intact
+- [x] `[derived]` Given an employee with a revoked link and a new active one, then
       `findActiveForEmployee` returns only the active one
+
+> **`upload_links.pin_hash` had to become nullable, and the ticket was not blocked by it — the
+> *next* one was.** V1 wrote it `NOT NULL` under the access model that preceded 2026-09-16, where the
+> URL opened nothing without the PIN and both were issued with the hire. The link alone now opens the
+> portal and the PIN is an HR-issued recovery credential minted on demand by ERT-650, so **ERT-433
+> issues a link that has none** — which the old column forbids.
+>
+> The adapter would have round-tripped a non-null `pinHash` perfectly well, which is exactly why this
+> is recorded rather than assumed: the cost of deferring was not a failing test here but a *second*
+> write of this ticket's mapper, builder, fake and repository tests one ticket later. The alternative
+> — a bcrypt hash of a six-digit value nobody was told and nobody can redeem — is worse than null in
+> the way that matters: it is a credential-shaped digest for a credential that does not exist,
+> indistinguishable in the column from a live one, so "has this hire been given a recovery PIN?"
+> stops being answerable from the data.
+>
+> `V5__recovery_pin_nullable.sql` is `alter column pin_hash drop not null` and nothing else. V4 had
+> to drop and re-add its four actor columns because `ALTER COLUMN ... TYPE` is where H2 and
+> PostgreSQL disagree; **nullability is not**, verified against H2 2.4.240 in PostgreSQL mode before
+> the file was written. The two columns the recovery PIN still needs — when it expires and whether it
+> has been used (§6.6: single-use, and expires) — are **not** here. They belong with ERT-650, which
+> mints and redeems the PIN and therefore knows what to write in them, on the ERT-432 principle that
+> a column belongs with the rows it describes.
+>
+> **ERT-440's outbox migration moves to V6.**
+
+> **`LinkScope` had no serializer, and the ticket read as though it did.** The column has carried a
+> literal `'ALL'` default since V1 with no writer and no reader, so "Given `LinkScope.Only`, then it
+> round-trips" was undesigned work rather than a mapping. The encoding is now `ALL`, or `ONLY:` and
+> the template ids, comma-separated and **sorted**.
+>
+> Three things about it are deliberate. `All` encodes to the column's **own default**, so a row
+> written by a migration, an import or a psql prompt decodes as the scope it obviously means instead
+> of as corruption. The ids are sorted for the reason `EmployeeMapper` sorts anomaly flags by
+> ordinal: a `Set` has no order, so an unsorted join writes the same scope two different ways on two
+> saves. And capacity is **39 ids** — `varchar(512)` holds `ONLY:` plus that many — which is recorded
+> in the mapper rather than fixed by widening the column, because Appendix A's catalogue has 14.
+
+> **`findActiveForEmployee` takes no clock, and that is C15's question answered rather than C15
+> unfixed.** C15 gave `PortalSessionRepository.findActiveForLink` a `now` parameter because a session
+> records only `started_at`, `expires_at` and `ended_at`, so "active" there could only mean "not
+> explicitly ended". **A link carries a stored `LinkStatus`.** ERT-1020 states the rule this depends
+> on: expiry is evaluated lazily at access time by ERT-644 against the stored dates, and the sweep
+> exists only to send the warning and keep the status tidy for the HR list — so the portal is never
+> blocked on a background job having run. Filtering on the stored status is the whole answer here,
+> and a clock would put a second definition of expiry in the layer that must hold no business rules.
+>
+> It returns **`ACTIVE` only, not every status that opens the portal.** `COMPLETED` also has
+> `opensPortal = true` (§6.3) and is the plausible mistake — but a completed packet's read-only
+> confirmation is not a link `resend-link` should reuse. `FakeUploadLinkRepository` already drew that
+> line; the adapter matches it, because a use case that passes against fakes and behaves differently
+> against SQL is the failure the fakes exist to prevent.
+
+> **Confirmed by breaking it, eight times — and two of the breaks survived the first pass.** Each
+> was applied to the finished adapter and the suite re-run, in the manner ERT-410 established:
+> dropping the `ACTIVE` filter, widening it to every `opensPortal` status, dropping the employee
+> predicate, reversing the `ORDER BY`, dropping the `ORDER BY` entirely, dropping the blank filter
+> from the scope decoder, dropping the sort from the scope encoder, and making `save` always insert.
+>
+> **Two of them passed a green suite, in a test class whose own comment claimed to have learned this
+> lesson.** The ordering test first gave the newest link the *lowest* id, so dropping the `ORDER BY`
+> still passed — H2 with no ordering returns the primary-key scan, and "lowest id" and "newest" were
+> the same row. And the scope test first used **two** ids given as `[2, 1]`, so replacing `sorted()`
+> with `reversed()` produced the sorted order anyway: ERT-410's exact coincidence, reproduced one
+> epic later by someone who had just read about it. Both now arrange a case where every accident
+> names a different row than the rule does, and all eight breaks fail a named test.
+>
+> The lesson ERT-410 recorded needs one more turn: **intending to write the anti-coincidence test is
+> not the same as writing it, and writing it is not the same as checking that it works.** The
+> mutation pass is the only step that can tell the three apart.
 
 **Tests**
 | Level | Test |
@@ -234,17 +303,37 @@ A link is resolvable by presented token without the plaintext ever being stored 
 | Repository | `link lookup - the hash of a presented token - resolves the link` |
 | Repository | `link lookup - the same token presented twice - resolves to the same row` |
 | Repository | `link persistence - a stored link - exposes no plaintext token or pin` |
-| Repository | `link scope - Only with two template ids - round-trips intact` |
+| Repository | `link persistence - a new link - stores no recovery pin` |
+| Repository | `link scope - Only with three template ids - round-trips intact and in one stable order` |
+| Repository | `link scope - Only with no template ids - round-trips as an empty set rather than one blank id` |
 | Repository | `active link lookup - a revoked link and an active one - returns only the active one` |
+| Repository | `active link lookup - a completed link - is not returned` |
+| Repository | `active link lookup - three active links - returns the most recently issued` |
 
 **Files**
-- create `src/data/repository/ExposedUploadLinkRepository.kt`
-- create `src/data/mapper/UploadLinkMapper.kt`
+- create [`src/data/repository/ExposedUploadLinkRepository.kt`](../../src/data/repository/ExposedUploadLinkRepository.kt)
+- create [`src/data/mapper/UploadLinkMapper.kt`](../../src/data/mapper/UploadLinkMapper.kt)
+- create [`resources/db/migration/V5__recovery_pin_nullable.sql`](../../resources/db/migration/V5__recovery_pin_nullable.sql) — per the note above
+- modify [`src/domain/model/UploadLink.kt`](../../src/domain/model/UploadLink.kt) — `pinHash` nullable, and the KDoc that still described the pre-reversal model
+- modify [`src/domain/model/LinkStatus.kt`](../../src/domain/model/LinkStatus.kt) — `ACTIVE` said "behind the PIN"
+- modify [`src/data/db/table/Tables.kt`](../../src/data/db/table/Tables.kt) — the drift test forces this and the migration to move together
 - modify [`src/di/DataModule.kt`](../../src/di/DataModule.kt) — bind it
-- create `test/data/repository/ExposedUploadLinkRepositoryTest.kt`
+- create [`test/data/repository/ExposedUploadLinkRepositoryTest.kt`](../../test/data/repository/ExposedUploadLinkRepositoryTest.kt)
+- modify [`test/testdata/Builders.kt`](../../test/testdata/Builders.kt) — `anUploadLink(pinHash = null)` by default
+- modify [`test/di/DataModuleTest.kt`](../../test/di/DataModuleTest.kt) — the unbound-port tripwire named
+  this ticket and moves to `SubmissionRepository`
+- modify [`test/data/db/MigrationTest.kt`](../../test/data/db/MigrationTest.kt) — the portability sweep counts its own files
+
+> **The `ONLY:` decoder is the ERT-410 blank-element trap, one file over.**
+> `"ONLY:".removePrefix("ONLY:")` is the empty string, and `"".split(",")` yields one **blank**
+> element rather than none — the same shape that would have reported an anomaly flag on every hire in
+> the system and silently disabled the §7.1 purge. Here the blank reaches `EntityId.of` instead, so
+> without the filter `Only(emptySet())` is unstorable and the failure names the id format rather than
+> the encoding behind it. It has its own named test.
 
 **Out of scope**
 - Expiry evaluation and lockout logic. Those are use-case rules, in ERT-640 and ERT-1020.
+- The recovery PIN's expiry and single-use columns. ERT-650 writes those rows.
 
 ---
 
@@ -583,7 +672,7 @@ with no live credential left sitting in the table.
 | Repository | `outbox notifier - a failed row - can be retried` |
 
 **Files**
-- create `resources/db/migration/V5__notification_outbox.sql` — V4 is taken by ERT-190's `users`
+- create `resources/db/migration/V6__notification_outbox.sql` — V4 is taken by ERT-190's `users`, **V5 by ERT-420's nullable `pin_hash`**
 - modify [`.env.example`](../../.env.example) — `PORTAL_BASE_URL`
 - create `src/data/notify/OutboxNotifier.kt`
 - modify [`src/di/DataModule.kt`](../../src/di/DataModule.kt) — bind it

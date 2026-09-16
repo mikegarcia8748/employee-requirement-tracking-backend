@@ -10,6 +10,7 @@ import com.pgsystem.employee.requirement.tracker.data.repository.ExposedEmployee
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedHrUserRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedRequirementTemplateRepository
+import com.pgsystem.employee.requirement.tracker.data.repository.ExposedUploadLinkRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.AppSettingsRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.AccessTokenIssuer
 import com.pgsystem.employee.requirement.tracker.domain.port.AuditLog
@@ -17,6 +18,7 @@ import com.pgsystem.employee.requirement.tracker.domain.port.EmployeeRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.HrUserRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.ReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.RequirementTemplateRepository
+import com.pgsystem.employee.requirement.tracker.domain.port.UploadLinkRepository
 import com.pgsystem.employee.requirement.tracker.plugin.isDevMode
 import org.koin.dsl.module
 
@@ -47,6 +49,7 @@ val dataModule = module {
     single<ReferenceDataRepository> { ExposedReferenceDataRepository(get()) }
     single<HrUserRepository> { ExposedHrUserRepository(get()) }
     single<EmployeeRepository> { ExposedEmployeeRepository(get(), get()) }
+    single<UploadLinkRepository> { ExposedUploadLinkRepository(get()) }
 
     /**
      * One [JwtConfig] for both halves of the scheme (ERT-190).
@@ -71,7 +74,6 @@ val dataModule = module {
 
     single<AccessTokenIssuer> { JwtIssuer(get()) }
 
-    // UploadLinkRepository          -> ExposedUploadLinkRepository
     // SubmissionRepository          -> ExposedSubmissionRepository
     // PortalSessionRepository       -> ExposedPortalSessionRepository
     // PortalAccessTrail             -> ExposedPortalAccessTrail
