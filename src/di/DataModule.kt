@@ -6,12 +6,14 @@ import com.pgsystem.employee.requirement.tracker.data.auth.JwtIssuer
 import com.pgsystem.employee.requirement.tracker.data.db.DatabaseFactory
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedAppSettingsRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedAuditLog
+import com.pgsystem.employee.requirement.tracker.data.repository.ExposedEmployeeRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedHrUserRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedRequirementTemplateRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.AppSettingsRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.AccessTokenIssuer
 import com.pgsystem.employee.requirement.tracker.domain.port.AuditLog
+import com.pgsystem.employee.requirement.tracker.domain.port.EmployeeRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.HrUserRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.ReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.RequirementTemplateRepository
@@ -44,6 +46,7 @@ val dataModule = module {
     single<RequirementTemplateRepository> { ExposedRequirementTemplateRepository(get()) }
     single<ReferenceDataRepository> { ExposedReferenceDataRepository(get()) }
     single<HrUserRepository> { ExposedHrUserRepository(get()) }
+    single<EmployeeRepository> { ExposedEmployeeRepository(get(), get()) }
 
     /**
      * One [JwtConfig] for both halves of the scheme (ERT-190).
@@ -68,7 +71,6 @@ val dataModule = module {
 
     single<AccessTokenIssuer> { JwtIssuer(get()) }
 
-    // EmployeeRepository            -> ExposedEmployeeRepository
     // UploadLinkRepository          -> ExposedUploadLinkRepository
     // SubmissionRepository          -> ExposedSubmissionRepository
     // PortalSessionRepository       -> ExposedPortalSessionRepository

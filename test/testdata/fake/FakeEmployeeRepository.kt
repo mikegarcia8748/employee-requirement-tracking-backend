@@ -1,5 +1,6 @@
 package com.pgsystem.employee.requirement.tracker.testdata.fake
 
+import com.pgsystem.employee.requirement.tracker.core.id.PersonIdGenerator
 import com.pgsystem.employee.requirement.tracker.core.value.EmailAddress
 import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 import com.pgsystem.employee.requirement.tracker.core.value.PersonId
@@ -7,18 +8,29 @@ import com.pgsystem.employee.requirement.tracker.domain.model.Employee
 import com.pgsystem.employee.requirement.tracker.domain.model.EmployeeRequirement
 import com.pgsystem.employee.requirement.tracker.domain.model.RequirementSet
 import com.pgsystem.employee.requirement.tracker.domain.port.EmployeeRepository
+import com.pgsystem.employee.requirement.tracker.testdata.FixedPersonIdGenerator
 
 /**
  * Hires and their requirement sets, in memory.
  *
- * Seeding and saving are separate on purpose. The constructor and [given] arrange state without
- * recording anything; [save] records into [saved], so "the use case saved the hire twice" and "the
- * use case never saved it at all" are both assertable. A fake that recorded its own setup would make
- * the first of those impossible to state.
+ * Seeding and writing are separate on purpose. The constructor and [given] arrange state without
+ * recording anything; [create] records into [created] and [save] into [saved], so "the use case
+ * saved the hire twice" and "the use case never saved it at all" are both assertable. A fake that
+ * recorded its own setup would make the first of those impossible to state.
+ *
+ * **[create] inserts and [save] updates, and neither does the other** — the split the port
+ * describes. Held here too rather than collapsing both to a map write, because a fake that accepted
+ * a creation through [save] would let a use case call the wrong method and still pass: the whole
+ * point of the split is that a new hire cannot silently overwrite an existing one.
+ *
+ * [ids] supplies the redraw when [create] meets a taken identifier. It defaults to an unscripted
+ * [FixedPersonIdGenerator], so a test that does not care never mentions it; a test about the retry
+ * scripts one — `FixedPersonIdGenerator("EMP00001", "EMP00002")`.
  */
 class FakeEmployeeRepository(
     vararg seed: Employee,
     private val owners: RequirementOwners = RequirementOwners(),
+    private val ids: PersonIdGenerator = FixedPersonIdGenerator(),
 ) : EmployeeRepository {
 
     val failure = FakeFailure()
@@ -26,8 +38,12 @@ class FakeEmployeeRepository(
     private val employees = seed.associateBy { it.id }.toMutableMap()
     private val requirements = mutableMapOf<EntityId, EmployeeRequirement>()
 
+    private val createdEmployees = mutableListOf<Employee>()
     private val savedEmployees = mutableListOf<Employee>()
     private val savedRequirements = mutableListOf<List<EmployeeRequirement>>()
+
+    /** Every [create] call, in order, each as stored. Seeded employees do not appear here. */
+    val created: List<Employee> get() = createdEmployees.toList()
 
     /** Every [save] call, in order. Seeded employees do not appear here. */
     val saved: List<Employee> get() = savedEmployees.toList()
@@ -56,8 +72,36 @@ class FakeEmployeeRepository(
         return employees.values.filter { it.email == email && !it.packetStatus.isTerminal }
     }
 
+    /**
+     * Insert, redrawing a taken identifier from [ids].
+     *
+     * Bounded for the reason the adapter is: a generator scripted with one value would otherwise
+     * spin forever, and a test that hangs says less than one that fails.
+     */
+    override suspend fun create(employee: Employee): Employee {
+        failure.check()
+
+        var candidate = employee
+        repeat(MAX_ID_ATTEMPTS) {
+            if (!employees.containsKey(candidate.id)) {
+                employees[candidate.id] = candidate
+                createdEmployees += candidate
+                return candidate
+            }
+            candidate = candidate.copy(id = ids.newPersonId())
+        }
+
+        error("Could not find a free employee id in $MAX_ID_ATTEMPTS attempts.")
+    }
+
     override suspend fun save(employee: Employee): Employee {
         failure.check()
+
+        check(employees.containsKey(employee.id)) {
+            "No hire '${employee.id.value}' to update. A hire that has never been stored is " +
+                "written with create(), not save()."
+        }
+
         employees[employee.id] = employee
         savedEmployees += employee
         return employee
@@ -90,4 +134,9 @@ class FakeEmployeeRepository(
 
     fun givenRequirements(set: RequirementSet): FakeEmployeeRepository =
         givenRequirements(*set.requirements.toTypedArray())
+
+    private companion object {
+        /** Matches `ExposedEmployeeRepository`, so the two fail at the same point. */
+        const val MAX_ID_ATTEMPTS = 5
+    }
 }

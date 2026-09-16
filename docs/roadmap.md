@@ -1,18 +1,23 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-410 — `EmployeeRepository` adapter and row↔domain mapper](backlog/ERT-400-hire-creation.md#ert-410--employeerepository-adapter-and-rowdomain-mapper)**
+**Next ticket: [ERT-420 — `UploadLinkRepository` adapter, resolved by token hash](backlog/ERT-400-hire-creation.md#ert-420--uploadlinkrepository-adapter-resolved-by-token-hash)**
 
-> **ERT-190 landed, and Phase 0 is closed.** HR accounts, two roles, sign-in, the real JWT scheme,
-> the bootstrap admin, and the four actor foreign keys. **`domain/usecase/` is no longer empty** —
-> six use cases — so `ArchitectureTest`'s tracing tripwire fired as designed and was flipped from
-> `Vacuous` to `Checked`.
+> **ERT-410 landed: the first business adapter, and the first ticket to change a port.** Hires and
+> their snapshotted requirement sets now round-trip through real SQL — eighteen fields, the
+> anomaly-flag set and the attestation triple. The suite went from 518 tests to 549. **ERT-720
+> unblocks**, and ERT-430 now waits only on ERT-420 and ERT-440.
 >
-> **A test can now mint a token this application accepts** (`testdata/HrTokens.kt`), which closes the
-> gap ERT-340 recorded in its own test class: "requires HR auth" had never been tested in the positive
-> direction on any route. **ERT-410 is next**, with `employees.created_by` already a `PersonId`
-> foreign key, which is the rework the ordering existed to avoid.
+> **`EmployeeRepository` gained `create` beside `save`, and the ticket could not have been delivered
+> without it.** Read that section before taking ERT-420, which is the next adapter with a `save`.
+> Nothing on the board is `Blocked`.
 >
-> **Q12** — an SMTP relay on internal mail — unblocks **ERT-1010**. Nothing on the board is `Blocked`.
+> **ERT-190 closed Phase 0** before it: HR accounts, two roles, sign-in, the real JWT scheme, the
+> bootstrap admin, and the four actor foreign keys. **`domain/usecase/` is no longer empty** — six use
+> cases — so `ArchitectureTest`'s tracing tripwire fired as designed and was flipped from `Vacuous` to
+> `Checked`. **A test can mint a token this application accepts** (`testdata/HrTokens.kt`), which
+> closed the gap ERT-340 recorded in its own test class.
+>
+> **Q12** — an SMTP relay on internal mail — unblocks **ERT-1010**.
 >
 > **The portal access model changed: the link alone now opens the portal**, and the 6-digit PIN
 > becomes an HR-issued out-of-band recovery credential for invitations that never arrive. That
@@ -33,7 +38,7 @@ decision register, and the pointer above. Each session updates that pointer on t
 
 | | |
 |---|---|
-| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **five Exposed adapters plus a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data and HR accounts · **six use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
+| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **six Exposed adapters plus a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data, HR accounts and **hires with their requirement sets** · **six use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
 | Empty | `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
 | Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics` · `POST /api/auth/login` (the only public `/api` route) · `/api/auth/change-password`, `/api/auth/me` · four `HR_ADMIN`-only routes under `/api/users` · three HR reads — `/api/requirement-templates`, `/api/departments`, `/api/employment-types`. Appendix B specifies the rest. |
@@ -283,6 +288,70 @@ The lesson worth keeping is the one E5, E6 and C22 share: **a gap without a numb
 Malware scanning, the storage target and the token-in-logs defect were all known, all written down,
 and all unowned for three epics — because prose has no status field. Every one of them now has a
 ticket, an owner and a gate.
+
+**ERT-410 opened Phase 1's first business epic, and it is the first ticket that had to change a
+port.** Hires and their snapshotted requirement sets round-trip through real SQL; the suite went from
+518 tests to 549. `data/repository/` now holds six adapters, and ERT-720 unblocks.
+
+The port change is the thing to carry forward, because **the ticket was not deliverable without it.**
+ERT-410's own acceptance criterion asks that a `PersonId` colliding with an existing row be redrawn
+rather than surfaced — and the house `save`, read-then-insert-or-update keyed on the id, **cannot
+express that**. An id that already exists reads as *update this row*. A new hire drawing a taken id
+would not have been retried; it would have overwritten the hire holding that id, silently, losing a
+record rather than redrawing an identifier. No test could have been written to catch it, because
+`save` has no way to tell a collision from an update.
+
+So `EmployeeRepository` grew `create` beside `save`: `create` inserts and never updates, `save`
+updates and never inserts. It is the device the port set already uses three times — separate
+existence checks on `ReferenceDataRepository`, `findByTokenHash` taking a hash, `sendInvitation` as
+the only method accepting an `AccessPin` — applied to the one place the write path could confuse two
+operations. The return value was always in the signature and is now load-bearing: `create` returns
+the hire **as stored**, which may carry a different id than the argument. `saveRequirements` keeps
+insert-or-update, because an `EntityId` draws from 62^12 where a collision is negligible — **that
+asymmetry is the whole reason the two identifier widths are separate types**, and this is the first
+code to depend on it.
+
+Three more things were decided rather than assumed, and two of them bind later tickets:
+
+- **`requirementsOf` orders by `name_snapshot`, because `employee_requirements` has no
+  `sort_order_snapshot`.** The catalogue's order is unreachable without joining
+  `requirement_templates`, which is the live read §5 forbids: a template reordered tomorrow would
+  reshuffle a checklist on a phone today. Name order is deterministic and snapshot-pure, and it is
+  not the order HR would choose — that is the missing column speaking, exactly as ERT-350 found with
+  `employment_types`. **The third snapshot column belongs to ERT-432**, with the rows it describes,
+  and its block now says so. ERT-510 and ERT-740 are what would otherwise ship the wrong order.
+- **`AnomalyFlag.freezesRetention` is named by four documents and exists in none of the code.**
+  `Employee.retentionFrozen` is still `anomalyFlags.isNotEmpty()` — the E3 defect, closed in prose
+  and never landed. ERT-734 owns it and has a gate, so it was left alone; ERT-410's flag test uses
+  two **evidentiary** flags so that it stays correct the day ERT-734 changes the rule. Recorded here
+  because E3 reads as closed and is not.
+- **A builder default cannot reach the database unaided.** `anEmployee()` points at
+  `Fixtures.DEPARTMENT_ID`, `EMPLOYMENT_TYPE_ID` and `HR_USER_ID`; the V2 seed holds
+  `d00000000001` and `e00000000001`..`4`, and `users` is empty because the bootstrap admin is a
+  startup use case rather than a seed row. Three foreign keys refuse the insert, each naming a
+  constraint rather than the mismatch behind it. **ERT-420, ERT-610 and ERT-720 all hit this**; the
+  fix is four rows in a `@BeforeTest`, not re-pointing every builder call.
+
+And the vacuity lesson got a third instance, which is the one worth reading twice. ERT-320 found it
+in `sort_order`, ERT-350 in a single seeded department, and ERT-410 found it **in a test written
+specifically to prevent it**. The flag encoder sorts by ordinal; the review step noticed nothing
+asserted the sort, so an assertion on the stored column text was added using the ticket's two flags —
+and replacing `sortedBy { it.ordinal }` with `reversed()` produced the sorted order *anyway*, so the
+new test still passed. Two flags leave too few arrangements for a coincidence to be unlikely. The
+test now uses **three**, in an order that is neither the sorted one nor its reverse, and both breaks
+fail it. **Writing the anti-coincidence test is not the same as checking that it works.**
+
+Eight deliberate breaks were applied to the finished adapter and the suite re-run each time — the
+`ORDER BY` on `requirementsOf` and on `findActiveByEmail`, the active-status filter, the email
+`lowerCase()`, `create`'s taken-id check, the flag decoder's blank filter, the flag encoder's sort,
+and the half-populated attestation branch. Every one failed a named test; two of the eight were found
+by the review step rather than the plan, and both were genuinely untested until it ran.
+
+One smaller trap, in the family already recorded for `eq`, `and` and `innerJoin`: **`inList` is the
+same top-level import**, and ERT-410 is its first use. The member `ISqlExpressionBuilder.inList` is
+*deprecated* in Exposed 1.3.0 with a `ReplaceWith` naming `org.jetbrains.exposed.v1.core.inList`, so
+the fix is an import rather than a rewrite — but the compiler's deprecation notice reads as advice
+rather than as the missing-import message it actually is.
 
 ---
 
