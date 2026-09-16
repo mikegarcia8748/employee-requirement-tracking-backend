@@ -45,9 +45,9 @@ Phase 1 · depends on ERT-130, ERT-240
 
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
-| [ERT-310](ERT-300-catalogue-policy.md#ert-310--appsettingsrepository-adapter-with-64-bounds-enforcement) | `AppSettingsRepository` adapter with §6.4 bounds enforcement | Ticket | ERT-130, ERT-240 | Not started |
+| [ERT-310](ERT-300-catalogue-policy.md#ert-310--appsettingsrepository-adapter-with-64-bounds-enforcement) | `AppSettingsRepository` adapter with §6.4 bounds enforcement | Ticket | ERT-130, ERT-240 | **Done** |
 | [ERT-320](ERT-300-catalogue-policy.md#ert-320--requirementtemplaterepository-adapter) | `RequirementTemplateRepository` adapter | Ticket | ERT-130, ERT-240 | Not started |
-| [ERT-330](ERT-300-catalogue-policy.md#ert-330--auditlog-adapter) | `AuditLog` adapter | Ticket | ERT-240 | Not started |
+| [ERT-330](ERT-300-catalogue-policy.md#ert-330--auditlog-adapter) | `AuditLog` adapter | Ticket | ERT-240 | **Done** |
 | [ERT-340](ERT-300-catalogue-policy.md#ert-340--get-apirequirement-templates) | `GET /api/requirement-templates` | Ticket | ERT-140, ERT-320 | Not started |
 | [ERT-350](ERT-300-catalogue-policy.md#ert-350--referencedatarepository-for-departments-and-employment-types) | `ReferenceDataRepository` for departments and employment types | Ticket | ERT-130, ERT-140, ERT-240 | Not started |
 

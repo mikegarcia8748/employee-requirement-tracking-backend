@@ -4,6 +4,8 @@ import com.pgsystem.employee.requirement.tracker.core.error.AppError
 import com.pgsystem.employee.requirement.tracker.core.error.DomainResult
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
+import com.pgsystem.employee.requirement.tracker.testdata.errCode
+import com.pgsystem.employee.requirement.tracker.testdata.ok
 
 /** The 12-character identifier every table but `employees` uses. */
 class EntityIdTest {

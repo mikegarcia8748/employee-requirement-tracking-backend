@@ -3,6 +3,8 @@ package com.pgsystem.employee.requirement.tracker.core.value
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlin.test.Test
+import com.pgsystem.employee.requirement.tracker.testdata.errCode
+import com.pgsystem.employee.requirement.tracker.testdata.ok
 
 /**
  * Resolving a stored id back to its kind.

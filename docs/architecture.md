@@ -121,8 +121,8 @@ its own dispatcher and the use case never sees one.
 | `UploadLinkRepository` | links, resolved **by token hash** | *(pending)* |
 | `SubmissionRepository` | versions, retention purge, storage totals | *(pending)* |
 | `PortalSessionRepository` | active sessions; HR termination | *(pending)* |
-| `AppSettingsRepository` | the §6.4 policy, read at runtime | *(pending)* |
-| `AuditLog` | HR-side actions | *(pending)* |
+| `AppSettingsRepository` | the §6.4 policy, read at runtime | `ExposedAppSettingsRepository` — **bound** |
+| `AuditLog` | HR-side actions | `ExposedAuditLog` — **bound** |
 | `PortalAccessTrail` | append-only portal attempts, distinct IPs, failure counts | *(pending)* |
 | `Notifier` | the seven notification kinds | *(pending)* |
 | `DocumentStorage` | object storage; signed URLs **HR-side only** | *(pending)* |
@@ -334,7 +334,12 @@ use case can be built in a test from plain fakes with no container at all.
 
 **Repository bindings are deliberately absent rather than stubbed with throwing placeholders.** An
 unbound port fails fast and loudly at wiring time; a placeholder that compiles fails at runtime, in
-production, on the one path nobody exercised. Each binding lands with the use case that needs it.
+production, on the one path nobody exercised. Each binding lands with the use case that needs it —
+**or with the ticket that establishes the adapter**, which is how `AppSettingsRepository` and
+`AuditLog` came to be bound in ERT-310/330 with no use case yet. ERT-300 exists to set the adapter
+pattern before ERT-410 onward make it mechanical, and an adapter nothing can resolve has not set
+one. `DataModuleTest` resolves every bound port, and keeps one deliberately-unbound port in a
+tripwire test so that "resolves" cannot quietly become "resolves anything".
 
 ---
 
@@ -371,6 +376,39 @@ migration, not a redesign:
 ---
 
 ## 14. Decisions and trade-offs
+
+**The `AppSettingsRepository` port returns `DomainResult`; no other repository port does** (ERT-310).
+It is the only port whose stored data can be wrong in a way that matters: `app_settings` holds
+strings with a declared `value_type`, and `LinkPolicy`'s Kotlin defaults are *identical* to the
+seeded rows — so an adapter that fell back to them would return exactly what a working one returns,
+and no behavioural test could tell the two apart. The failure is therefore a value a caller must
+handle. **ERT-433 must handle the `Err` rather than substituting a default**; refusing to issue a
+link is the correct response to a policy nobody can read.
+
+**One audit row per settings save, under a singleton id** (ERT-310). `audit_logs.entity_id` is 12
+characters and `Identifier.of` recovers an id's kind from that length alone, so a 25-character
+setting key cannot go in it and widening the column would make the dispatch ambiguous. The
+resolution is not a workaround: *the thing being audited is not a row*. The link policy is one
+entity whose nine fields happen to be stored as nine rows and which the Phase 2 screen saves as one
+form, so `findFor(LINK_POLICY_ID)` answers the question an auditor asks. Nine rows per save would
+multiply the trail ninefold to answer a question nobody asks.
+
+**Exposed retries a failed transaction, re-running the whole block.** Discovered in ERT-310 rather
+than assumed: an audit insert that violated a primary key rolled back, retried, drew a *fresh* id
+from the generator and committed. Anything non-transactional inside a `factory.transaction { }` —
+an id generator, a clock read, a counter — runs again on a retry. This is useful (ERT-400 wants
+exactly this for a duplicate `PersonId`) but it must be known: a test that expects a transaction to
+fail must make it fail on *every* attempt, which is what scripting `FixedEntityIdGenerator` with a
+repeated id is for.
+
+**A nested `factory.transaction { }` joins the outer one rather than committing independently.**
+Also checked rather than assumed. It means `updateLinkPolicy` *could* have written its audit row
+through the `AuditLog` port and still been atomic — verified by making the change and re-running the
+suite, which stayed green, so **no test distinguishes the two designs**. The adapter writes on the
+transaction it already holds anyway, because the port hop is atomic only while
+`useNestedTransactions` stays false and the `Dispatchers.IO` hop preserves the transaction's context
+element, and neither is this codebase's decision. One test pins the join so an upgrade that changed
+it would be visible.
 
 **Single Amper module, package layering.** A multi-module split would make the dependency rule a
 compile error rather than a test failure. Rejected for now: it restructures the build, and

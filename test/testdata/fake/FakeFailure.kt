@@ -14,8 +14,12 @@ package com.pgsystem.employee.requirement.tracker.testdata.fake
  *
  * Throwing rather than returning an `AppError` is deliberate. Infrastructure failure is not a domain
  * failure — `StatusPages` exists precisely because a repository throws — so a fake that returned
- * `DomainResult.Err` would be modelling a path the real adapter does not have. [FakeNotifier] is the
- * exception, and only because `DeliveryResult.Failed` is part of its port's signature.
+ * `DomainResult.Err` would be modelling a path the real adapter does not have.
+ *
+ * There are two exceptions, and both for the same reason — the failure is part of the port's own
+ * signature. [FakeNotifier] carries `DeliveryResult.Failed`, and [FakeAppSettingsRepository] carries
+ * `DomainResult.Err` because ERT-310 gave `AppSettingsRepository` an error channel for a settings
+ * row that cannot be read.
  */
 class FakeFailure {
     private var next: Throwable? = null

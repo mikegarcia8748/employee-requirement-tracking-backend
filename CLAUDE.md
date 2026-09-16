@@ -92,7 +92,9 @@ Fakes, `FixedClock` and builders live in `test/testdata/`.
   architecture test fails the build on a use case that forgets, or that traces under a copied name.
   A use case never logs directly — `org.slf4j` is banned in the inner layers.
 - Repository bindings land in [di/DataModule.kt](src/di/DataModule.kt) **with the use case that needs
-  them** — never as throwing placeholders. An unbound port fails loudly at wiring time.
+  them, or with the ticket that establishes the adapter** — never as throwing placeholders. An
+  unbound port fails loudly at wiring time; `test/di/DataModuleTest.kt` resolves every bound port and
+  keeps one unbound port in a tripwire so "resolves" cannot become "resolves anything".
 - The OpenAPI spec is generated from the live route tree. Attach detail with `describe { }` beside
   the handler; never hand-edit a spec file.
 - When documenting portal routes, present the deliberate behaviours as **intended** — identical
