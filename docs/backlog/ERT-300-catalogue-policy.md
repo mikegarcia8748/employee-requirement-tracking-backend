@@ -122,7 +122,7 @@ fails loudly rather than defaulting.
 | **Parent** | ERT-300 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | **Done** |
 | **Depends on** | ERT-130, ERT-240 |
 | **PRD** | §5, §8.11 |
 | **Architecture** | §4, §12 invariant 6 |
@@ -154,13 +154,13 @@ reach a new hire.
   phone.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given an employment type, when its templates are read, then only `is_active` rows
+- [x] `[derived]` Given an employment type, when its templates are read, then only `is_active` rows
       are returned, ordered by `sort_order`
-- [ ] `[derived]` Given an employment type with no assignments, then an empty list is returned rather
+- [x] `[derived]` Given an employment type with no assignments, then an empty list is returned rather
       than an error — the caller decides whether that is a problem
-- [ ] `[derived]` Given `findAll(includeInactive = true)`, then inactive templates are included, for
+- [x] `[derived]` Given `findAll(includeInactive = true)`, then inactive templates are included, for
       the Phase 2 admin screen only
-- [ ] Given an admin edits a template, then in-progress hires are unaffected (§8.11) — verified here
+- [x] Given an admin edits a template, then in-progress hires are unaffected (§8.11) — verified here
       by the absence of any live-lookup path for an existing hire
 
 **Tests**

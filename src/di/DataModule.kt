@@ -4,8 +4,10 @@ import com.pgsystem.employee.requirement.tracker.data.db.DatabaseConfig
 import com.pgsystem.employee.requirement.tracker.data.db.DatabaseFactory
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedAppSettingsRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedAuditLog
+import com.pgsystem.employee.requirement.tracker.data.repository.ExposedRequirementTemplateRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.AppSettingsRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.AuditLog
+import com.pgsystem.employee.requirement.tracker.domain.port.RequirementTemplateRepository
 import org.koin.dsl.module
 
 /**
@@ -31,9 +33,9 @@ val dataModule = module {
 
     single<AuditLog> { ExposedAuditLog(get()) }
     single<AppSettingsRepository> { ExposedAppSettingsRepository(get(), get(), get()) }
+    single<RequirementTemplateRepository> { ExposedRequirementTemplateRepository(get()) }
 
     // EmployeeRepository            -> ExposedEmployeeRepository
-    // RequirementTemplateRepository -> ExposedRequirementTemplateRepository
     // UploadLinkRepository          -> ExposedUploadLinkRepository
     // SubmissionRepository          -> ExposedSubmissionRepository
     // PortalSessionRepository       -> ExposedPortalSessionRepository

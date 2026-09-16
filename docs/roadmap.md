@@ -1,6 +1,6 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-320 — `RequirementTemplateRepository` adapter](backlog/ERT-300-catalogue-policy.md#ert-320--requirementtemplaterepository-adapter)**
+**Next ticket: [ERT-340 — `GET /api/requirement-templates`](backlog/ERT-300-catalogue-policy.md#ert-340--get-apirequirement-templates)**
 
 The full board is [docs/backlog/README.md](backlog/README.md). This file holds sequencing, the
 decision register, and the pointer above. Each session updates that pointer on the way out.
@@ -165,6 +165,25 @@ fix. And the audit metadata's credential guard catches a credential-shaped *key*
 catches a credential-shaped *value* only as a tripwire; a bare six-digit rule was considered and
 rejected because ERT-810's `size_bytes` will collide with it, and a test pins that limit so nobody
 "adds the obvious missing check".
+
+ERT-320 then added the catalogue adapter, and its lesson is about the **seed rather than the SQL**.
+`template_assignments` is seeded as a cross join — four employment types x fourteen templates — and
+`sort_order` was assigned 1..14 in the same order as the ids. Both coincidences hide a defect from
+the ticket's own named tests, and this was measured rather than argued: the adapter was temporarily
+broken twice and the suite re-run. Dropping the `employment_type_id` predicate entirely fails three
+tests, but **dropping the `ORDER BY` entirely fails only one** — the test written specifically to
+break the coincidence, which reverses one row's `sort_order` before reading. Without it ERT-320
+would have shipped green with no ordering at all, and the first symptom would have been a checklist
+that reordered itself on a new hire's phone. **Every adapter from here on reads the same seed**, so
+a test that passes against seeded data has proved less than it looks; ERT-350's departments are the
+next instance, where a single seeded row makes "in name order" vacuous.
+
+Two smaller things settled there. Exposed 1.3's join-on-explicit-columns is the **top-level**
+`org.jetbrains.exposed.v1.core.innerJoin` — the member `ColumnSet.innerJoin` takes only the other
+table, so without that import the named-argument form fails with "no parameter with name
+'onColumn'", which reads as a typo rather than a missing import. And `and` is the same top-level
+trap already recorded for `eq`; `findActiveForEmploymentType` is the first two-predicate `where` in
+the codebase.
 
 ---
 
