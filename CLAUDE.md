@@ -60,6 +60,11 @@ decision reachable only through a handler is a bug.
 8. No submission version is purged while `Employee.retentionFrozen` is true — which reads
    `AnomalyFlag.freezesRetention`, so a new flag must choose rather than inherit.
 9. `COMPLETE` is not identity assurance. `originalsSightedAt` is separate and must stay separate.
+10. An unknown email, a wrong password, a malformed address and a deactivated account are
+    indistinguishable at sign-in — **in elapsed time as well as in body**, so every branch of
+    `AuthenticateHrUserUseCase` verifies a password against *some* hash. `AppError.AuthenticationFailed`
+    is a `data object` for the reason `Denied` is one. It is **HR-side only**; a portal failure keeps
+    `Denied`. A `SIGN_IN_FAILED` audit row never names the account, even when one was found.
 
 Full text and rationale: [docs/architecture.md](docs/architecture.md) §12.
 
@@ -84,6 +89,7 @@ A failing test should say which business rule broke without opening the file.
 | Level | Where | Covers |
 |---|---|---|
 | Use case | `test/domain/usecase/` | every business rule, exhaustively — the bulk of the suite |
+| Plugin | `test/plugin/` | a startup rule, as a pure function — see `bootstrapDecision` |
 | Repository | `test/data/repository/` | real SQL against H2 in PostgreSQL mode |
 | Route | `test/route/` | wiring, status codes, serialization — never a decision |
 | Architecture | `test/ArchitectureTest.kt` | the dependency rule, as a build failure |
@@ -101,7 +107,17 @@ Fakes, `FixedClock` and builders live in `test/testdata/`.
 - Repository bindings land in [di/DataModule.kt](src/di/DataModule.kt) **with the use case that needs
   them, or with the ticket that establishes the adapter** — never as throwing placeholders. An
   unbound port fails loudly at wiring time; `test/di/DataModuleTest.kt` resolves every bound port and
-  keeps one unbound port in a tripwire so "resolves" cannot become "resolves anything".
+  keeps one unbound port in a tripwire so "resolves" cannot become "resolves anything". Use cases are
+  bound in [di/DomainModule.kt](src/di/DomainModule.kt) as `factory`; adapters and config are `single`.
+- A plugin that needs a value **takes it as a parameter** rather than reading the container or the
+  environment — `configureRouting(authName)`, `configureSecurity(jwt)`, `configureHrBootstrap(...)`.
+  `Application.kt` supplies them. A plugin that reaches for its own inputs cannot be assembled in a
+  test, which is what kept "requires HR auth" untestable until ERT-190.
+- **HR auth in a test:** `testdata/HrTokens.kt` mints a token the application accepts, through the
+  real `JwtIssuer`. Mount `configureSecurity(testJwtConfig())` and use `authenticatedAs(anHrUser())`.
+  Tokens must be issued at `Instant.now()`, **not** `FixedClock.DEFAULT` — a JWT's `exp` is checked
+  against the real system clock, which no injected `Clock` reaches. This is the one documented
+  boundary of the fixed-clock rule.
 - The OpenAPI spec is generated from the live route tree. Attach detail with `describe { }` beside
   the handler; never hand-edit a spec file.
 - When documenting portal routes, present the deliberate behaviours as **intended** — identical

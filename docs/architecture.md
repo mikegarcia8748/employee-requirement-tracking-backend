@@ -127,7 +127,8 @@ its own dispatcher and the use case never sees one.
 | `PortalAccessTrail` | append-only portal attempts, distinct IPs, failure counts | *(pending)* |
 | `Notifier` | the seven notification kinds | ERT-440 outbox, then ERT-1010 SMTP *(pending)* |
 | `DocumentStorage` | object storage; signed URLs **HR-side only** | filesystem for dev, GCS in production (Q20) *(pending)* |
-| `HrUserRepository` | HR accounts, roles, password hashes | ERT-190 *(pending)* |
+| `HrUserRepository` | HR accounts, roles, password hashes | `ExposedHrUserRepository` — **bound** |
+| `AccessTokenIssuer` | the bearer credential a signed-in HR user presents | `JwtIssuer` — **bound** |
 | `Clock`, `EntityIdGenerator`, `PersonIdGenerator`, `TokenGenerator`, `PinGenerator`, `Hasher`, `TokenDigest` | infrastructure | **bound** |
 
 Three of these encode a rule in their *shape* rather than their documentation:
@@ -140,12 +141,23 @@ Three of these encode a rule in their *shape* rather than their documentation:
 - **`DocumentStorage.signedUrlFor`** is documented HR-side only, and no portal use case may depend
   on this port. This is the write-mostly rule (§8.6, SEC-02) expressed as a dependency.
 
+**`AccessTokenIssuer` is in `domain/port/` while `Hasher` and `TokenDigest` are in `core/crypto`, and
+the signature decides that rather than the feeling that all three are infrastructure.** The other two
+take and return strings and know nothing about this system; this one takes an `HrUser` and reads its
+role, which are domain types — and `core/` may not depend on `domain/`. The domain never learns the
+token is a JWT: `AccessToken` carries no format rule, so nothing above `data/auth` can parse one
+(ERT-190).
+
 ---
 
 ## 5. Use cases — the contract with the next session
 
-`domain/usecase/` is deliberately empty. Each entry below is one class, one public
-`operator fun invoke`, returning a sealed result. Built test-first in the business session.
+Each entry below is one class, one public `operator fun invoke`, returning a sealed result. Built
+test-first.
+
+**The first six landed with ERT-190** — the HR account surface. `domain/usecase/` is no longer empty,
+which means `ArchitectureTest`'s tracing guard is doing real work rather than reporting `Vacuous`; its
+tripwire fired as designed and was flipped to `Checked` rather than deleted.
 
 Each also takes a `UseCaseTracer` and delegates through it — `invoke` is
 `tracer.trace("XUseCase") { execute(...) }`, and the body lives in a private `execute`. See §10.1;
@@ -161,8 +173,12 @@ the architecture test fails the build on a use case that omits it.
 | `ApproveSubmissionUseCase` | blocked until the packet is submitted; name-match confirmation required; photo-match for photo ID; log the identity confirmation with the approval | §8.5 | 2 |
 | `RejectSubmissionUseCase` | reason required; unlock only that requirement; extend link expiry; flag at 3 rejections | §7.3, §7.1 | 2 |
 | `ChangeHireEmailUseCase` | out-of-band verification method required; second approver when approved documents exist; revoke the old token and issue a new one; notify the old address | §7.4, §8.8 | 2 |
-| `AuthenticateHrUserUseCase` | uniform failure for an unknown email, a wrong password and a deactivated account; every attempt audited | §2, Q4 | 0 |
-| `ChangeHrPasswordUseCase` | current password required; clears the change-required flag | §2, Q4 | 0 |
+| `AuthenticateHrUserUseCase` **— built** | uniform failure for a malformed address, an unknown email, a wrong password and a deactivated account, **in timing as well as in body**; every attempt audited, and the audit row does not say which branch ran | §2, Q4 | 0 |
+| `ChangeHrPasswordUseCase` **— built** | current password required; clears the change-required flag; the one route reachable while that flag is set | §2, Q4 | 0 |
+| `CreateHrUserUseCase` **— built** | admin supplies the initial password so none is ever returned in a body; account owes a change; duplicate address is a named conflict, not the uniform failure | §8.13, Q4 | 0 |
+| `SetHrUserActiveUseCase` **— built** | deactivation, never deletion; an admin may not deactivate themselves | §8.13, Q4 | 0 |
+| `ResetHrPasswordUseCase` **— built** | the whole of password recovery in v1; always sets the change-required flag | §8.13, Q4 | 0 |
+| `EnsureBootstrapHrUserUseCase` **— built** | creates the first `HR_ADMIN` **only when `users` is empty**, so a deactivated bootstrap account is never resurrected | Q4 | 0 |
 | `IssueRecoveryPinUseCase` | single-use, expiring, returned once and never emailed; audited with the issuing officer | §6.6 | 1 |
 | `RedeemRecoveryPinUseCase` | constant response whether or not the address is known; lockout and suspend thresholds apply | §6.6 | 1 |
 | `ReopenRecordUseCase` | never revive the old token; issue fresh credentials; require a reason | §7.3, SEC-08 | 2 |
@@ -219,6 +235,31 @@ audit log meaningless — you cannot attest to a state that mutates retroactivel
 overwritten timestamp cannot answer who, from where, or how often, which is the first question asked
 when a fraudulent submission surfaces (SEC-05). `PortalAccessLogs` replaces it and is append-only —
 nothing updates or deletes rows there. Reintroducing such a column would undo the control.
+
+**Four of the five actor columns are foreign keys; `audit_logs.actor` is not (ERT-190).**
+`employees.created_by`, `employees.originals_sighted_by`, `submissions.reviewed_by` and
+`app_settings.updated_by` each name a person who must exist, so each references `users(id)`
+`on delete restrict` — a user who acted cannot be deleted out from under the record, which is also
+why accounts are deactivated rather than deleted. `audit_logs.actor` keeps its free text and gains a
+**nullable** `actor_user_id` beside it, because the trail must record actors that are not users: the
+V2 seed, the ERT-1020 expiry sweep, a future import job. An append-only trail that can refuse a write
+because it cannot name a user is worse than one carrying a string. §8.13's exception report joins on
+`actor_user_id`; everything else reads `actor`.
+
+**`users` is keyed by a `PersonId`, reusing the employee width rather than introducing a third.**
+`Identifier.of` dispatches on length, and its KDoc names this case: an 8-character
+`audit_logs.entity_id` means "an employee **or** a user", which is correct because `AuditEntry.entity`
+already says which. A third width would make that dispatch ambiguous.
+
+**Case-insensitive email uniqueness is two constraints, not an expression index.** H2 rejects
+`create unique index ... (lower(email))` outright, so the whole suite would have run against a schema
+production could not have. A `check (email = lower(email))` plus a plain unique index is standard SQL
+in both engines and is strictly stronger: the check forces every stored address into canonical lower
+case, so two casings can never coexist *and* every stored value is already in the form the sign-in
+lookup compares against.
+
+**There is no `last_login_at`**, for the reason there is no `last_accessed_at`. A sign-in is an
+`audit_logs` row.
 
 Files live in object storage; the database holds keys and metadata only.
 
@@ -349,9 +390,16 @@ that forgot it silently began tracing.
 
 ## 11. Dependency injection
 
-`coreModule` (infrastructure) + `dataModule` (adapters); a `domainModule` joins them when use cases
-exist. Nothing in `domain/` imports Koin — dependencies arrive through constructors, which is why a
+`coreModule` (infrastructure) + `dataModule` (adapters) + `domainModule` (use cases, added by
+ERT-190). Nothing in `domain/` imports Koin — dependencies arrive through constructors, which is why a
 use case can be built in a test from plain fakes with no container at all.
+
+**Use cases are `factory`, adapters are `single`.** A use case holds no state worth sharing: every
+field is a port or an injected clock, all of which are singles themselves, so a shared instance would
+buy one allocation per request and cost the guarantee that two concurrent calls cannot interfere.
+`JwtConfig` must stay a `single` for a sharper reason than consistency — in dev the secret is
+generated per instance, so a `factory` would sign with one key and verify with another, and every
+token the application issued would be refused by the request that presented it.
 
 **Repository bindings are deliberately absent rather than stubbed with throwing placeholders.** An
 unbound port fails fast and loudly at wiring time; a placeholder that compiles fails at runtime, in
@@ -379,6 +427,7 @@ Structural, not incidental. Weakening any of these re-opens a finding the audit 
 | Every portal access is an append-only record | `PortalAccessLogs`; no `last_accessed_at` | §8.12, SEC-05 |
 | No version purging while an **evidentiary** flag is open | `AnomalyFlag.freezesRetention`, read by `Employee.retentionFrozen` and checked before purge — the classification lives on the flag, so a new flag must choose | §7.1, SEC-13 |
 | `COMPLETE` is not identity assurance | `originalsSightedAt` separate; stated in the API description | §1, SEC-04 |
+| An unknown email, a wrong password, a malformed address and a deactivated account are indistinguishable at sign-in — **in elapsed time as well as in body** | `AppError.AuthenticationFailed` is a **`data object`**, so one value and differing bodies are unrepresentable; every branch of `AuthenticateHrUserUseCase` verifies a password against *some* hash, the absent-user case against a decoy the injected `Hasher` produced; `SIGN_IN_FAILED` always points at `HrUser.NO_SUBJECT` with a null `actorUserId`, so the trail is not an oracle either | §2, Q4 |
 
 ---
 
@@ -473,14 +522,56 @@ Amper's Ktor catalog has no key for it.
 **Koin over compile-time DI.** Already declared and adequate. The domain doesn't depend on it either
 way, so this is reversible.
 
-**HR authentication is local, and Q4 is answered (2026-09-16).** A handful of HR staff, accounts held
-here, two roles, bcrypt, no SSO. The JWT *mechanism* survives and its placeholder framing does not:
-the scheme stops signing with a per-run random key and starts issuing tokens against a `users` row
-(ERT-190). Token lifetime is the revocation window and that is a trade — resolving the subject
-against `users` on every request would make deactivation instant at the cost of a query in front of
-every HR call, so the verifier validates claims only and a deactivated account stays live for up to
-`JWT_TTL_MINUTES`. Stated here rather than discovered later: the immediate control for an account
-disabled for cause is revoking what the person can reach, not the token.
+**HR authentication is local, and Q4 is answered (2026-09-16); ERT-190 built it.** A handful of HR
+staff, accounts held here, two roles, bcrypt, no SSO. The JWT *mechanism* survives and its placeholder
+framing does not: the scheme no longer signs with a per-run random key outside dev, and `sub` names a
+`users` row.
+
+Token lifetime is the revocation window and that is a trade — resolving the subject against `users` on
+every request would make deactivation instant at the cost of a query in front of every HR call, so the
+verifier validates claims only and a deactivated account stays live for up to `JWT_TTL_MINUTES`
+(default 60). Stated here rather than discovered later: the immediate control for an account disabled
+for cause is revoking what the person can reach, not the token. **The `pwd_change` claim inherits that
+window**, so an admin resetting a password does not eject a holder mid-session either.
+
+**`configureSecurity` takes its `JwtConfig` as a parameter rather than reading the container**, the
+same shape `configureRouting` takes `HR_AUTH`. Two properties follow, and the second is the one that
+paid for itself: issue and verify cannot disagree about the secret, issuer or audience; and a test can
+configure both halves. Until this, no test could mint a token the application accepts — ERT-340
+recorded that gap in its own test class, and "requires HR auth" was untested in the positive direction
+on every route. `testdata/HrTokens` signs through the real `JwtIssuer`, so a route test breaks when the
+token shape changes rather than passing against a token production never mints.
+
+**A JWT's `exp` is checked against the real system clock, which no injected `Clock` reaches.** This is
+the one place the codebase's "never `Instant.now()` in a fixture" rule has a boundary, and it is not
+theoretical: issuing test tokens at `FixedClock.DEFAULT` — a fixed date now eight months past — turned
+seven route tests red at once, all with the same 401 and none pointing at the cause. `HrTokens` and
+the sign-in route test issue at `Instant.now()`; everything else stays fixed.
+
+**The bootstrap account exists only when `users` is empty.** With no SSO and no self-registration the
+first account has to come from somewhere, and the alternatives are worse — a seeded row ships a known
+password in version control, a CLI is a second entry point to secure. Deciding on the row **count**
+rather than on "does this email exist" is what stops the account being silently re-created after an
+operator deactivates it, and it means changing `HR_BOOTSTRAP_PASSWORD` and restarting rewrites
+nothing: a startup path that can rewrite a live credential from an environment variable is a backdoor
+with a nice name. Outside dev an empty table with those variables unset **refuses to start**, the same
+shape as `JWT_SECRET` and `TOKEN_PEPPER` — but it reads the table *first*, so an established
+deployment that has since dropped the variables starts normally rather than turning a secret-store
+cleanup into an outage.
+
+**Two roles differ in configuration rights, not validation rights, and that does not close SEC-10.**
+`HR_OFFICER` can still create a hire, change its email and approve every document unaided; §8.13
+retains one effective role for v1 and mitigates it with the exception report. `HR_ADMIN` adds the §6.4
+settings, the catalogue and user administration. `SYSTEM_ADMIN` and `RECRUITMENT` are dropped: nothing
+in §8 asks for either, and a role with no requirement behind it becomes a place to put permissions
+nobody has thought about. Operator access is database access, not an application role.
+
+**`AppError` gained `AuthenticationFailed` and `Forbidden`, both `data object`s.** That is the same
+device `Denied` uses and it is the enforcement, not the documentation: an unknown email, a wrong
+password, a malformed address and a deactivated account are all *one instance carrying no fields*, so
+two call sites cannot render two different bodies and "byte-identical" stops being a convention
+someone has to remember. `AuthenticationFailed` is **HR-side only** — a portal failure must stay
+indistinguishable from an unmatched route and so must keep using `Denied`'s 404.
 
 **The link opens the portal; the PIN is a recovery credential (2026-09-16).** This reverses the
 2026-09-09 decision that required a PIN on every session. The engineering consequence is that

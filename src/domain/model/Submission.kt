@@ -1,6 +1,7 @@
 package com.pgsystem.employee.requirement.tracker.domain.model
 
 import com.pgsystem.employee.requirement.tracker.core.value.EntityId
+import com.pgsystem.employee.requirement.tracker.core.value.PersonId
 import java.time.Instant
 
 /**
@@ -26,7 +27,8 @@ data class Submission(
     /** Phase 4 validity window. Null for documents that do not expire. */
     val validFrom: Instant?,
     val validUntil: Instant?,
-    val reviewedBy: String?,
+    /** The [HrUser] who approved or rejected. A [PersonId] since ERT-190, not a typed-in name. */
+    val reviewedBy: PersonId?,
     val reviewedAt: Instant?,
     val rejectionReason: String?,
     val isCurrent: Boolean,

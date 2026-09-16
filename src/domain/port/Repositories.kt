@@ -13,6 +13,40 @@ import com.pgsystem.employee.requirement.tracker.domain.model.*
  * `suspend` so the adapter chooses its own dispatcher; a use case never sees `Dispatchers.IO`.
  */
 
+/**
+ * HR staff accounts (ERT-190, PRD §14 Q4).
+ *
+ * **[findByEmail] is the sign-in path and it is the only lookup that takes an address.** It must
+ * match case-insensitively, which costs nothing here because [EmailAddress.of] lower-cases on
+ * construction — every address that reaches this port is already normalised. The adapter still holds
+ * a case-insensitive unique index, because normalising in Kotlin protects rows this application
+ * writes and nothing else: a row inserted by a migration, an import, or a person at a psql prompt
+ * would otherwise let one address exist twice and make "which account signs in" a race.
+ *
+ * **[countAll] rather than `isEmpty`.** Bootstrap asks "is the table empty", and a count answers that
+ * plus the question an operator asks next. It is called once at startup, so the scan is not a cost
+ * worth designing around.
+ *
+ * Returns nullable rather than [DomainResult]: an absent user is an ordinary answer on the sign-in
+ * path and must stay indistinguishable from a wrong password, so it cannot be an error the caller is
+ * pushed to render differently. See `AppSettingsRepository` for the one case that does differ.
+ */
+interface HrUserRepository {
+    suspend fun findById(id: PersonId): HrUser?
+
+    /** The sign-in lookup. [EmailAddress] is already lower-cased; the index is case-insensitive too. */
+    suspend fun findByEmail(email: EmailAddress): HrUser?
+
+    /** Every account, in email order, for the administration surface. Deactivated ones included. */
+    suspend fun findAll(): List<HrUser>
+
+    /** Insert or update by [HrUser.id]. Returns what was stored. */
+    suspend fun save(user: HrUser): HrUser
+
+    /** How many accounts exist. Read once at startup to decide whether to bootstrap. */
+    suspend fun countAll(): Long
+}
+
 interface EmployeeRepository {
     suspend fun findById(id: PersonId): Employee?
 
@@ -137,5 +171,12 @@ interface PortalSessionRepository {
  */
 interface AppSettingsRepository {
     suspend fun linkPolicy(): DomainResult<LinkPolicy>
-    suspend fun updateLinkPolicy(policy: LinkPolicy, actor: String): DomainResult<Unit>
+    /**
+     * [actor] is a [PersonId] rather than free text since ERT-190.
+     *
+     * `app_settings.updated_by` is one of the four actor columns that became a `users(id)` foreign
+     * key: "who last raised the absolute expiry ceiling" is a question about a person, and a typed-in
+     * name cannot answer it. The database refuses an id with no row behind it.
+     */
+    suspend fun updateLinkPolicy(policy: LinkPolicy, actor: PersonId): DomainResult<Unit>
 }

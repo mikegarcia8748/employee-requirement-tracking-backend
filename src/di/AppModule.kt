@@ -1,8 +1,10 @@
 package com.pgsystem.employee.requirement.tracker.di
 
 import com.pgsystem.employee.requirement.tracker.core.crypto.TokenDigest
+import com.pgsystem.employee.requirement.tracker.data.auth.JwtConfig
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
+import io.ktor.server.application.log
 import org.koin.dsl.koinApplication
 import org.koin.ktor.plugin.Koin
 import org.koin.ktor.ext.getKoin
@@ -16,14 +18,15 @@ import org.koin.logger.slf4jLogger
  * references Koin — dependencies arrive through constructors, which is why a use case can be
  * instantiated in a test with plain fakes and no container at all.
  *
- * **[TokenDigest] is resolved eagerly.** Koin singles are lazy, so a missing `TOKEN_PEPPER` would
+ * **[TokenDigest] and [JwtConfig] are resolved eagerly.** Koin singles are lazy, so a missing `TOKEN_PEPPER` would
  * otherwise surface on the first portal request rather than at boot — in production, on the one path
  * that matters, long after the deploy looked successful. This is the same argument `Database.kt`
  * records for calling `connect()` in the module body: a configuration fault must abort startup
  * before the connector binds, not become a 500 later. Any other binding whose construction can fail
- * on configuration belongs on this line too.
+ * on configuration belongs on this line too — which is why [JwtConfig] joined it in ERT-190: outside
+ * dev a missing `JWT_SECRET` must abort startup, not become a 401 on the first sign-in attempt.
  */
-val appModules = listOf(coreModule, dataModule)
+val appModules = listOf(coreModule, dataModule, domainModule)
 
 fun Application.configureKoin() {
     install(Koin) {
@@ -32,6 +35,11 @@ fun Application.configureKoin() {
     }
 
     getKoin().get<TokenDigest>()
+    getKoin().get<JwtConfig>()
+
+    // Drained after resolution, never before: the list is filled while the binding above is built.
+    jwtWarnings.forEach { log.warn(it) }
+    jwtWarnings.clear()
 }
 
 /** Used by tests that need the graph without an embedded server. */

@@ -293,9 +293,9 @@ class FakesTest {
     fun `fake app settings repository - an update - records the actor and changes what is read`() = runTest {
         val repository = FakeAppSettingsRepository()
 
-        repository.updateLinkPolicy(LinkPolicy(absoluteExpiryDays = 30), actor = "hr.admin@example.com")
+        repository.updateLinkPolicy(LinkPolicy(absoluteExpiryDays = 30), actor = Fixtures.HR_USER_ID)
 
-        repository.updates.single().actor shouldBe "hr.admin@example.com"
+        repository.updates.single().actor shouldBe Fixtures.HR_USER_ID
         repository.linkPolicy().ok().absoluteExpiryDays shouldBe 30
     }
 
@@ -316,7 +316,7 @@ class FakesTest {
         // accept a bounds bug in the adapter without complaint.
         val repository = FakeAppSettingsRepository()
 
-        repository.updateLinkPolicy(LinkPolicy(absoluteExpiryDays = 3650), actor = "hr.admin@example.com")
+        repository.updateLinkPolicy(LinkPolicy(absoluteExpiryDays = 3650), actor = Fixtures.HR_USER_ID)
 
         repository.linkPolicy().ok().absoluteExpiryDays shouldBe 3650
         (3650 in LinkPolicy.ABSOLUTE_EXPIRY_DAYS_RANGE) shouldBe false
@@ -330,7 +330,7 @@ class FakesTest {
             .refuses(AppError.Validation("setting.missing", "link.absolute_expiry_days", "No row"))
 
         repository.linkPolicy().errCode() shouldBe "setting.missing"
-        repository.updateLinkPolicy(LinkPolicy(), actor = "hr.admin@example.com").errCode() shouldBe "setting.missing"
+        repository.updateLinkPolicy(LinkPolicy(), actor = Fixtures.HR_USER_ID).errCode() shouldBe "setting.missing"
 
         // A refusal is still a read: otherwise a use case that never asked would pass this path.
         repository.reads shouldBe 1

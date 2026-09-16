@@ -81,7 +81,8 @@ class MigrationTest {
     @Test
     fun `schema drift - the guard is pointed at a real schema - allTables is non-empty`() {
         // statementsRequiredToActualizeScheme() over an empty array is trivially empty forever.
-        allTables.size shouldBe 12
+        // 13 since ERT-190 added `users`.
+        allTables.size shouldBe 13
     }
 
     @Test
@@ -125,16 +126,29 @@ class MigrationTest {
             // VarCharColumnType, so the size comparison falls through to "no difference". A
             // varchar(8) in Tables.kt against a varchar(36) in the baseline would pass drift in
             // silence. This test is the only coverage the widths have.
+            // ERT-190 added six: `users` is keyed by a PersonId, and the five actor columns point
+            // at it. Getting one of these wrong is exactly the failure this sweep exists for -- an
+            // 8-character id in a 12-wide column comes back blank-padded on PostgreSQL and fails the
+            // validation it was written under.
             val personColumns = setOf(
                 "employees.id",
                 "employee_requirements.employee_id",
                 "upload_links.employee_id",
+                "users.id",
+                "employees.created_by",
+                "employees.originals_sighted_by",
+                "submissions.reviewed_by",
+                "app_settings.updated_by",
+                "audit_logs.actor_user_id",
             )
 
             val wrong = allTables.flatMap { table ->
                 val name = table.tableName.lowercase()
                 db.columnWidths(name)
-                    .filterKeys { it == "id" || it.endsWith("_id") }
+                    // The ERT-190 actor columns are `created_by`, `reviewed_by` and friends -- they
+                    // hold an id but do not spell one, so the two structural rules miss them and
+                    // they have to be named. Being in `personColumns` is what puts them in scope.
+                    .filterKeys { it == "id" || it.endsWith("_id") || "$name.$it" in personColumns }
                     .mapNotNull { (column, width) ->
                         val qualified = "$name.$column"
                         val expected =
@@ -155,6 +169,11 @@ class MigrationTest {
             db.columnWidths("employees")["id"] shouldBe PersonId.LENGTH
             db.columnWidths("employee_requirements")["employee_id"] shouldBe PersonId.LENGTH
             db.columnWidths("audit_logs")["entity_id"] shouldBe EntityId.LENGTH
+
+            // And the ERT-190 columns, which are the ones a drift test cannot see at all.
+            db.columnWidths("users")["id"] shouldBe PersonId.LENGTH
+            db.columnWidths("employees")["created_by"] shouldBe PersonId.LENGTH
+            db.columnWidths("audit_logs")["actor_user_id"] shouldBe PersonId.LENGTH
         }
 
     @Test
@@ -169,20 +188,42 @@ class MigrationTest {
 
     @Test
     fun `identifier generation - the guard above - is pointed at the ten keyed tables`() {
-        // app_settings is keyed by name and template_assignments by a composite; the other ten
+        // app_settings is keyed by name and template_assignments by a composite; the other eleven
         // carry a generated identifier. Without this, the filter above could pass on an empty list.
-        allTables.filterIsInstance<IdTable<*>>().size shouldBe 10
+        allTables.filterIsInstance<IdTable<*>>().size shouldBe 11
     }
 
     @Test
-    fun `migration portability - the baseline sql - uses no dialect-specific syntax`() {
+    fun `migration portability - every migration - uses no dialect-specific syntax`() {
         // The only mechanical coverage available for "applies cleanly on both H2 and PostgreSQL"
         // without a Postgres in CI. A proxy, not proof.
-        val sql = File(projectDir, "resources/db/migration/V1__baseline.sql").readText().uppercase()
+        //
+        // Sweeps the whole directory rather than naming V1, because ERT-190 added V4 and naming
+        // files means the next migration is unguarded until someone remembers to add it here. It
+        // would not have caught V4's first draft either way -- `create unique index ... (lower(x))`
+        // is valid PostgreSQL that H2 rejects, so it is on neither list -- which is the standing
+        // reminder that this is a proxy and the H2 run is what actually found that one.
+        //
+        // Comments are stripped first. Widening the sweep to V2 immediately flagged `MERGE INTO`
+        // there, in a comment explaining why MERGE INTO is NOT used -- a file being careful about
+        // exactly this rule failed it for saying so. A guard that cannot be documented around is
+        // one people write around instead.
+        val violations = File(projectDir, "resources/db/migration")
+            .listFiles { file -> file.extension == "sql" }
+            .orEmpty()
+            .flatMap { file ->
+                val sql = file.readText().statementsOnly().uppercase()
+                DIALECT_SPECIFIC.filter { sql.contains(it) }.map { "${file.name}: $it" }
+            }
 
-        listOf("MERGE INTO", "::", "SERIAL", "IDENTITY", "AUTO_INCREMENT", "ON CONFLICT", "CREATE OR REPLACE", "`", "[")
-            .filter { sql.contains(it) }
-            .shouldBeEmpty()
+        violations.shouldBeEmpty()
+    }
+
+    @Test
+    fun `migration portability - the sweep above - is pointed at every migration`() {
+        // A listFiles() that matched nothing would make the check above pass forever.
+        File(projectDir, "resources/db/migration").listFiles { f -> f.extension == "sql" }.orEmpty()
+            .size shouldBe 4
     }
 }
 
@@ -193,6 +234,22 @@ class MigrationTest {
 // ---------------------------------------------------------------------------------------------
 
 /** A connected factory plus the config it was built from, so a test can hand either to Flyway. */
+/**
+ * The SQL, with `--` comments removed.
+ *
+ * Line-based, and that is sufficient here rather than lucky: every statement in these files is on
+ * one line, and none contains a `--` inside a string literal. `V3__app_settings.sql` already carries
+ * a formatting rule of the same shape -- no semicolon inside a string literal, because `SeedDataTest`
+ * splits on semicolons. If a migration ever needs `--` inside a literal, both rules need a real
+ * parser rather than an exception.
+ */
+private fun String.statementsOnly(): String =
+    lineSequence().joinToString("\n") { it.substringBefore("--") }
+
+private val DIALECT_SPECIFIC = listOf(
+    "MERGE INTO", "::", "SERIAL", "IDENTITY", "AUTO_INCREMENT", "ON CONFLICT", "CREATE OR REPLACE", "`", "[",
+)
+
 internal class TestDatabase(val config: DatabaseConfig, val factory: DatabaseFactory) {
 
     fun tableNames(): List<String> = query(

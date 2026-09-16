@@ -23,9 +23,13 @@ import kotlin.test.Test
 /**
  * `GET /api/departments` and `GET /api/employment-types` (ERT-350).
  *
- * Same split as `RequirementTemplateRoutesTest` and for the same reason: the refusal case mounts
- * the real `rootModule()`, the payload cases mount the handler against a fake with no security
- * plugin, because no test can mint a token this application accepts while the Q4 placeholder stands.
+ * Same split as `RequirementTemplateRoutesTest`: the refusal case mounts the real `rootModule()` and
+ * the payload cases mount the handler against a fake with no security plugin, which keeps a payload
+ * assertion about the payload.
+ *
+ * The note that used to sit here — that no test could mint a token this application accepts — is
+ * obsolete since ERT-190 replaced the Q4 placeholder. `RequirementTemplateRoutesTest` carries the
+ * positive gate case for the pair, since both routes mount inside the same `authenticate` block.
  */
 class ReferenceRoutesTest {
 

@@ -2,6 +2,7 @@ package com.pgsystem.employee.requirement.tracker.domain.model
 
 import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 import com.pgsystem.employee.requirement.tracker.core.value.Identifier
+import com.pgsystem.employee.requirement.tracker.core.value.PersonId
 import java.time.Instant
 
 /**
@@ -13,7 +14,24 @@ import java.time.Instant
  */
 data class AuditEntry(
     val id: EntityId,
+    /**
+     * Who acted, as free text — an email, or a name like `system` for an unattended job.
+     *
+     * **Kept, and deliberately not replaced by [actorUserId].** ERT-190 turned four of the five actor
+     * columns in the schema into foreign keys; this is the fifth and it stays a string, because the
+     * trail must record actors who are **not** users: the ERT-130 seed, the ERT-1020 expiry sweep, a
+     * future import job. An append-only trail that can refuse a write because it cannot name a user
+     * is worse than one carrying a string.
+     */
     val actor: String,
+    /**
+     * The acting [HrUser], when there was one.
+     *
+     * Nullable for the reason above. §8.13's exception report joins on this — "one officer created,
+     * altered the email and approved throughout" is a question about a person, not about a string
+     * two rows spelled differently — and everything else reads [actor].
+     */
+    val actorUserId: PersonId? = null,
     val action: AuditAction,
     val entity: String,
     /**
@@ -54,6 +72,37 @@ enum class AuditAction {
     PACKET_FORCE_SUBMITTED,
     RECORD_REOPENED,
     SETTING_CHANGED,
+
+    // ── HR accounts (ERT-190) ───────────────────────────────────────────────────────────────────
+
+    /**
+     * A sign-in succeeded. Paired with [SIGN_IN_FAILED] rather than folded into one action with an
+     * outcome in the metadata, so "failures for this address" is a filter rather than a scan.
+     */
+    SIGN_IN_SUCCEEDED,
+
+    /**
+     * A sign-in failed — and the row does **not** say why.
+     *
+     * An unknown email, a wrong password and a deactivated account all write this, with the same
+     * metadata. Recording which of the three occurred would rebuild, in the audit table, precisely
+     * the oracle the identical 401 exists to deny; anyone who can read the trail could then enumerate
+     * who works in HR. Until ERT-660 rate-limits `/api/auth/login`, this row is the detection.
+     */
+    SIGN_IN_FAILED,
+
+    /** A user changed their own password. */
+    PASSWORD_CHANGED,
+
+    /** An admin reset someone's password, forcing a change at next sign-in. */
+    PASSWORD_RESET,
+
+    USER_CREATED,
+    USER_ACTIVATED,
+    USER_DEACTIVATED,
+
+    /** A signed-in user was refused an action their role does not carry (§8.13). */
+    ACCESS_DENIED,
 }
 
 /**

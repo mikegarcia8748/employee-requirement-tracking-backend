@@ -26,6 +26,8 @@ fun AppError.toStatus(): HttpStatusCode = when (this) {
     is AppError.Conflict -> HttpStatusCode.Conflict
     is AppError.NotFound -> HttpStatusCode.NotFound
     AppError.Denied -> HttpStatusCode.NotFound
+    AppError.AuthenticationFailed -> HttpStatusCode.Unauthorized
+    AppError.Forbidden -> HttpStatusCode.Forbidden
 }
 
 /**
@@ -72,6 +74,12 @@ fun AppError.toApiError(): ApiError = when (this) {
     is AppError.Conflict -> ApiError(code = code, message = detail)
     is AppError.NotFound -> ApiError(code = code, message = messageFor(code))
     AppError.Denied -> DENIED_ERROR
+
+    // Two shared constants, for the reason `Denied` has one. Both are `data object`s carrying no
+    // fields, so a second call site cannot render a slightly more helpful variant -- which on the
+    // sign-in path is what would separate an unknown email from a wrong password.
+    AppError.AuthenticationFailed -> AUTHENTICATION_FAILED_ERROR
+    AppError.Forbidden -> FORBIDDEN_ERROR
 }
 
 /** One field that did not validate. The domain's own `detail` is the display string here. */
@@ -94,14 +102,30 @@ internal val DENIED_ERROR = ApiError(code = "not_found", message = messageFor("n
 internal val NOT_FOUND_BODY: ApiResponse<Unit> = errorEnvelope(HttpStatusCode.NotFound, DENIED_ERROR)
 
 /**
+ * The one body every failed sign-in produces, to the byte (ERT-190).
+ *
+ * An unknown email, a wrong password and a deactivated account all render this. Nothing here may
+ * gain a `details` entry or an interpolated message: either would answer "does this account exist",
+ * which is the question `POST /api/auth/login` exists not to answer.
+ */
+internal val AUTHENTICATION_FAILED_ERROR =
+    ApiError(code = "authentication_failed", message = messageFor("authentication_failed"))
+
+/** The one body a role refusal produces. Naming the role required would let an officer probe for it. */
+internal val FORBIDDEN_ERROR = ApiError(code = "forbidden", message = messageFor("forbidden"))
+
+/**
  * Marks a call whose failure body was written here.
  *
  * Lives beside the mapper rather than in `StatusPages` so the dependency runs one way —
  * `plugin` reads from `route.mapper`, never the reverse.
  *
- * 401 and 405 deliberately keep Ktor's own handling. A `status(Unauthorized)` handler risks
+ * 401 and 405 keep Ktor's own handling **in `StatusPages`**: a `status(Unauthorized)` handler risks
  * dropping the `WWW-Authenticate` challenge the JWT plugin sets, and neither status discloses
- * anything about whether a link exists, so there is nothing to gain.
+ * anything about whether a link exists, so there is nothing to gain. That is unchanged by ERT-190 —
+ * a sign-in failure reaches 401 through [respondError], which answers the call directly and never
+ * passes through a `status` handler. A challenge-less 401 from `/api/auth/login` is also correct:
+ * there is no scheme to re-present to a caller who is trying to obtain a credential.
  */
 internal val MappedErrorKey: AttributeKey<Unit> = AttributeKey("com.pgsystem.ert.mapped-error")
 

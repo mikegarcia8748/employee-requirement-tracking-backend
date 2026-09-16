@@ -1,6 +1,7 @@
 package com.pgsystem.employee.requirement.tracker.data.repository
 
 import com.pgsystem.employee.requirement.tracker.core.error.AppError
+import com.pgsystem.employee.requirement.tracker.core.value.PersonId
 import com.pgsystem.employee.requirement.tracker.data.RepositoryTestBase
 import com.pgsystem.employee.requirement.tracker.data.db.table.AppSettings
 import com.pgsystem.employee.requirement.tracker.data.mapper.LINK_POLICY_ENTITY
@@ -15,15 +16,18 @@ import com.pgsystem.employee.requirement.tracker.testdata.anAuditEntry
 import com.pgsystem.employee.requirement.tracker.testdata.entityId
 import com.pgsystem.employee.requirement.tracker.testdata.err
 import com.pgsystem.employee.requirement.tracker.testdata.ok
+import com.pgsystem.employee.requirement.tracker.testdata.personId
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 
 /**
@@ -38,6 +42,27 @@ class ExposedAppSettingsRepositoryTest : RepositoryTestBase() {
     private val clock = FixedClock()
     private val ids = FixedEntityIdGenerator()
     private val settings by lazy { ExposedAppSettingsRepository(factory, clock, ids) }
+
+    /**
+     * The row [ACTOR] points at.
+     *
+     * JUnit 5 runs a superclass's `@BeforeEach` first, so the database is already migrated by the
+     * time this runs. `runBlocking` rather than `runTest`: this is arrange, not a test body, and
+     * there is no virtual time to advance.
+     */
+    @BeforeTest
+    fun seedActingAdmin() {
+        runBlocking {
+            execute(
+                """
+                insert into users (id, email, full_name, password_hash, "role", is_active,
+                                   password_change_required, created_at)
+                values ('${ACTOR.value}', 'hr.admin@example.com', 'Marisol Tan', 'x', 'HR_ADMIN',
+                        true, false, current_timestamp)
+                """.trimIndent()
+            )
+        }
+    }
 
     // ── Reading ─────────────────────────────────────────────────────────────────────────────────
 
@@ -159,7 +184,7 @@ class ExposedAppSettingsRepositoryTest : RepositoryTestBase() {
 
         val metadata = auditLog().findFor(LINK_POLICY_ID).single().let {
             it.action shouldBe AuditAction.SETTING_CHANGED
-            it.actor shouldBe ACTOR
+            it.actor shouldBe ACTOR.value
             it.timestamp shouldBe FixedClock.DEFAULT
             it.entity shouldBe LINK_POLICY_ENTITY
             it.metadata
@@ -197,7 +222,7 @@ class ExposedAppSettingsRepositoryTest : RepositoryTestBase() {
         settings.updateLinkPolicy(policyWith(lockoutMinutes = 30), ACTOR).ok()
 
         strings("""select updated_by from app_settings where "key" = 'portal.lockout_minutes'""")
-            .single() shouldBe ACTOR
+            .single() shouldBe ACTOR.value
 
         // Asserted as an Instant rather than as the raw column text. `updated_at` is `timestamp`
         // without a time zone, so the stored text is the JVM default zone's rendering -- reading it
@@ -390,7 +415,15 @@ class ExposedAppSettingsRepositoryTest : RepositoryTestBase() {
         strings("""select "value" from app_settings where "key" = '$key'""").single()
 
     private companion object {
-        const val ACTOR = "hr.admin@example.com"
+        /**
+         * The acting admin, as a [PersonId] since ERT-190.
+         *
+         * `app_settings.updated_by` references `users(id)`, so this id must have a row behind it —
+         * [seedActingAdmin] writes one. That constraint is the point of the change: "who raised the
+         * expiry ceiling" is a question about a person, and the database now refuses an answer that
+         * names nobody.
+         */
+        val ACTOR: PersonId = personId("HRA00001")
         const val TAKEN_AUDIT_ID = "ENT000000001"
         const val ADAPTER = "src/data/repository/ExposedAppSettingsRepository.kt"
         const val MAPPER = "src/data/mapper/AppSettingMapper.kt"

@@ -1,12 +1,18 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-190 — HR user accounts, roles and sign-in](backlog/ERT-100-foundations.md#ert-190--hr-user-accounts-roles-and-sign-in)**
+**Next ticket: [ERT-410 — `EmployeeRepository` adapter and row↔domain mapper](backlog/ERT-400-hire-creation.md#ert-410--employeerepository-adapter-and-rowdomain-mapper)**
 
-> **Two blocking questions were answered on 2026-09-16, and one product decision reversed.**
+> **ERT-190 landed, and Phase 0 is closed.** HR accounts, two roles, sign-in, the real JWT scheme,
+> the bootstrap admin, and the four actor foreign keys. **`domain/usecase/` is no longer empty** —
+> six use cases — so `ArchitectureTest`'s tracing tripwire fired as designed and was flipped from
+> `Vacuous` to `Checked`.
 >
-> **Q4** — a handful of HR staff, local accounts, two roles, no SSO — unblocks **ERT-190**, which now
-> goes **before ERT-410** rather than last. **Q12** — an SMTP relay on internal mail — unblocks
-> **ERT-1010**. Neither ticket is `Blocked` any more, and nothing on the board is.
+> **A test can now mint a token this application accepts** (`testdata/HrTokens.kt`), which closes the
+> gap ERT-340 recorded in its own test class: "requires HR auth" had never been tested in the positive
+> direction on any route. **ERT-410 is next**, with `employees.created_by` already a `PersonId`
+> foreign key, which is the rework the ordering existed to avoid.
+>
+> **Q12** — an SMTP relay on internal mail — unblocks **ERT-1010**. Nothing on the board is `Blocked`.
 >
 > **The portal access model changed: the link alone now opens the portal**, and the 6-digit PIN
 > becomes an HR-issued out-of-band recovery credential for invitations that never arrive. That
@@ -27,10 +33,10 @@ decision register, and the pointer above. Each session updates that pointer on t
 
 | | |
 |---|---|
-| Built | `core/` value objects and error types · 12 domain models with status logic · 11 ports · 12 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **four Exposed adapters, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue and the reference data · the first three HR routes behind `authenticate(HR_AUTH)` |
-| Empty | `domain/usecase/` · `route/portal/` |
+| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **five Exposed adapters plus a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data and HR accounts · **six use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
+| Empty | `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
-| Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics`, plus three HR reads — `/api/requirement-templates`, `/api/departments`, `/api/employment-types`. Appendix B specifies the rest. |
+| Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics` · `POST /api/auth/login` (the only public `/api` route) · `/api/auth/change-password`, `/api/auth/me` · four `HR_ADMIN`-only routes under `/api/users` · three HR reads — `/api/requirement-templates`, `/api/departments`, `/api/employment-types`. Appendix B specifies the rest. |
 
 The three foundational gaps Phase 0 opened with are closed: `DatabaseFactory.connect()` runs from the
 application lifecycle (ERT-110), Flyway applies a baseline guarded by a drift test (ERT-120), and
@@ -43,7 +49,7 @@ mounted; it also established that **the OpenAPI generator infers nothing from `c
 every route from here on must declare its response schema in `describe { }` or publish an operation
 a client cannot generate from.
 
-**ERT-100 is now closed** apart from ERT-190, which stays blocked on Q4. ERT-150 exposed the
+**ERT-100 is now closed.** ERT-150 exposed the
 Prometheus registry on a `/metrics` route — hidden from the spec, open in dev and HR-gated
 otherwise — mounted from `Monitoring.kt` rather than `Routing.kt`, because the gate needs `HR_AUTH`
 and `isDevMode()` and the `plugin` → `route` arrow does not reverse. ERT-160 split the two portal
@@ -107,8 +113,7 @@ Two semantics were decided here rather than assumed, and each binds a later tick
   active portal sessions" reads that list and will show sessions that have quietly lapsed. Recorded
   rather than papered over: ERT-620 should decide whether the port grows a `now` parameter.
 
-ERT-240 then closed Phase 0 apart from ERT-190, which stays blocked on Q4. It is the half of the
-harness the fakes cannot supply: fakes prove a use case obeys its rules and prove nothing about SQL.
+ERT-240 then built the half of the harness the fakes cannot supply: fakes prove a use case obeys its rules and prove nothing about SQL.
 `RepositoryTestBase` hands a subclass a migrated, seeded, isolated database reached through the
 production `DatabaseFactory.transaction`, and it unblocks eight tickets at once — ERT-310, 320, 330,
 350, 410, 420, 610 and 720. **No repository, use case or business route exists yet**, so nothing
@@ -334,7 +339,7 @@ foundations  HR auth     test harness  policy  │  hire       │  HR read side
                                                                                           HR document access
 ```
 
-**Critical path:** ERT-100 → **ERT-190** → ERT-200 → ERT-300 → ERT-400 → ERT-600 → ERT-700 → ERT-900.
+**Critical path:** ERT-100 → ~~ERT-190~~ → ERT-200 → ERT-300 → **ERT-400** → ERT-600 → ERT-700 → ERT-900.
 
 ERT-190 joined the path on 2026-09-16 when Q4 was answered. It is Phase 0 work and delays Phase 1 by
 roughly a session — worth it, because all three costs it avoids are *rework* rather than delay, which
@@ -344,11 +349,65 @@ ERT-500 and ERT-800 hang off the path and can be taken whenever their dependenci
 when you want a shorter session. ERT-1000 closes Phase 1. ERT-1100 is cross-cutting: **ERT-1110 gates
 ERT-630**, and the rest are on the Phase 1 exit checklist or later.
 
+### ERT-190 — the last of Phase 0
+
+Q4 was answered on 2026-09-16 and ERT-190 replaced the placeholder scheme rather than extending it,
+which is what architecture §14 said should happen. The scheme no longer signs with a per-run random
+key outside dev, and `sub` names a `users` row. Six use cases landed with it — sign-in, change
+password, create, activate, reset, and the bootstrap admin — so **`domain/usecase/` stopped being
+empty**, `ArchitectureTest`'s tracing tripwire fired exactly as ERT-195 predicted it would, and was
+flipped from `Vacuous` to `Checked` rather than deleted.
+
+**The thing worth carrying forward is that a test can finally mint a token this application accepts.**
+ERT-340 recorded that gap in its own test class and ERT-350 repeated it: `configureSecurity` read the
+environment itself, so no test could configure both halves, and "requires HR auth" had never been
+tested in the positive direction on any route. The fix was not a bigger test — it was making
+`configureSecurity` take its `JwtConfig` as a parameter, the same shape `configureRouting` already
+took `HR_AUTH`. `testdata/HrTokens` then signs through the real `JwtIssuer`, so a route test breaks
+when the token shape changes instead of passing against a token production never mints.
+
+Five things were decided rather than assumed:
+
+- **Four of the five actor columns became foreign keys; `audit_logs.actor` did not.** The trail must
+  record actors that are not users — the V2 seed, the ERT-1020 expiry sweep, a future import job — and
+  an append-only trail that can refuse a write because it cannot name a user is worse than one carrying
+  a string. It keeps its free text and gained a **nullable** `actor_user_id` beside it.
+- **Case-insensitive email uniqueness is a `check` plus a plain unique index, not an expression
+  index.** H2 rejects `create unique index ... (lower(email))` outright, so the suite would have run
+  against a schema production could not have. The pair is standard SQL in both engines and is strictly
+  stronger: every stored address is forced into canonical lower case, so two casings cannot coexist
+  *and* every value is already in the form the sign-in lookup compares against.
+- **Sign-in is uniform in elapsed time, not only in body.** Every branch verifies a password against
+  some hash — the absent-user case against a decoy produced by the injected `Hasher`, so it carries
+  whatever work factor is actually bound. Byte-identical bodies are worth nothing if one branch returns
+  in 1 ms and the other in 100. The audit row is uniform too: a `SIGN_IN_FAILED` entry never names the
+  account, **even when one was found**, or the trail becomes the oracle the 401 denies.
+- **The bootstrap admin is created only when `users` is empty**, decided on the row count rather than
+  on "does this email exist". The latter would resurrect the account every boot after an operator
+  deactivated it. It also means changing `HR_BOOTSTRAP_PASSWORD` and restarting rewrites nothing: a
+  startup path that can rewrite a live credential from an environment variable is a backdoor with a
+  nice name.
+- **Two roles differ in configuration rights, not validation rights**, and that does **not** close
+  SEC-10. §8.13 keeps one effective role for v1 and mitigates it with the exception report.
+
+One thing was found rather than decided, and it is the kind that costs an afternoon:
+
+> **A JWT's `exp` is validated against the real system clock, which no injected `Clock` reaches.**
+> `FixedClock.DEFAULT` is a fixed date now eight months past, so test tokens issued at it were expired
+> before they were presented — seven route tests failed at once, all with the same 401 and none of them
+> pointing at the cause. `HrTokens` and the sign-in route test issue at `Instant.now()`; everything else
+> in the suite stays fixed. This is the one documented boundary of the never-`Instant.now()` rule.
+
+Widening `MigrationTest`'s portability sweep from V1 to the whole directory also turned up a false
+positive worth keeping in mind: V2 failed on `MERGE INTO`, in a comment explaining why `MERGE INTO` is
+not used. The guard now strips `--` comments before scanning — a guard that cannot be documented around
+is one people write around instead.
+
 ### Orderings that cause rework if reversed
 
 | Do this | Not that | Why |
 |---|---|---|
-| **ERT-190 before ERT-410** | Build the hire mapper first, add users later | ERT-410 writes the row↔domain mapper for `employees.created_by`. Narrowing that column from `varchar(128)` to a `PersonId` foreign key afterwards redoes the mapper, its round-trip test **and** the schema-drift baseline — and ERT-430 meanwhile writes a `created_by` naming nobody, which is a backfill against rows with no correct answer. It also closes the gap ERT-340 recorded: no test can currently mint a token this application accepts, so "requires HR auth" is untested in the positive direction on every route. |
+| ~~**ERT-190 before ERT-410**~~ — **done, 2026-09-16** | Build the hire mapper first, add users later | ERT-410 writes the row↔domain mapper for `employees.created_by`. Narrowing that column afterwards would have redone the mapper, its round-trip test **and** the drift baseline, while ERT-430 wrote a `created_by` naming nobody. The column is already a `PersonId` foreign key, so ERT-410 writes it once. It also closed the gap ERT-340 recorded: `testdata/HrTokens` now mints a token the application accepts, so "requires HR auth" is tested in the positive direction. |
 | **ERT-1110 before ERT-630** | Mount the first portal route, redact the logs later | `StatusPages` logs the request URI unredacted, and ERT-630 creates the first route whose path **is** the credential. A token written to a log file cannot be un-logged, and since 2026-09-16 that token is the whole of authentication rather than half of it. The dependency is in ERT-630's `Depends on` row, because a sentence is not checkable. |
 | **ERT-160 before ERT-433 and ERT-420** | Hash the link token with bcrypt | bcrypt is salted, so a token hashed at issue cannot be recomputed at lookup. Ship it and **every live link becomes unresolvable** — recovery means re-issuing every credential and re-inviting every hire through a bulk send path §8.2 deliberately makes hard. |
 | **ERT-170 before ERT-740** | Write the first portal DTO, guard it later | The realistic failure is not a deliberate preview — it is `mimeType` "for the icon" and `originalFilename` "for the confirmation toast", both of which read as reasonable in review. Removing them later means re-testing every portal endpoint (§8.6, SEC-02). **Load-bearing since 2026-09-16:** with the link alone opening the portal, write-mostly is what keeps a leaked link a fraudulent-upload problem rather than a disclosure one. |
@@ -451,7 +510,7 @@ Now a real epic with real tickets: [ERT-1100](backlog/ERT-1100-operability-harde
 
 | Epic | Covers | Gate |
 |---|---|---|
-| HR authentication | Replace the placeholder JWT scheme with the real model; local `users`, two roles, sign-in | **Q4 answered — ERT-190, next** |
+| HR authentication | Replace the placeholder JWT scheme with the real model; local `users`, two roles, sign-in | **Done — ERT-190, 2026-09-16** |
 | Security hardening | Malware scanning before a file becomes previewable; pepper rotation; retention sweep with the freeze honoured | **ERT-1150** (Q22), **ERT-1130**; retention needs Q7 and Q18 |
 | Operability | `APP_ENV` fails closed, startup summary, deployment configuration, CI | **ERT-1120**, **ERT-1160** |
 | Documentation hygiene | The root README is still stock Ktor generator boilerplate and advertises deleted features; the unused R2DBC dependencies | **ERT-1140** |

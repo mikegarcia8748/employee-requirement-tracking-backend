@@ -64,6 +64,10 @@ internal fun JdbcTransaction.insertAuditEntry(entry: AuditEntry) {
         it[action] = entry.action.name
         it[entity] = entry.entity
         it[entityId] = entry.entityId.value
+        // Nullable, so omitting it would write NULL on every row rather than failing -- an audit
+        // trail that silently forgets who acted, with §8.13's exception report joining on a column
+        // that is never populated (ERT-190).
+        it[actorUserId] = entry.actorUserId?.value
         it[timestamp] = entry.timestamp
         it[AuditLogs.metadata] = metadata
     }

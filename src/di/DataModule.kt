@@ -1,15 +1,21 @@
 package com.pgsystem.employee.requirement.tracker.di
 
 import com.pgsystem.employee.requirement.tracker.data.db.DatabaseConfig
+import com.pgsystem.employee.requirement.tracker.data.auth.JwtConfig
+import com.pgsystem.employee.requirement.tracker.data.auth.JwtIssuer
 import com.pgsystem.employee.requirement.tracker.data.db.DatabaseFactory
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedAppSettingsRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedAuditLog
+import com.pgsystem.employee.requirement.tracker.data.repository.ExposedHrUserRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedRequirementTemplateRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.AppSettingsRepository
+import com.pgsystem.employee.requirement.tracker.domain.port.AccessTokenIssuer
 import com.pgsystem.employee.requirement.tracker.domain.port.AuditLog
+import com.pgsystem.employee.requirement.tracker.domain.port.HrUserRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.ReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.RequirementTemplateRepository
+import com.pgsystem.employee.requirement.tracker.plugin.isDevMode
 import org.koin.dsl.module
 
 /**
@@ -37,6 +43,30 @@ val dataModule = module {
     single<AppSettingsRepository> { ExposedAppSettingsRepository(get(), get(), get()) }
     single<RequirementTemplateRepository> { ExposedRequirementTemplateRepository(get()) }
     single<ReferenceDataRepository> { ExposedReferenceDataRepository(get()) }
+    single<HrUserRepository> { ExposedHrUserRepository(get()) }
+
+    /**
+     * One [JwtConfig] for both halves of the scheme (ERT-190).
+     *
+     * `plugin/Security.kt` verifies with it and [JwtIssuer] signs with it. Read from the environment
+     * twice instead, the two would agree in every test that mints and verifies in one process and
+     * differ only in a deployment nobody can reproduce locally.
+     *
+     * It must stay a `single` for a second, sharper reason: in dev the secret is generated per
+     * instance, so a `factory` would sign with one key and verify with another, and every token this
+     * application issued would be refused by the request that presented it.
+     *
+     * Constructed eagerly in `AppModule` alongside `TokenDigest`, because it is the other binding
+     * whose construction can fail on configuration — outside dev a missing `JWT_SECRET` must abort
+     * startup rather than become a 401 on the first sign-in.
+     */
+    single<JwtConfig> {
+        JwtConfig.fromEnvironment(isDevMode()).also { configured ->
+            configured.warnings.forEach { warning -> jwtWarnings += warning }
+        }.config
+    }
+
+    single<AccessTokenIssuer> { JwtIssuer(get()) }
 
     // EmployeeRepository            -> ExposedEmployeeRepository
     // UploadLinkRepository          -> ExposedUploadLinkRepository
@@ -46,3 +76,13 @@ val dataModule = module {
     // Notifier                      -> SmtpNotifier
     // DocumentStorage               -> ObjectStorageAdapter
 }
+
+/**
+ * Configuration warnings raised while building [JwtConfig], drained by `AppModule` at startup.
+ *
+ * [JwtConfig] is a value object in `data/` and must not hold a logger — `org.slf4j` is the wrong
+ * dependency for one, and the caller has an `Application.log` that tags the line with the right
+ * logger anyway. A module body has no `Application` either, hence this hand-off rather than a direct
+ * call. Written once during graph construction and read once at boot, both on the startup thread.
+ */
+internal val jwtWarnings = mutableListOf<String>()
