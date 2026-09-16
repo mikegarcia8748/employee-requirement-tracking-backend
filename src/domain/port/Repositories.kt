@@ -47,6 +47,24 @@ interface HrUserRepository {
     suspend fun countAll(): Long
 }
 
+/**
+ * Hires and their requirement sets (ERT-410).
+ *
+ * **[create] and [save] are separate, and no other repository port splits them.** Every other
+ * adapter here spells `save` as read-then-insert-or-update keyed on the id, which cannot express
+ * "this id must be new": an id that already exists reads as *update this row*. For a [PersonId] that
+ * is the wrong answer. It draws from 62^8, so the primary key is the collision backstop and a
+ * duplicate draw must be retried silently — and an insert-or-update would instead **overwrite an
+ * unrelated hire**, losing a record rather than redrawing an identifier. Splitting the two makes the
+ * mix-up unrepresentable rather than documented, the same device that keeps
+ * [ReferenceDataRepository]'s two existence checks apart and lets only `Notifier.sendInvitation`
+ * carry an `AccessPin`.
+ *
+ * [saveRequirements] stays insert-or-update, because an [EntityId] draws from 62^12 where a
+ * collision is negligible: ERT-432 writes the snapshot and ERT-730/ERT-910 mutate its statuses
+ * through the same call. That asymmetry is the whole reason the two identifier widths are separate
+ * types.
+ */
 interface EmployeeRepository {
     suspend fun findById(id: PersonId): Employee?
 
@@ -56,8 +74,30 @@ interface EmployeeRepository {
      */
     suspend fun findActiveByEmail(email: EmailAddress): List<Employee>
 
+    /**
+     * Insert a new hire, redrawing its id if the one it carries is already taken.
+     *
+     * **Returns the hire as stored, which may carry a different [PersonId] than the argument.** A
+     * caller must use the returned value — writing the argument's id into a link, an audit row or a
+     * response would name a hire that does not exist. Repeated collisions fail loudly after a
+     * bounded number of attempts rather than looping.
+     *
+     * This matters most under PRD 8.2's CSV bulk import, which creates many hires in one action and
+     * reports created, skipped and failed counts: a collision must never reach HR as a failed row.
+     */
+    suspend fun create(employee: Employee): Employee
+
+    /**
+     * Update an existing hire. Fails loudly when no row matched.
+     *
+     * Deliberately **not** insert-or-update: see this interface's own note. A caller holding a hire
+     * that has never been stored wants [create].
+     */
     suspend fun save(employee: Employee): Employee
+
+    /** The snapshotted requirement set for one hire, in a stable order (PRD 5, 6.5). */
     suspend fun requirementsOf(employeeId: PersonId): RequirementSet
+
     suspend fun saveRequirements(requirements: List<EmployeeRequirement>)
 }
 

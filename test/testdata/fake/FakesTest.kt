@@ -4,6 +4,7 @@ import com.pgsystem.employee.requirement.tracker.domain.model.AuditAction
 import com.pgsystem.employee.requirement.tracker.domain.model.LinkPolicy
 import com.pgsystem.employee.requirement.tracker.domain.model.PacketStatus
 import com.pgsystem.employee.requirement.tracker.testdata.FixedClock
+import com.pgsystem.employee.requirement.tracker.testdata.FixedPersonIdGenerator
 import com.pgsystem.employee.requirement.tracker.testdata.Fixtures
 import com.pgsystem.employee.requirement.tracker.testdata.aCompletedPacket
 import com.pgsystem.employee.requirement.tracker.testdata.aPortalSession
@@ -86,14 +87,43 @@ class FakesTest {
     }
 
     @Test
-    fun `fake employee repository - saved twice - records both calls`() = runTest {
+    fun `fake employee repository - created then saved twice - records each call separately`() = runTest {
         val repository = FakeEmployeeRepository()
 
-        repository.save(anEmployee())
+        repository.create(anEmployee())
         repository.save(anEmployee(packetStatus = PacketStatus.UNDER_REVIEW))
+        repository.save(anEmployee(packetStatus = PacketStatus.COMPLETE))
 
+        repository.created shouldHaveSize 1
         repository.saved shouldHaveSize 2
         repository.all shouldHaveSize 1
+    }
+
+    @Test
+    fun `fake employee repository - saving a hire that was never created - fails loudly`() = runTest {
+        // The port splits create from save so that a new hire cannot overwrite an existing one by
+        // drawing its id. A fake that accepted a creation through save() would let a use case call
+        // the wrong method and still pass, which is the one thing the split exists to prevent.
+        val repository = FakeEmployeeRepository()
+
+        assertFailsWith<IllegalStateException> { repository.save(anEmployee()) }
+    }
+
+    @Test
+    fun `fake employee repository - creating onto a taken id - draws a fresh one`() = runTest {
+        // The in-memory half of the ERT-410 retry. Asserted here as well as against real SQL,
+        // because a use-case test that expected a redraw would otherwise be proving nothing.
+        val repository = FakeEmployeeRepository(
+            anEmployee(id = personId("EMP00001")),
+            ids = FixedPersonIdGenerator("EMP00007"),
+        )
+
+        val stored = repository.create(
+            anEmployee(id = personId("EMP00001"), email = anEmail("second@example.com"))
+        )
+
+        stored.id shouldBe personId("EMP00007")
+        repository.all shouldHaveSize 2
     }
 
     @Test

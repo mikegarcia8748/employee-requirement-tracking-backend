@@ -55,7 +55,7 @@ lose the record.
 | **Parent** | ERT-400 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-190, ERT-240 |
 | **PRD** | §8.1, §11, §7.1 |
 | **Architecture** | §4, §7 |
@@ -83,20 +83,62 @@ the active-email lookup honours its scope.
   never see a column.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given an `Employee` with every field populated, when saved and re-read, then it is
+- [x] `[derived]` Given an `Employee` with every field populated, when saved and re-read, then it is
       equal to the original
-- [ ] `[derived]` Given a completed or cancelled hire sharing an email, when `findActiveByEmail` is
+- [x] `[derived]` Given a completed or cancelled hire sharing an email, when `findActiveByEmail` is
       called, then it is not returned
-- [ ] `[derived]` Given an employee with two anomaly flags, when re-read, then both are present and
+- [x] `[derived]` Given an employee with two anomaly flags, when re-read, then both are present and
       `retentionFrozen` is true
-- [ ] `[derived]` Given an employee with no attestation, then all three attestation columns are null
+- [x] `[derived]` Given an employee with no attestation, then all three attestation columns are null
       and `attestation` is null on re-read
-- [ ] `[derived]` Given `requirementsOf`, then a `RequirementSet` is returned whose progress
+- [x] `[derived]` Given `requirementsOf`, then a `RequirementSet` is returned whose progress
       arithmetic matches the stored rows
-- [ ] `[derived]` Given a generated `PersonId` that collides with an existing row, when the insert is
+- [x] `[derived]` Given a generated `PersonId` that collides with an existing row, when the insert is
       attempted, then a fresh id is drawn and the save succeeds rather than surfacing the conflict
-- [ ] `[derived]` Given repeated collisions, then the retry gives up after a bounded number of
+- [x] `[derived]` Given repeated collisions, then the retry gives up after a bounded number of
       attempts and fails loudly rather than looping
+
+> **The port gained `create`, separate from `save`, and that was not optional.** Every other adapter
+> spells `save` as read-then-insert-or-update keyed on the id, and **that shape cannot express the
+> criterion above**: an id that already exists reads as *update this row*, so a new hire drawing a
+> taken `PersonId` would not have been retried — it would have **overwritten the hire holding that
+> id**, silently, losing a record rather than redrawing an identifier. Neither the ticket's own
+> collision test nor any other could have been written against the one-method port.
+>
+> So `create` inserts and never updates, `save` updates and never inserts (`check(rows == 1)`), and
+> the mix-up is unrepresentable rather than documented — the device that already keeps
+> `ReferenceDataRepository`'s two existence checks apart. `create` returns the hire **as stored**,
+> which may carry a different id than the argument; that return value was always in the port's
+> signature and is now load-bearing.
+>
+> `saveRequirements` stays insert-or-update: an `EntityId` draws from 62^12 where a collision is
+> negligible, and ERT-432 writes the snapshot while ERT-730 and ERT-910 move its statuses through the
+> same call. **That asymmetry is the whole reason the two identifier widths are separate types.**
+>
+> `FakeEmployeeRepository` holds the same split, because a fake that accepted a creation through
+> `save` would let a use case call the wrong method and still pass.
+
+> **`requirementsOf` orders by `name_snapshot`, and the honest fix belongs to ERT-432.**
+> `employee_requirements` carries **no `sort_order` snapshot column**, so the catalogue's order is
+> unreachable without joining `requirement_templates` — which would be a live read of the catalogue
+> for a hire already in flight, and reordering a template would reorder someone's checklist
+> mid-onboarding. That is the shape §5 forbids. Name order is deterministic and comes entirely from
+> the snapshot; it is not the order HR would choose, and that is the missing column speaking.
+> **ERT-432 should add `sort_order_snapshot` when it writes these rows** — see its own block below.
+
+> **Confirmed by breaking it, eight times.** Each of these was applied to the finished adapter and
+> the suite re-run, in the manner ERT-320 established: dropping the `ORDER BY` from `requirementsOf`,
+> widening the active filter to every `PacketStatus`, dropping `lowerCase()` from the email
+> predicate, making `create` skip its taken-id check, dropping the blank filter from the flag
+> decoder, and turning the half-populated attestation into a `null`. **Every one failed a named
+> test.** Two more came out of the review step rather than the plan, and both were genuinely
+> untested: the `ORDER BY` on `findActiveByEmail`, and the ordinal sort in the flag encoder.
+>
+> The flag sort is worth keeping in mind, because the first attempt to prove it was **vacuous**. With
+> the ticket's two flags, replacing `sortedBy { it.ordinal }` with `reversed()` produced the sorted
+> order anyway and the new assertion still passed — ERT-320's coincidence, one layer over. The test
+> now uses **three** flags in an order that is neither the sorted one nor its reverse, and both
+> breaks fail it.
 
 > **Why a retry is needed here and nowhere else.** A `PersonId` draws from 62^8, so the primary key
 > is the collision backstop and a duplicate draw fails the insert. This matters most under §8.2 CSV
@@ -115,10 +157,25 @@ the active-email lookup honours its scope.
 | Repository | `attestation mapping - an unattested packet - round-trips as null` |
 
 **Files**
-- create `src/data/repository/ExposedEmployeeRepository.kt`
-- create `src/data/mapper/EmployeeMapper.kt`
+- create [`src/data/repository/ExposedEmployeeRepository.kt`](../../src/data/repository/ExposedEmployeeRepository.kt)
+- create [`src/data/mapper/EmployeeMapper.kt`](../../src/data/mapper/EmployeeMapper.kt)
 - modify [`src/di/DataModule.kt`](../../src/di/DataModule.kt) — bind it
-- create `test/data/repository/ExposedEmployeeRepositoryTest.kt`
+- create [`test/data/repository/ExposedEmployeeRepositoryTest.kt`](../../test/data/repository/ExposedEmployeeRepositoryTest.kt)
+- modify [`src/domain/port/Repositories.kt`](../../src/domain/port/Repositories.kt) — `create`, per the note above
+- modify [`test/testdata/fake/FakeEmployeeRepository.kt`](../../test/testdata/fake/FakeEmployeeRepository.kt) and `FakesTest.kt` — the same split
+- modify [`test/di/DataModuleTest.kt`](../../test/di/DataModuleTest.kt) — the unbound-port tripwire named
+  this ticket and moves to `UploadLinkRepository`
+
+> **A builder default cannot reach the database unaided, and nothing recorded it.** `anEmployee()`
+> points at `Fixtures.DEPARTMENT_ID`, `EMPLOYMENT_TYPE_ID` and `HR_USER_ID` — `DPT000000001`,
+> `EMT000000001`, `HRU00001` — and **none of the three exists after migration**: the V2 seed holds
+> `d00000000001` and `e00000000001`..`4`, and `users` is empty because the bootstrap admin is a
+> startup use case rather than a seed row. A naive `anEmployee()` → `create()` fails three foreign
+> keys, each naming a constraint rather than the mismatch behind it.
+>
+> The repository test inserts rows under the `Fixtures` ids in a `@BeforeTest` rather than re-pointing
+> every builder call, which keeps each test reading as the rule it is about. **Every repository test
+> touching an employee from here on hits this** — ERT-420, ERT-610 and ERT-720 all do.
 
 **Out of scope**
 - Search and filtering for the hire list. That is ERT-510, which extends this adapter.
@@ -322,6 +379,18 @@ the progress of anyone in flight, and must never make a completed hire retroacti
 The test that proves this is the one that mutates the catalogue **after** creation and asserts the
 hire is unchanged. Without it the rule is only an intention, and a future refactor that "simplifies"
 the snapshot into a join will pass every other test in the suite.
+
+> **Added by ERT-410: this sub-task should also add `sort_order_snapshot`.** `name_snapshot` and
+> `is_required_snapshot` are copied; **the catalogue's `sort_order` is not**, so nothing downstream
+> can render a hire's checklist in the order HR arranged it without joining `requirement_templates`
+> — which is exactly the live read §5 forbids, and would let a template reordered tomorrow reshuffle
+> a checklist on a phone today. ERT-410's `requirementsOf` therefore orders by `name_snapshot`, which
+> is deterministic and snapshot-pure but is not HR's order.
+>
+> A third snapshot column is the fix, and it belongs **here**, with the rows it describes, rather
+> than in the adapter that reads them. It is a migration plus a column in `EmployeeRequirements` and
+> `EmployeeRequirement`, and `MigrationTest`'s drift baseline moves with it. ERT-740 and ERT-510 are
+> the tickets that would otherwise ship the wrong order.
 
 **Acceptance criteria**
 - [ ] Given a hire is created, then the hire appears at 0% progress (§8.1)

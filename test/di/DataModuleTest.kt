@@ -5,6 +5,7 @@ import com.pgsystem.employee.requirement.tracker.data.auth.JwtConfig
 import com.pgsystem.employee.requirement.tracker.data.auth.JwtIssuer
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedAppSettingsRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedAuditLog
+import com.pgsystem.employee.requirement.tracker.data.repository.ExposedEmployeeRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedHrUserRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedRequirementTemplateRepository
@@ -14,6 +15,7 @@ import com.pgsystem.employee.requirement.tracker.domain.port.AuditLog
 import com.pgsystem.employee.requirement.tracker.domain.port.EmployeeRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.HrUserRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.ReferenceDataRepository
+import com.pgsystem.employee.requirement.tracker.domain.port.UploadLinkRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.RequirementTemplateRepository
 import com.pgsystem.employee.requirement.tracker.domain.usecase.AuthenticateHrUserUseCase
 import com.pgsystem.employee.requirement.tracker.domain.usecase.ChangeHrPasswordUseCase
@@ -79,6 +81,12 @@ class DataModuleTest {
         }
 
     @Test
+    fun `wiring - the data module - resolves EmployeeRepository to the Exposed adapter`() =
+        withContainer { koin ->
+            koin.get<EmployeeRepository>().shouldBeInstanceOf<ExposedEmployeeRepository>()
+        }
+
+    @Test
     fun `wiring - the data module - resolves AccessTokenIssuer to the JWT adapter`() =
         withContainer { koin ->
             koin.get<AccessTokenIssuer>().shouldBeInstanceOf<JwtIssuer>()
@@ -117,11 +125,14 @@ class DataModuleTest {
 
     @Test
     fun `wiring - a port with no binding yet - still fails at resolution`() = withContainer { koin ->
-        // WHEN THIS FAILS: ERT-410 landed and bound EmployeeRepository. Swap this for another
-        // unbound port and move EmployeeRepository up into the tests above -- do not delete it.
-        // Without a port that genuinely cannot resolve, the three tests above would pass just as
-        // happily against a container that resolved anything at all.
-        assertFailsWith<Exception> { koin.get<EmployeeRepository>() }
+        // WHEN THIS FAILS: ERT-420 landed and bound UploadLinkRepository. Swap this for another
+        // unbound port and move UploadLinkRepository up into the tests above -- do not delete it.
+        // Without a port that genuinely cannot resolve, the tests above would pass just as happily
+        // against a container that resolved anything at all.
+        //
+        // ERT-410 tripped the previous one, which named EmployeeRepository; that port now has a
+        // positive test above, which is the swap this comment asks each ticket to make.
+        assertFailsWith<Exception> { koin.get<UploadLinkRepository>() }
 
         // And the reason must be the missing binding, not a broken container.
         koin.getOrNull<AuditLog>() shouldBe koin.get<AuditLog>()

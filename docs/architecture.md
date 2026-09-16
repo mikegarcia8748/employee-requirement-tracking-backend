@@ -116,7 +116,7 @@ its own dispatcher and the use case never sees one.
 
 | Port | Contract | Adapter |
 |---|---|---|
-| `EmployeeRepository` | hires, their requirement sets | `data/repository` *(pending)* |
+| `EmployeeRepository` | hires, their requirement sets; **`create` and `save` are separate** | `ExposedEmployeeRepository` — **bound** |
 | `RequirementTemplateRepository` | the catalogue; read **once** at creation | `ExposedRequirementTemplateRepository` — **bound** |
 | `ReferenceDataRepository` | departments and employment types; **existence**, not entities | `ExposedReferenceDataRepository` — **bound** |
 | `UploadLinkRepository` | links, resolved **by token hash** | *(pending)* |
@@ -131,8 +131,16 @@ its own dispatcher and the use case never sees one.
 | `AccessTokenIssuer` | the bearer credential a signed-in HR user presents | `JwtIssuer` — **bound** |
 | `Clock`, `EntityIdGenerator`, `PersonIdGenerator`, `TokenGenerator`, `PinGenerator`, `Hasher`, `TokenDigest` | infrastructure | **bound** |
 
-Three of these encode a rule in their *shape* rather than their documentation:
+Four of these encode a rule in their *shape* rather than their documentation:
 
+- **`EmployeeRepository`** — `create` inserts and never updates; `save` updates and never inserts.
+  Every other repository spells `save` as read-then-insert-or-update keyed on the id, and that shape
+  **cannot express "this id must be new"**: an existing id reads as *update this row*, so a hire
+  drawing a taken `PersonId` would overwrite the hire holding it rather than redrawing. A `PersonId`
+  draws from 62^8, so this is reachable — most of all under §8.2's bulk import — and it loses a
+  record rather than an identifier. `create` returns the hire **as stored**, which may carry a
+  different id than the argument (ERT-410). `saveRequirements` keeps insert-or-update, because an
+  `EntityId` draws from 62^12; that asymmetry is why the two widths are separate types.
 - **`Notifier`** — only `sendInvitation` accepts an `AccessPin`. Every other method is structurally
   incapable of carrying the credential, so "no email but the invitation contains the PIN" (§8.9) is
   a compile-time property, not a review checklist item.
@@ -230,6 +238,13 @@ load-bearing:
 later must not change the progress of anyone in flight, nor make a completed hire retroactively
 incomplete (§5, §6.4). A live foreign-key read would quietly break both, and would also make the
 audit log meaningless — you cannot attest to a state that mutates retroactively.
+
+**There is one snapshot column missing, and it is the catalogue's `sort_order` (ERT-410).** The
+checklist's *order* is as much a copy as its names, and nothing holds it: reading it would mean
+joining `requirement_templates`, which is precisely the live read this section forbids — a template
+reordered tomorrow would reshuffle a hire's checklist today. `EmployeeRepository.requirementsOf`
+therefore orders by `nameSnapshot`, which is deterministic and snapshot-pure but is not the order HR
+arranged. **ERT-432 owns adding `sort_order_snapshot`**, with the rows it writes.
 
 **There is no `last_accessed_at` column anywhere, on purpose.** PRD v0.3 had one; a single
 overwritten timestamp cannot answer who, from where, or how often, which is the first question asked
