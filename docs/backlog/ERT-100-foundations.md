@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Epic |
 | **Phase** | 0 |
-| **Status** | In progress — ten of eleven Done; ERT-190 is the last |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | §6.4, §8.10, §11 |
 | **Architecture** | §7, §11, §14 |
@@ -893,7 +893,7 @@ every insert names its own id.
 | **Parent** | ERT-100 |
 | **Type** | Ticket |
 | **Phase** | 0 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-180, ERT-240, ERT-330 |
 | **PRD** | §2, §8.13, §12, §14 Q4 |
 | **Architecture** | §4, §5, §11, §12, §14 |
@@ -979,30 +979,86 @@ application accepts, and `authenticate(HR_AUTH)` protects something real.
 - As an HR Officer, I want my own password rather than a shared one, so that a departure means
   disabling an account instead of telling everyone the new password.
 
+**Verified, not assumed.**
+
+- **The failures really are identical, in four ways.** `AuthRoutesTest` asserts that a malformed
+  address, an unknown address, a wrong password and a deactivated account produce one distinct
+  `(status, body)` pair between them — `bodies.distinct().size shouldBe 1`, which fails if any branch
+  diverges rather than asserting each pair separately and missing a third.
+- **Timing is uniform, and it is asserted structurally rather than by measuring.** A `CountingHasher`
+  wrapping the real bcrypt proves `verify` is called on the unknown-address and deactivated branches.
+  A wall-clock assertion would be flaky on a loaded CI box and would prove nothing on a fast one.
+- **The audit trail is not an oracle either.** A failure for a real account and one for an unknown
+  address are compared field by field, modulo the row id and the attempted address: both carry a null
+  `actorUserId` and both point at `HrUser.NO_SUBJECT`.
+- **The foreign keys bite, in both directions.** Deleting a user who created a hire is refused;
+  deleting one who created nothing succeeds, so the refusal is the constraint rather than users being
+  undeletable in general. Inserting a hire naming a user that does not exist is refused too.
+- **Case-insensitive uniqueness bites against raw SQL**, not against `EmailAddress` — which lower-cases
+  on construction and so cannot produce the violating row. Two different addresses are inserted in a
+  third test, or a broken helper would make both rejections pass.
+- **The `pwd_change` gate fails closed.** A hand-built token omitting the claim is refused with 409,
+  so forgetting the claim can never become a silent exemption.
+- **A token signed with another key is refused**, which is the only test that would fail against a
+  verifier that skipped signature checking.
+
+> **The ERT-195 tripwire fired, as designed.** `guard integrity - the use case directory is empty`
+> asserted `Vacuous` and said the day the first use case landed it would fail, and that this was the
+> signal rather than a regression. ERT-190 landed six, so it was flipped to `Checked` — with a
+> non-vacuity assertion added — rather than deleted.
+
+**Found rather than decided**
+
+- **A JWT's `exp` is validated against the real system clock, which no injected `Clock` reaches.**
+  Issuing test tokens at `FixedClock.DEFAULT` — a fixed date eight months past — expired them before
+  they were presented, failing seven route tests at once with the same 401 and no indication of the
+  cause. `HrTokens` and the sign-in route test issue at `Instant.now()`; everything else stays fixed.
+  This is the one documented boundary of the never-`Instant.now()` rule.
+- **H2 rejects expression indexes**, so `create unique index ... (lower(email))` — valid PostgreSQL —
+  could not be used. A `check (email = lower(email))` plus a plain unique index is standard SQL in
+  both engines and is strictly stronger: it also guarantees the stored form is canonical.
+- **`configureSecurity` had to stop reading the container.** Injecting `JwtConfig` broke
+  `MetricsRoutesTest`, which assembles three plugins and no Koin — and the fix was the thing that made
+  the whole ticket testable, since a test can now hand the verifier the config `HrTokens` signs with.
+- **Widening `MigrationTest`'s portability sweep from V1 to the whole directory flagged V2** for
+  `MERGE INTO`, appearing in a comment explaining why `MERGE INTO` is not used. The sweep now strips
+  `--` comments: a guard that cannot be documented around is one people write around instead.
+
+**Delivered beyond the file list**
+
+- `POST /api/users`, `GET /api/users`, `/active` and `/reset-password` — the user-administration
+  endpoints the **Out of scope** section places here ("the endpoints and the model land here; the
+  screen is Phase 2"). Without at least one route an `HR_OFFICER` cannot reach, `HR_ADMIN` would gate
+  nothing, and the 403 acceptance criterion would be untestable.
+- `AppError.AuthenticationFailed` and `AppError.Forbidden`, both `data object`s. A specification
+  change, and deliberate: sign-in must answer 401 rather than `Denied`'s 404, and `data object` is
+  what makes "byte-identical" structural rather than a convention.
+- `src/di/DomainModule.kt`, which `AppModule` anticipated.
+
 **Acceptance criteria**
-- [ ] `[derived]` Given a `users` table, then its primary key is a `PersonId` and email is unique,
+- [x] `[derived]` Given a `users` table, then its primary key is a `PersonId` and email is unique,
       case-insensitively
-- [ ] `[derived]` Given a password, then it is stored through the existing `Hasher` port and never
+- [x] `[derived]` Given a password, then it is stored through the existing `Hasher` port and never
       appears in a log, a response, a trace line or an audit row
-- [ ] `[derived]` Given valid credentials, then a token is returned carrying the user id as `sub` and
+- [x] `[derived]` Given valid credentials, then a token is returned carrying the user id as `sub` and
       the role as a claim, and `authenticate(HR_AUTH)` accepts it
-- [ ] `[derived]` Given an unknown email, a wrong password and a deactivated account, then all three
+- [x] `[derived]` Given an unknown email, a wrong password and a deactivated account, then all three
       responses are byte-identical
-- [ ] `[derived]` Given any sign-in attempt, then an audit row records outcome, actor and source IP
-- [ ] `[derived]` Given `password_change_required`, then every route except change-password refuses
+- [x] `[derived]` Given any sign-in attempt, then an audit row records outcome, actor and source IP
+- [x] `[derived]` Given `password_change_required`, then every route except change-password refuses
       until the password is changed
-- [ ] `[derived]` Given an `HR_OFFICER` on an `HR_ADMIN`-only route, then it is refused with 403 and
+- [x] `[derived]` Given an `HR_OFFICER` on an `HR_ADMIN`-only route, then it is refused with 403 and
       the attempt is audited
-- [ ] `[derived]` Given the four actor columns, then each references `users(id)` with
+- [x] `[derived]` Given the four actor columns, then each references `users(id)` with
       `on delete restrict`
-- [ ] `[derived]` Given an audit row written by no user, then it still writes, with `actor_user_id`
+- [x] `[derived]` Given an audit row written by no user, then it still writes, with `actor_user_id`
       null
-- [ ] `[derived]` Given an empty `users` table outside dev and no bootstrap variables, then startup
+- [x] `[derived]` Given an empty `users` table outside dev and no bootstrap variables, then startup
       fails rather than booting with no way in
-- [ ] `[derived]` Given the bootstrap account, then it is created only when `users` is empty and
+- [x] `[derived]` Given the bootstrap account, then it is created only when `users` is empty and
       carries `password_change_required`
-- [ ] `[derived]` Given `JWT_SECRET` is unset outside dev, then startup still refuses — unchanged
-- [ ] `[derived]` Given the generated spec, then sign-in and change-password appear with their
+- [x] `[derived]` Given `JWT_SECRET` is unset outside dev, then startup still refuses — unchanged
+- [x] `[derived]` Given the generated spec, then sign-in and change-password appear with their
       200/401 contract, and every HR route shows the `hr-jwt` requirement
 
 **Tests**
@@ -1056,11 +1112,12 @@ application accepts, and `authenticate(HR_AUTH)` protects something real.
 - **Rate limiting on sign-in.** ERT-660 owns it and its scope now names `/api/auth/login`. Until then
   the audit row is the detection.
 
-> **Split seams, if one session is not enough.** The numbers 191 to 194 are unallocated and fit, in
-> this order: the table, migration and repository; the two use cases against fakes; the routes, the
-> real verifier and `HrTokens`; the four foreign keys. **The third is what closes ERT-340's "no test
-> can mint a token this application accepts"**, so it earns its own commit even if the rest stay
-> together. Allocate them on the board if you split; until then this ticket is one row.
+> **Taken as one ticket.** The split seams below were offered and not used, so 191 to 194 stay
+> unallocated. Recorded because the reasoning still holds if any of this is revisited: the table,
+> migration and repository; the two use cases against fakes; the routes, the real verifier and
+> `HrTokens`; the four foreign keys. **The third is what closed ERT-340's "no test can mint a token
+> this application accepts"** — and it turned out to depend on the first, because `configureSecurity`
+> had to stop reading the container before a test could configure both halves of the scheme.
 
 ---
 

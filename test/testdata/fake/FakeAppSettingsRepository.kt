@@ -4,6 +4,7 @@ import com.pgsystem.employee.requirement.tracker.core.error.AppError
 import com.pgsystem.employee.requirement.tracker.core.error.DomainResult
 import com.pgsystem.employee.requirement.tracker.core.error.asErr
 import com.pgsystem.employee.requirement.tracker.core.error.asOk
+import com.pgsystem.employee.requirement.tracker.core.value.PersonId
 import com.pgsystem.employee.requirement.tracker.domain.model.LinkPolicy
 import com.pgsystem.employee.requirement.tracker.domain.port.AppSettingsRepository
 
@@ -43,7 +44,7 @@ class FakeAppSettingsRepository(private var policy: LinkPolicy = LinkPolicy()) :
     /** The policy as it currently stands, without recording a read. */
     val current: LinkPolicy get() = policy
 
-    data class Update(val policy: LinkPolicy, val actor: String)
+    data class Update(val policy: LinkPolicy, val actor: PersonId)
 
     override suspend fun linkPolicy(): DomainResult<LinkPolicy> {
         failure.check()
@@ -51,7 +52,7 @@ class FakeAppSettingsRepository(private var policy: LinkPolicy = LinkPolicy()) :
         return refusal?.asErr() ?: policy.asOk()
     }
 
-    override suspend fun updateLinkPolicy(policy: LinkPolicy, actor: String): DomainResult<Unit> {
+    override suspend fun updateLinkPolicy(policy: LinkPolicy, actor: PersonId): DomainResult<Unit> {
         failure.check()
         refusal?.let { return it.asErr() }
         this.policy = policy

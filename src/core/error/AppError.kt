@@ -41,6 +41,41 @@ sealed interface AppError {
         override val code: String = "not_found"
     }
 
+    /**
+     * The caller did not prove who they are.
+     *
+     * **HR-side only, and the distinction from [Denied] is the whole reason it exists.** A portal
+     * failure must be indistinguishable from an unmatched route, so [Denied] maps to 404 and renders
+     * the body a mistyped path produces. A *sign-in* failure has no such constraint and must not
+     * borrow one: answering `POST /api/auth/login` with a 404 would say the endpoint is absent, and a
+     * client cannot tell "these credentials are wrong" from "this deployment has no sign-in" — so the
+     * one place a password is checked would be the one place the status code lies.
+     *
+     * **A `data object`, not a `data class`, for exactly the reason [Denied] is one.** An unknown
+     * email, a wrong password and a deactivated account are all this value, so two call sites cannot
+     * construct two different instances and render two different bodies. Without that, "all three
+     * responses are byte-identical" is a convention someone has to remember, and the endpoint becomes
+     * an oracle for who works in HR.
+     *
+     * Do **not** reach for this on a portal path. `AppErrorMapperTest` has no way to catch that, and
+     * a 401 where §6.6 requires a 404 re-opens SEC-01.
+     */
+    data object AuthenticationFailed : AppError {
+        override val code: String = "authentication_failed"
+    }
+
+    /**
+     * The caller is known but this action is not theirs to take.
+     *
+     * Separate from [AuthenticationFailed] because the remedy differs and the client must be able to
+     * tell them apart: a 401 means sign in again, a 403 means do not bother. Carrying no detail is
+     * deliberate — naming the role required would let an `HR_OFFICER` enumerate the admin surface by
+     * probing it.
+     */
+    data object Forbidden : AppError {
+        override val code: String = "forbidden"
+    }
+
     /** A rule requires an explicit, recorded human justification that was not supplied. */
     data class ReasonRequired(override val code: String, val action: String) : AppError
 

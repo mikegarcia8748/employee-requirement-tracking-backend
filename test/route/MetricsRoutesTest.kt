@@ -3,6 +3,7 @@ package com.pgsystem.employee.requirement.tracker.route
 import com.pgsystem.employee.requirement.tracker.plugin.HR_AUTH
 import com.pgsystem.employee.requirement.tracker.plugin.configureApiDocs
 import com.pgsystem.employee.requirement.tracker.plugin.configureSecurity
+import com.pgsystem.employee.requirement.tracker.testdata.testJwtConfig
 import com.pgsystem.employee.requirement.tracker.plugin.configureSerialization
 import com.pgsystem.employee.requirement.tracker.rootModule
 import io.kotest.matchers.shouldBe
@@ -51,7 +52,7 @@ class MetricsRoutesTest {
         // on the same path would leave which of the two answers up to match order — the test would
         // be measuring Ktor's routing precedence rather than the gate.
         application {
-            configureSecurity()
+            configureSecurity(testJwtConfig())
             routing { metricsRoutes(PrometheusMeterRegistry(PrometheusConfig.DEFAULT), devMode = false, authName = HR_AUTH) }
         }
 
@@ -98,7 +99,7 @@ class MetricsRoutesTest {
             // point: it is the only way to read the spec the non-dev gate produces.
             application {
                 configureSerialization()
-                configureSecurity()
+                configureSecurity(testJwtConfig())
                 configureApiDocs()
                 routing {
                     healthRoutes()

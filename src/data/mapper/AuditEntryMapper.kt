@@ -3,6 +3,7 @@ package com.pgsystem.employee.requirement.tracker.data.mapper
 import com.pgsystem.employee.requirement.tracker.core.error.DomainResult
 import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 import com.pgsystem.employee.requirement.tracker.core.value.Identifier
+import com.pgsystem.employee.requirement.tracker.core.value.PersonId
 import com.pgsystem.employee.requirement.tracker.data.db.table.AuditLogs
 import com.pgsystem.employee.requirement.tracker.domain.model.AuditAction
 import com.pgsystem.employee.requirement.tracker.domain.model.AuditEntry
@@ -30,6 +31,7 @@ fun ResultRow.toAuditEntry(): AuditEntry = AuditEntry(
     action = AuditAction.valueOf(this[AuditLogs.action]),
     entity = this[AuditLogs.entity],
     entityId = Identifier.of(this[AuditLogs.entityId]).orFail("audit_logs.entity_id"),
+    actorUserId = this[AuditLogs.actorUserId]?.let { PersonId.of(it.value).orFail("audit_logs.actor_user_id") },
     timestamp = this[AuditLogs.timestamp],
     metadata = this[AuditLogs.metadata].toMetadata(),
 )

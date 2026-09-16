@@ -134,6 +134,8 @@ into a status so no route invents its own. Defined in ERT-140.
 | `Conflict(code, detail)` | **409** | the locked-upload case of §8.7 |
 | `ReasonRequired(code, action)` | **422** | a `details` entry naming the `reason` field; `action` is not on the wire |
 | `Denied` | **404** | the shared denied body, **identical in every instance** |
+| `AuthenticationFailed` | **401** | the shared sign-in failure body, **identical in every instance**. HR-side only |
+| `Forbidden` | **403** | the shared role-refusal body; it never names the role required |
 | malformed JSON body | **422** | `request_malformed`, cause logged server-side only |
 | unmatched route | **404** | the **same body** a `Denied` produces |
 | — | **429** | rate limiting, ERT-660 |
@@ -144,8 +146,18 @@ a wrong PIN and an unknown token cannot render differently — the guarantee is 
 a convention the mapper has to honour. The mapper adds no detail to it, and an unmatched route
 renders the identical body, so a mistyped portal sub-path is not distinguishable from a denied one.
 
-`401` and `405` keep Ktor's own handling rather than the envelope. A `status(Unauthorized)` handler
-risks dropping the `WWW-Authenticate` challenge, and neither status discloses whether a link exists.
+`AuthenticationFailed` and `Forbidden` are `data object`s too (ERT-190), for the same reason and with
+the same consequence: one value each, carrying no fields, so a second call site cannot render a
+slightly more helpful variant. **`AuthenticationFailed` is HR-side only** — a portal failure must stay
+indistinguishable from an unmatched route and therefore keeps `Denied`'s 404. Using it on a portal
+path would re-open SEC-01, and no mechanical guard catches that.
+
+`401` and `405` keep Ktor's own handling **in `StatusPages`** rather than the envelope: a
+`status(Unauthorized)` handler risks dropping the `WWW-Authenticate` challenge, and neither status
+discloses whether a link exists. That is unchanged — a sign-in failure reaches 401 through the mapper,
+which answers the call directly and never passes through a `status` handler. A challenge-less 401 from
+`/api/auth/login` is also correct: there is no scheme to re-present to a caller who is trying to
+*obtain* a credential.
 
 ### Where an identifier was read decides its status
 
@@ -437,19 +449,67 @@ that permission is HR-side only and does not extend to the portal.
 
 | Method | Path | Behaviour | Auth |
 |---|---|---|---|
-| `POST` | `/api/auth/login` | `{ email, password }` → **200** with a token carrying the user id as `sub` and the role as a claim | none |
-| `POST` | `/api/auth/change-password` | `{ currentPassword, newPassword }` | HR auth |
-| `GET` | `/api/auth/me` | the signed-in officer and their role | HR auth |
+| `POST` | `/api/auth/login` | `{ email, password }` → **200** with a token carrying the user id as `sub`, the role as a claim and `pwd_change`, plus `expiresAt` and the user | none |
+| `POST` | `/api/auth/change-password` | `{ currentPassword, newPassword }` → **204** | HR auth |
+| `GET` | `/api/auth/me` | the signed-in officer and their role, read from `users` rather than from the claims | HR auth |
 
-**A failed sign-in is uniform.** An unknown email, a wrong password and a deactivated account all
-return the same **401** with the same body, for the reason §6.6 gives about the portal: otherwise the
-endpoint enumerates who works in HR. Every attempt, successful or not, is an audit row.
+**A failed sign-in is uniform, and the uniformity is intended — do not "improve" the message.** A
+malformed address, an unknown address, a wrong password and a deactivated account all return the same
+**401** with the same body, for the reason §6.6 gives about the portal: otherwise the endpoint
+enumerates who works in HR. It is uniform in **elapsed time** too — every branch verifies a password
+against some hash, the absent-user case against a decoy — because byte-identical bodies are worth
+nothing if one branch returns in 1 ms and the other in 100.
+
+Every attempt, successful or not, is an audit row. A **failure** row records the attempted address in
+`actor` and nothing else that varies: it always points at the sentinel subject with a null
+`actor_user_id`, **even when the account exists**, so the trail is not an oracle either.
 
 **`password_change_required` gates everything else.** While it is set, every HR route except
-change-password refuses — that is what makes the bootstrap account safe to create.
+change-password refuses with **409** — not 403, because the caller is entitled to the route and will
+be again the moment they act. That gate is what makes the bootstrap account and every HR-issued reset
+safe to hand over.
+
+The claim is read from the token, so **after changing a password, sign in again**: the old token still
+carries the old claim. A replacement is deliberately not minted at change-password — issuing a token
+outside the one use case that decides a sign-in succeeded would build a second, unaudited grant path.
+
+**Token lifetime is the revocation window** (`JWT_TTL_MINUTES`, default 60). The verifier validates
+claims only and does not resolve the subject against `users` per request, so deactivating an account —
+or resetting its password — does not invalidate a token already issued to it.
 
 `POST /api/auth/login` is unauthenticated and therefore in ERT-660's rate-limiting scope, alongside
 the two portal entry points. It is the third public endpoint in the system and the easiest to forget.
+Until then the `SIGN_IN_FAILED` audit row is the detection.
+
+#### User administration
+*ERT-190 · PRD §8.13 · **`HR_ADMIN` only***
+
+| Method | Path | Behaviour |
+|---|---|---|
+| `GET` | `/api/users` | Every account in email order, **deactivated ones included**. No password material |
+| `POST` | `/api/users` | `{ email, fullName, role, initialPassword }` → **201**. The account owes a password change |
+| `POST` | `/api/users/{id}/active` | `{ isActive }` — idempotent; an admin **may not deactivate themselves** (409) |
+| `POST` | `/api/users/{id}/reset-password` | `{ newPassword }` → **204**. Always sets `password_change_required` |
+
+**The initial password is supplied, not generated.** A generated one would have to be returned in a
+body, and bodies get logged by proxies and pasted into tickets. Supplied, it travels once in a request
+the admin composed and is never echoed; the change-required flag is what stops "the admin knows the
+password" from mattering.
+
+**A duplicate address is a `409`, not the uniform sign-in failure.** This route is behind `HR_ADMIN`,
+and someone who can list every account learns nothing from being told one exists — while an admin who
+cannot be told is left retrying a creation that will never work.
+
+**There is no delete.** Four actor columns reference `users(id)` `on delete restrict`, so a user who
+has created a hire or approved a document cannot be removed; an audit trail naming a row that no
+longer exists is not a trail. `active` is the off switch.
+
+An `HR_OFFICER` reaching any of these gets **403** and the attempt is audited. The body does not name
+the role required — that would let an officer map the admin surface by probing it.
+
+**Two roles differ in configuration rights, not validation rights. This does not close SEC-10:** an
+`HR_OFFICER` can still create a hire, change its email and approve every document unaided. §8.13 keeps
+one effective role for v1 and mitigates it with the exception report.
 
 #### `POST /api/employees` — create a hire
 *ERT-450 · PRD §8.1*

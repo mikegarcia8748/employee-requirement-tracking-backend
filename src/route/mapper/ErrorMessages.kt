@@ -29,6 +29,12 @@ internal fun messageFor(code: String): String = when {
     code == "internal_error" -> "An unexpected error occurred."
     code == "request_malformed" -> "The request could not be read."
     code == "validation_failed" -> "Some fields need attention."
+    // One string for all four sign-in failures. It must not hint at which occurred, so it names
+    // neither the email nor the account -- "incorrect" covers a wrong password and an address with
+    // no account equally, which is the whole requirement.
+    code == "authentication_failed" -> "Email or password is incorrect."
+    code == "forbidden" -> "You do not have access to this."
+    code == "password_change_required" -> "Change your password before continuing."
     code.endsWith(".reason_required") -> "Give a reason to continue."
     else -> "The request could not be completed."
 }

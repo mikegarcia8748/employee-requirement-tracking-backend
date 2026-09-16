@@ -94,9 +94,10 @@ class ExposedAuditLogTest : RepositoryTestBase() {
     }
 
     @Test
-    fun `audit log - the action sweep above - covers all seventeen actions`() {
+    fun `audit log - the action sweep above - covers all twenty-five actions`() {
         // Without this the sweep passes just as happily against an enum someone emptied.
-        AuditAction.entries.size shouldBe 17
+        // 25 since ERT-190 added the eight HR-account actions.
+        AuditAction.entries.size shouldBe 25
     }
 
     @Test

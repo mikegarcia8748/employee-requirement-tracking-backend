@@ -19,7 +19,9 @@ import io.ktor.server.routing.openapi.describe
  * lives in `plugin/`, and the dependency between the packages runs `plugin` → `route` and never the
  * reverse — `ArchitectureTest` fails the build on a route importing `plugin`. And a route that
  * carries its own gate cannot be mounted in a test without the security plugin, which for this
- * application means without a token any test can mint (see the test's own note, and Q4).
+ * application means without a security plugin at all, which keeps a payload assertion about the
+ * payload. (Until ERT-190 it also meant without any token a test could mint; that is no longer
+ * true — `testdata/HrTokens` mints one — but mounting the handler bare is still the right shape.)
  *
  * The repository arrives as a parameter rather than through `inject()` for the same reason: the
  * handler is then a function of its inputs, and the container is `Routing.kt`'s concern.

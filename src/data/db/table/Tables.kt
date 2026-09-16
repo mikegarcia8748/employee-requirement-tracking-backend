@@ -19,6 +19,39 @@ import org.jetbrains.exposed.v1.javatime.timestamp
  *    control.
  */
 
+/**
+ * HR staff accounts (ERT-190, PRD §14 Q4).
+ *
+ * A [PersonIdTable], so a user id and an employee id are the same 8-character width. That is what
+ * `Identifier.of`'s length dispatch needs — a third width would make it ambiguous — and it is why an
+ * 8-character `audit_logs.entity_id` means "an employee or a user", with `entity` saying which.
+ *
+ * **The unique index is on `lower(email)` and it is declared in SQL, not here.** Exposed models a
+ * functional index poorly, and `uniqueIndex()` on the raw column would let `A@x.com` and `a@x.com`
+ * both exist. `EmailAddress.of` lower-cases on construction, so this application cannot create that
+ * pair — but a migration, an import or a psql prompt can, and then "which account signs in" is a
+ * race. The index is in `V4__hr_users.sql`; `ExposedHrUserRepositoryTest` asserts it bites.
+ *
+ * There is deliberately **no `last_login_at`**, for the reason §11 and SEC-05 give for keeping
+ * `last_accessed_at` off `upload_links`: one overwritten timestamp cannot answer who, from where, or
+ * how often. A sign-in is an `audit_logs` row.
+ */
+object Users : PersonIdTable("users") {
+    val email = varchar("email", 320)
+    val fullName = varchar("full_name", 256)
+
+    /** bcrypt output. Never a password, and never returned by any route. */
+    val passwordHash = varchar("password_hash", 256)
+
+    val role = varchar("role", 32)
+
+    /** Accounts are deactivated, never deleted — their audit rows and actor references outlive them. */
+    val isActive = bool("is_active").default(true)
+
+    val passwordChangeRequired = bool("password_change_required").default(false)
+    val createdAt = timestamp("created_at")
+}
+
 object Departments : EntityIdTable("departments") {
     val name = varchar("name", 128).uniqueIndex()
 }
@@ -65,13 +98,13 @@ object Employees : PersonIdTable("employees") {
 
     /** The physical checkpoint. Absent means COMPLETE is not identity assurance (PRD 1, 8.5). */
     val originalsSightedAt = timestamp("originals_sighted_at").nullable()
-    val originalsSightedBy = varchar("originals_sighted_by", 128).nullable()
+    val originalsSightedBy = reference("originals_sighted_by", Users).nullable()
 
     /** Comma-separated AnomalyFlag names. Any open flag freezes version purging (PRD 7.1). */
     val anomalyFlags = varchar("anomaly_flags", 512).default("")
     val completedAt = timestamp("completed_at").nullable()
     val createdAt = timestamp("created_at")
-    val createdBy = varchar("created_by", 128)
+    val createdBy = reference("created_by", Users)
 }
 
 object EmployeeRequirements : EntityIdTable("employee_requirements") {
@@ -105,7 +138,7 @@ object Submissions : EntityIdTable("submissions") {
     val validFrom = timestamp("valid_from").nullable()
     val validUntil = timestamp("valid_until").nullable()
 
-    val reviewedBy = varchar("reviewed_by", 128).nullable()
+    val reviewedBy = reference("reviewed_by", Users).nullable()
     val reviewedAt = timestamp("reviewed_at").nullable()
     val rejectionReason = text("rejection_reason").nullable()
     val isCurrent = bool("is_current").default(true)
@@ -176,7 +209,7 @@ object AppSettings : Table("app_settings") {
     val valueType = varchar("value_type", 32)
     val minValue = varchar("min_value", 64).nullable()
     val maxValue = varchar("max_value", 64).nullable()
-    val updatedBy = varchar("updated_by", 128).nullable()
+    val updatedBy = reference("updated_by", Users).nullable()
     val updatedAt = timestamp("updated_at").nullable()
     override val primaryKey = PrimaryKey(key)
 }
@@ -191,6 +224,18 @@ object AuditLogs : EntityIdTable("audit_logs") {
      * row must outlive the row it describes.
      */
     val entityId = varchar("entity_id", EntityId.LENGTH).index()
+
+    /**
+     * The acting user, when there was one — the **fifth** actor column and the only one that did not
+     * become a non-null foreign key (ERT-190).
+     *
+     * Nullable because the trail must record actors who are not users: the ERT-130 seed, the ERT-1020
+     * expiry sweep, a future import job. An append-only trail that can refuse a write because it
+     * cannot name a user is worse than one carrying a string, so [actor] keeps its free text and this
+     * sits beside it. §8.13's exception report joins on this; everything else reads [actor].
+     */
+    val actorUserId = reference("actor_user_id", Users).nullable()
+
     val timestamp = timestamp("timestamp")
 
     /** JSON. Carries reasons and verification methods — never credentials. */
@@ -198,6 +243,7 @@ object AuditLogs : EntityIdTable("audit_logs") {
 }
 
 val allTables = arrayOf(
+    Users,
     Departments, EmploymentTypes, RequirementTemplates, TemplateAssignments,
     Employees, EmployeeRequirements, Submissions, UploadLinks,
     PortalSessions, PortalAccessLogs, AppSettings, AuditLogs,

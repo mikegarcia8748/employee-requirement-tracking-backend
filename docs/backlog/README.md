@@ -14,7 +14,7 @@ too, because a session working one opens the epic file and never opens this page
 
 ## [ERT-100](ERT-100-foundations.md) — Runtime foundations
 
-Phase 0 · depends on — · **In progress — ten of eleven Done; ERT-190 is the last**
+Phase 0 · depends on — · **Done**
 
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
@@ -27,7 +27,7 @@ Phase 0 · depends on — · **In progress — ten of eleven Done; ERT-190 is th
 | [ERT-160](ERT-100-foundations.md#ert-160--deterministic-token-digest-separate-from-pin-hashing) | Deterministic token digest, separate from PIN hashing | Ticket | — | Done |
 | [ERT-170](ERT-100-foundations.md#ert-170--architecture-guards-for-the-write-mostly-rule) | Architecture guards for the write-mostly rule | Ticket | — | Done |
 | [ERT-180](ERT-100-foundations.md#ert-180--short-alphanumeric-identifiers-replace-uuids) | Short alphanumeric identifiers replace UUIDs | Ticket | ERT-120, ERT-130 | Done |
-| [ERT-190](ERT-100-foundations.md#ert-190--hr-user-accounts-roles-and-sign-in) | HR user accounts, roles and sign-in | Ticket | ERT-180, ERT-240, ERT-330 | Not started |
+| [ERT-190](ERT-100-foundations.md#ert-190--hr-user-accounts-roles-and-sign-in) | HR user accounts, roles and sign-in | Ticket | ERT-180, ERT-240, ERT-330 | Done |
 | [ERT-195](ERT-100-foundations.md#ert-195--dev-only-tracing-of-use-case-execution) | Dev-only tracing of use case execution | Ticket | ERT-150 | Done |
 
 ## [ERT-200](ERT-200-test-harness.md) — Test harness

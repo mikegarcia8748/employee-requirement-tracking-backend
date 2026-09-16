@@ -22,11 +22,21 @@ data class Employee(
     val attestation: Attestation?,
     /** The PRD 8.5 physical checkpoint. Absent means COMPLETE is not identity assurance. */
     val originalsSightedAt: Instant?,
-    val originalsSightedBy: String?,
+    /** The [HrUser] who sighted the originals. A [PersonId] since ERT-190, not a typed-in name. */
+    val originalsSightedBy: PersonId?,
     val anomalyFlags: Set<AnomalyFlag>,
     val completedAt: Instant?,
     val createdAt: Instant,
-    val createdBy: String,
+    /**
+     * The [HrUser] who created this hire.
+     *
+     * **A [PersonId] rather than free text since ERT-190, and non-null.** §8.13's exception report
+     * asks whether one officer created a hire, altered its email and approved every document — a
+     * question about a person, which two rows spelling a name differently cannot answer. The column
+     * references `users(id)` `on delete restrict`, so a user who acted cannot be deleted out from
+     * under the record.
+     */
+    val createdBy: PersonId,
 ) {
     /**
      * PRD 7.1: no version may be purged while a flag is open. The superseded version is the

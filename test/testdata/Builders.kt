@@ -14,6 +14,8 @@ import com.pgsystem.employee.requirement.tracker.domain.model.Department
 import com.pgsystem.employee.requirement.tracker.domain.model.Employee
 import com.pgsystem.employee.requirement.tracker.domain.model.EmployeeRequirement
 import com.pgsystem.employee.requirement.tracker.domain.model.EmploymentType
+import com.pgsystem.employee.requirement.tracker.domain.model.HrRole
+import com.pgsystem.employee.requirement.tracker.domain.model.HrUser
 import com.pgsystem.employee.requirement.tracker.domain.model.LinkPolicy
 import com.pgsystem.employee.requirement.tracker.domain.model.LinkScope
 import com.pgsystem.employee.requirement.tracker.domain.model.LinkStatus
@@ -69,6 +71,14 @@ object Fixtures {
     val SESSION_ID: EntityId = entityId("SES000000001")
     val ACCESS_LOG_ID: EntityId = entityId("LOG000000001")
     val AUDIT_ID: EntityId = entityId("AUD000000001")
+
+    /**
+     * The acting HR user (ERT-190).
+     *
+     * A [PersonId] like [EMPLOYEE_ID], because `users` and `employees` share the 8-character width —
+     * but a *different* value, so a test that crosses the two wires cannot pass by coincidence.
+     */
+    val HR_USER_ID: PersonId = personId("HRU00001")
 
     const val IP = "203.0.113.10"
     const val USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"
@@ -150,11 +160,11 @@ fun anEmployee(
     submittedByHr: Boolean = false,
     attestation: Attestation? = null,
     originalsSightedAt: Instant? = null,
-    originalsSightedBy: String? = null,
+    originalsSightedBy: PersonId? = null,
     anomalyFlags: Set<AnomalyFlag> = emptySet(),
     completedAt: Instant? = null,
     createdAt: Instant = FixedClock.DEFAULT,
-    createdBy: String = Fixtures.HR_ACTOR,
+    createdBy: PersonId = Fixtures.HR_USER_ID,
 ): Employee = Employee(
     id = id,
     firstName = firstName,
@@ -417,7 +427,7 @@ fun aSubmission(
     status: RequirementStatus = RequirementStatus.UPLOADED,
     validFrom: Instant? = null,
     validUntil: Instant? = null,
-    reviewedBy: String? = null,
+    reviewedBy: PersonId? = null,
     reviewedAt: Instant? = null,
     rejectionReason: String? = null,
     isCurrent: Boolean = true,
@@ -568,6 +578,14 @@ fun accessLogId(index: Int): EntityId = entityId("LOG" + (index + 1).toString().
 fun anAuditEntry(
     id: EntityId = Fixtures.AUDIT_ID,
     actor: String = Fixtures.HR_ACTOR,
+    /**
+     * Defaults to **null**, not to [Fixtures.HR_USER_ID] (ERT-190).
+     *
+     * The column is nullable precisely so the trail can record actors who are not users — the seed,
+     * the expiry sweep, an import job. Defaulting it to a user would make every fixture look
+     * attributable and would let a rule that forgot to set it pass its own test.
+     */
+    actorUserId: PersonId? = null,
     action: AuditAction = AuditAction.HIRE_CREATED,
     entity: String = "employee",
     entityId: Identifier = Fixtures.EMPLOYEE_ID,
@@ -576,9 +594,57 @@ fun anAuditEntry(
 ): AuditEntry = AuditEntry(
     id = id,
     actor = actor,
+    actorUserId = actorUserId,
     action = action,
     entity = entity,
     entityId = entityId,
     timestamp = timestamp,
     metadata = metadata,
+)
+
+/**
+ * An HR account (ERT-190).
+ *
+ * [passwordHash] is a recognisable placeholder rather than a real digest, for the reason the credential
+ * fields on [anUploadLink] are: a test that only needs an account to exist should not pay ~100ms of
+ * bcrypt. A test that actually verifies a password builds its own with `BcryptHasher(cost = 4)`.
+ *
+ * [passwordChangeRequired] defaults to **false** so the ordinary fixture is a usable account; the
+ * gate has its own tests that set it.
+ */
+fun anHrUser(
+    id: PersonId = Fixtures.HR_USER_ID,
+    email: EmailAddress = anEmail("hr.officer@example.com"),
+    fullName: String = "Ana Reyes",
+    passwordHash: String = "bcrypt-placeholder",
+    role: HrRole = HrRole.HR_OFFICER,
+    isActive: Boolean = true,
+    passwordChangeRequired: Boolean = false,
+    createdAt: Instant = FixedClock.DEFAULT,
+): HrUser = HrUser(
+    id = id,
+    email = email,
+    fullName = fullName,
+    passwordHash = passwordHash,
+    role = role,
+    isActive = isActive,
+    passwordChangeRequired = passwordChangeRequired,
+    createdAt = createdAt,
+)
+
+/** An `HR_ADMIN`, for the routes an officer may not reach. */
+fun anHrAdmin(
+    id: PersonId = personId("HRA00001"),
+    email: EmailAddress = anEmail("hr.admin@example.com"),
+    passwordHash: String = "bcrypt-placeholder",
+    isActive: Boolean = true,
+    passwordChangeRequired: Boolean = false,
+): HrUser = anHrUser(
+    id = id,
+    email = email,
+    fullName = "Marisol Tan",
+    passwordHash = passwordHash,
+    role = HrRole.HR_ADMIN,
+    isActive = isActive,
+    passwordChangeRequired = passwordChangeRequired,
 )

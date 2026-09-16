@@ -330,19 +330,18 @@ class ArchitectureTest {
     }
 
     @Test
-    fun `guard integrity - the use case directory is empty - the guard reports vacuous rather than passing`() {
-        // THIS TEST IS A TRIPWIRE, NOT A BUG. Same shape as the portal tripwire above.
+    fun `guard integrity - the use case directory is populated - the guard reports checked`() {
+        // THE TRIPWIRE FIRED, AS DESIGNED. ERT-195 asserted Vacuous here and said, in the comment
+        // this replaces: "the day ERT-430 lands the first use case it fails -- that is the signal,
+        // not a regression. Flip the expectation to Checked; do not delete the test."
         //
-        // src/domain/usecase/ holds no files, so the assertion above examines nothing and would keep
-        // passing if the guard were broken. ERT-195 landed the seam deliberately before ERT-430
-        // wrote the first use case, which means this is the whole of the guard's coverage today.
-        //
-        // WHEN THIS FAILS: the first use case has landed and the guard is doing real work. Flip the
-        // expectation to GuardOutcome.Checked -- do not delete the test.
-        val message = "A use case now exists: flip this expectation to Checked. See the comment above."
+        // ERT-190 got there first, with six use cases. Flipped rather than deleted, so the assertion
+        // above is now known to be examining real files instead of silently examining none.
+        val outcome = guard(useCaseSources()) { untracedUseCases(it) }
 
-        withClue(message) {
-            guard(useCaseSources()) { untracedUseCases(it) } shouldBe GuardOutcome.Vacuous
+        withClue("The use case guard must be examining real files, not an empty directory.") {
+            outcome shouldBe GuardOutcome.Checked(scanned = outcome.scannedOrZero(), violations = emptyList())
+            (outcome.scannedOrZero() > 0) shouldBe true
         }
     }
 

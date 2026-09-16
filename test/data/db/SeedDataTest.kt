@@ -77,7 +77,15 @@ class SeedDataTest {
     fun `policy seed - applied twice - does not overwrite an admin-changed value`() =
         withFreshDatabase { db ->
             migrate(db.config)
-            db.exec("update app_settings set \"value\" = '45', updated_by = 'admin' where \"key\" = 'link.absolute_expiry_days'")
+            // `updated_by` references users(id) since ERT-190, so the admin has to exist. Kept
+            // rather than dropped from the statement: an admin-changed row is what this test is
+            // about, and a change with no actor is not the shape a real one has.
+            db.exec(
+                "insert into users (id, email, full_name, password_hash, \"role\", is_active, " +
+                    "password_change_required, created_at) values ('HRA00001', 'admin@example.com', " +
+                    "'Seed Admin', 'x', 'HR_ADMIN', true, false, current_timestamp)"
+            )
+            db.exec("update app_settings set \"value\" = '45', updated_by = 'HRA00001' where \"key\" = 'link.absolute_expiry_days'")
 
             db.replay("V3__app_settings.sql")
 

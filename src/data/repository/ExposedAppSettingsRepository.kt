@@ -5,6 +5,7 @@ import com.pgsystem.employee.requirement.tracker.core.error.asOk
 import com.pgsystem.employee.requirement.tracker.core.error.flatMap
 import com.pgsystem.employee.requirement.tracker.core.id.EntityIdGenerator
 import com.pgsystem.employee.requirement.tracker.core.time.Clock
+import com.pgsystem.employee.requirement.tracker.core.value.PersonId
 import com.pgsystem.employee.requirement.tracker.data.db.DatabaseFactory
 import com.pgsystem.employee.requirement.tracker.data.db.table.AppSettings
 import com.pgsystem.employee.requirement.tracker.data.mapper.LINK_POLICY_ENTITY
@@ -74,7 +75,7 @@ class ExposedAppSettingsRepository(
      * one therefore writes nothing at all, audit row included: an entry recording that nothing
      * happened only dilutes the trail.
      */
-    override suspend fun updateLinkPolicy(policy: LinkPolicy, actor: String): DomainResult<Unit> =
+    override suspend fun updateLinkPolicy(policy: LinkPolicy, actor: PersonId): DomainResult<Unit> =
         factory.transaction {
             val stored = storedSettings()
 
@@ -92,10 +93,10 @@ class ExposedAppSettingsRepository(
     private fun JdbcTransaction.storedSettings(): Map<String, StoredSetting> =
         AppSettings.selectAll().associate { it[AppSettings.key] to it.toStoredSetting() }
 
-    private fun JdbcTransaction.apply(change: SettingChange, actor: String, now: java.time.Instant) {
+    private fun JdbcTransaction.apply(change: SettingChange, actor: PersonId, now: java.time.Instant) {
         val rows = AppSettings.update({ AppSettings.key eq change.setting.key }) {
             it[value] = change.new
-            it[updatedBy] = actor
+            it[updatedBy] = actor.value
             it[updatedAt] = now
         }
 
@@ -116,10 +117,14 @@ class ExposedAppSettingsRepository(
      * The old value is the **raw stored string**. An admin correcting a corrupt row is exactly when
      * the trail matters most, and a parsed old value would be unrepresentable.
      */
-    private fun auditEntryFor(changes: List<SettingChange>, actor: String, now: java.time.Instant) =
+    private fun auditEntryFor(changes: List<SettingChange>, actor: PersonId, now: java.time.Instant) =
         AuditEntry(
+            // `actor` keeps the id as its text, and `actorUserId` carries it as a reference. The
+            // free-text column stays free text because the trail must also record actors who are not
+            // users -- the seed, the expiry sweep -- so it cannot become the typed one (ERT-190).
+            actor = actor.value,
+            actorUserId = actor,
             id = ids.newEntityId(),
-            actor = actor,
             action = AuditAction.SETTING_CHANGED,
             entity = LINK_POLICY_ENTITY,
             entityId = LINK_POLICY_ID,

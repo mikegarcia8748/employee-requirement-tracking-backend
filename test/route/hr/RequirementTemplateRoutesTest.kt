@@ -15,21 +15,54 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.routing.routing
 import io.ktor.server.testing.ApplicationTestBuilder
+import com.pgsystem.employee.requirement.tracker.plugin.HR_AUTH
+import com.pgsystem.employee.requirement.tracker.plugin.configureSecurity
+import com.pgsystem.employee.requirement.tracker.testdata.anHrUser
+import com.pgsystem.employee.requirement.tracker.testdata.authenticatedAs
+import com.pgsystem.employee.requirement.tracker.testdata.testJwtConfig
+import io.ktor.server.auth.authenticate
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 
 /**
  * `GET /api/requirement-templates` — the first HR route (ERT-340).
  *
- * **No test here authenticates successfully, and that is a stated gap rather than an oversight.**
- * `configureSecurity` signs with a fresh random key when `JWT_SECRET` is unset, so no test can mint
- * a token this application would accept; minting one against a second, test-owned `jwt(HR_AUTH)`
- * provider would prove the duplicate rather than the gate. So the refusal case mounts the real
- * `rootModule()` and asserts 401, and the payload cases mount the handler directly — which is
- * possible only because `authenticate` lives in `Routing.kt` rather than in the route file. The gap
- * closes with PRD 14 Q4, when the placeholder scheme is replaced.
+ * **The gap this file recorded is closed (ERT-190).** It used to say that no test could authenticate
+ * successfully, because `configureSecurity` signed with a fresh random key when `JWT_SECRET` was
+ * unset — so a token could only be minted against a second, test-owned provider, which would prove
+ * the duplicate rather than the gate. Q4 was answered, the scheme was replaced, and
+ * `testdata/HrTokens` now signs through the real `JwtIssuer` while `configureSecurity` takes the
+ * config it was signed with.
+ *
+ * The positive case below is what that bought. The payload cases still mount the handler against a
+ * fake with no security plugin at all — which is possible only because `authenticate` lives in
+ * `Routing.kt` rather than in the route file, and is still the right shape for asserting a payload.
  */
 class RequirementTemplateRoutesTest {
+
+    // ── The gate ────────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `requirement templates - a token minted by this application - reach the handler`() =
+        testApplication {
+            // The half that had never been tested on any route: `authenticate(HR_AUTH)` ADMITTING a
+            // valid caller. Asserted here rather than only in `AuthRoutesTest` because the gate is
+            // applied in `Routing.kt`, around every HR route -- so "it works for the auth routes"
+            // is not evidence that it works for this one.
+            application {
+                configureStatusPages()
+                configureSerialization()
+                configureSecurity(testJwtConfig())
+                routing {
+                    authenticate(HR_AUTH) {
+                        requirementTemplateRoutes(FakeRequirementTemplateRepository())
+                    }
+                }
+            }
+
+            client.get("/api/requirement-templates") { authenticatedAs(anHrUser()) }
+                .status shouldBe HttpStatusCode.OK
+        }
 
     // ── The payload ─────────────────────────────────────────────────────────────────────────────
 
