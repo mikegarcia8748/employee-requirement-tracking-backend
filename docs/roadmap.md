@@ -2,11 +2,26 @@
 
 **Next ticket: [ERT-432 — the requirement-set snapshot, and the `sort_order_snapshot` column it
 owes](backlog/ERT-400-hire-creation.md#ert-432--requirement-set-snapshot-from-the-template-catalogue)**
+— the deployment track's remaining ticket,
+[ERT-1260](backlog/ERT-1200-deployment.md#ert-1260--gcp-foundation-identity-federation-registry-network-database-secrets),
+is the one piece of work in this project that needs something outside the repository: a GCP project
+and an Owner. Take ERT-432 unless that exists.
 
-> **ERT-431 landed the first business use case.** `CreateHireUseCase` validates the email, refuses an
-> unknown department or employment type by name, and makes a duplicate on an active hire carry a typed
-> reason. The suite went from 592 tests to 622. `domain/usecase/` now holds seven classes, and the
-> eleventh port finally has a fake (C9).
+> **Two sessions landed on 2026-09-17 and this file is their merge.** ERT-431 took the product path
+> forward; ERT-1200 gave the system somewhere to run. They touched disjoint code and the same three
+> paragraphs of this file.
+>
+> **The suite is 653 tests, measured after the merge rather than added up.** Each branch reported its
+> own total against the same 592-test base — ERT-431 said 622, ERT-1200 said 623 — and neither number
+> survives a merge. The two sets turned out to be disjoint; that was worth checking rather than
+> assuming.
+>
+> ### ERT-431 — the first business use case
+>
+> `CreateHireUseCase` validates the email, refuses an unknown department or employment type by name,
+> and makes a duplicate on an active hire carry a typed reason. `domain/usecase/` now holds seven
+> classes, and the eleventh port finally has a fake (C9) — closing an item C9 recorded as nobody's
+> job.
 >
 > **Read the `HireCreated` note in ERT-431's block before writing ERT-432.** The result type is a
 > wrapper, decided once so the remaining three sub-tasks extend it rather than re-argue it: ERT-432
@@ -26,6 +41,40 @@ owes](backlog/ERT-400-hire-creation.md#ert-432--requirement-set-snapshot-from-th
 >
 > **The mutation harness was itself vacuous on its first run**, which is the lesson worth carrying
 > past this ticket. See the ERT-431 block.
+>
+> ### ERT-1200 — the system has somewhere to run
+>
+> A container image, a local Postgres, CI, and a CI/CD path to two Cloud Run services. Everything
+> except ERT-1260 is committed and verified. [`docs/deployment.md`](deployment.md) is the step-by-step
+> runbook ERT-1100 deferred until a target environment existed.
+>
+> **Read this before writing any configuration reader: `APP_ENV` unset now means PRODUCTION**
+> (ERT-1120). Five controls used to hang off a variable that failed open. `./kotlin run` on a fresh
+> checkout therefore needs `set -a; . ./.env.dev; set +a` first, and the suite gets `APP_ENV=dev`
+> from `settings.jvm.test.extraEnvironment` — a real environment variable, not a test-only backdoor
+> into a security control. `DATABASE_URL` now fails closed the same way (ERT-1241); it was the only
+> config path that did not, and its failure mode was a *green* deploy writing to a database that
+> evaporates.
+>
+> **The multi-instance question is answered: MULTI-INSTANCE, and the pin was rejected rather than
+> not chosen.** `--max-instances 1` is a per-revision ceiling, not a mutex. **ERT-660 and ERT-1020
+> must read the answer recorded on ERT-1120 before they are written** — an in-memory limiter is
+> coarse shaping with an effective limit of `configured × instances`, and a per-process timer runs
+> every job on every instance. ERT-1010's poller is already safe; that is stated so nobody "fixes"
+> it.
+>
+> **ERT-1245 found three HR routes that skipped the password-change gate**, contradicting a stated
+> invariant. Fixed, and `ArchitectureTest` now fails the build on any handler under `route/hr/` that
+> does not open with one. The comment that claimed the gate was "applied once, around every HR
+> route" is how it spread from one file to the next.
+>
+> **Two audits shipped**, the first against code and infrastructure rather than the specification:
+> [security](2026-09-17-security-audit.md) and [bottleneck](2026-09-17-bottleneck-audit.md). The one
+> finding that is both a denial of service and a guessing oracle is **SEC-19 / PERF-01** — sign-in
+> measured at 3.95 req/s at concurrency 1, because invariant 10 requires a bcrypt verification on
+> every losing path. That is correct and must not be weakened; ERT-1170 bounds how many attempts
+> reach it, and depends on ERT-1185 because the code's own justification for having no rate limit is
+> an audit row nobody reads.
 
 The full board is [docs/backlog/README.md](backlog/README.md). This file holds sequencing, the
 decision register, and the pointer above. Each session updates that pointer on the way out.
@@ -646,8 +695,15 @@ checked. Phase 1 is not done until every row is closed or consciously waived in 
 | Item | Owner | Ticket |
 |---|---|---|
 | Malware scanning delivered — the `isClean` gate stops being a stub | Engineering / Security | **ERT-1150** (Q22) |
-| `APP_ENV` fails closed, and the deployment's instance assumption is recorded | Engineering | **ERT-1120** |
-| CI runs the build and the suite on every push | Engineering | **ERT-1160** |
+| `APP_ENV` fails closed, and the deployment's instance assumption is recorded | Engineering | **ERT-1120 — Done 2026-09-17; multi-instance** |
+| CI runs the build and the suite on every push | Engineering | **ERT-1160 — Done 2026-09-17** |
+| A deployable container image exists and boots with no external service | Engineering | **ERT-1220 — Done 2026-09-17** |
+| The GCP project, identity federation, registry, network, database and secrets exist | Engineering | **ERT-1260** — the one remaining item that needs something outside this repository |
+| Third-party GitHub Actions pinned to commit SHAs | Engineering | **ERT-1165** — a tag is mutable, and these jobs hold a token that can deploy production |
+| The deployment security and bottleneck audits are dispositioned | Engineering / Security | **ERT-1290 — Done 2026-09-17** |
+| Sign-in is rate-limited, and something reads the audit trail | Engineering | **ERT-1170** + **ERT-1185** — SEC-19/PERF-01 is the one finding that is both a DoS and a guessing oracle |
+| Security headers, HSTS and a request body limit | Engineering | **ERT-1175** — gate before ERT-630 puts a phone browser on the portal |
+| Dependencies and images are scanned, and an SBOM exists | Engineering | **ERT-1180** |
 | Sending domain chosen, with SPF/DKIM/DMARC aligned | IT | Q12's second half |
 | Consent notice wording signed off, so the attestation text stops being a placeholder | Legal / compliance | Q5 → ERT-912 |
 | Object-storage project and bucket provisioned, private and encrypted at rest | Engineering | Q20 → ERT-710 |
@@ -732,7 +788,9 @@ Now a real epic with real tickets: [ERT-1100](backlog/ERT-1100-operability-harde
 |---|---|---|
 | HR authentication | Replace the placeholder JWT scheme with the real model; local `users`, two roles, sign-in | **Done — ERT-190, 2026-09-16** |
 | Security hardening | Malware scanning before a file becomes previewable; pepper rotation; retention sweep with the freeze honoured | **ERT-1150** (Q22), **ERT-1130**; retention needs Q7 and Q18 |
-| Operability | `APP_ENV` fails closed, startup summary, deployment configuration, CI | **ERT-1120**, **ERT-1160** |
+| Operability | `APP_ENV` fails closed, startup summary, deployment configuration, CI | **ERT-1120 — Done**, **ERT-1160 — Done** |
+| Environments and deployment | Container image, local compose, CI/CD to two Cloud Run services, the runbook, the audits | [**ERT-1200**](backlog/ERT-1200-deployment.md) — ERT-1260 is the only ticket left, and it needs a GCP project |
+| Audit follow-up | Sign-in rate limiting, alerting on the audit trail, security headers, supply-chain scanning, SHA-pinned actions | **ERT-1170**, **ERT-1185**, **ERT-1175**, **ERT-1180**, **ERT-1165** — from [the 2026-09-17 audits](2026-09-17-security-audit.md) |
 | Documentation hygiene | The root README is still stock Ktor generator boilerplate and advertises deleted features; the unused R2DBC dependencies | **ERT-1140** |
 
 ---

@@ -874,7 +874,7 @@ the two documents no longer disagree about a count neither of them owns. What fo
 | Path | Purpose | Exposure |
 |---|---|---|
 | `GET /health` | liveness probe; carries no personal data | open |
-| `/openapi` | rendered static reference | open in dev, HR-authenticated otherwise |
+| `/openapi` | rendered static reference | **dev only — not mounted otherwise** (ERT-1240) |
 | `/swagger` | interactive Swagger UI | open in dev, HR-authenticated otherwise |
 | `/swagger/documentation.yaml` | the generated machine-readable spec | open in dev, HR-authenticated otherwise |
 | `GET /metrics` | Prometheus scrape (ERT-150) | open in dev, HR-authenticated otherwise; **hidden from the spec** |
@@ -882,6 +882,15 @@ the two documents no longer disagree about a count neither of them owns. What fo
 The Swagger surface is gated outside dev on purpose: it publishes the exact shape of
 `GET /api/portal/{token}` and `POST /api/portal/recover`, their error contracts and their rate limits
 to anyone who asks, and that surface is what the audit is about.
+
+**`/openapi` is dev-only, and it is the one row above that narrowed rather than tightened.** Mounting
+it *is* running swagger-codegen: the generator executes at every boot and writes static HTML to a
+relative path. In a container that is a filesystem write from a non-root user, on the cold-start
+path, into an in-memory tmpfs charged against the memory limit. What it produces in exchange is HTML
+Ktor itself warns about on every boot — this spec is OpenAPI 3.1, swagger-codegen officially supports
+3.0.x, and the logged advice is to prefer `swaggerUI`. Outside dev that advice is taken. The two
+things anyone consumes, the interactive UI and the machine-readable spec, are unchanged and still
+behind HR authentication; only the pre-rendered mirror is gone.
 
 Because `/health` now runs after the database connects at startup, **the service does not start at
 all if the database is unreachable** — it fails fast rather than starting and reporting unhealthy.

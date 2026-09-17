@@ -1,0 +1,137 @@
+# Every merge to main reaches UAT (ERT-1270).
+#
+# Build once, push tagged with the commit SHA, deploy BY DIGEST, verify /health.
+# ERT-1280 then promotes that same digest to production without rebuilding.
+
+name: deploy-uat
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# cancel-in-progress is false on purpose. A build may be cancelled; a deploy in
+# flight may not -- cancelling one mid-`gcloud run deploy` leaves a revision in an
+# indeterminate state that someone has to unpick by hand.
+concurrency:
+  group: deploy-uat
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # The line everyone forgets. Without it the runner cannot mint an OIDC token
+  # and Workload Identity Federation simply does not work -- the failure reads as
+  # a permissions error against GCP, which sends you looking in the wrong place.
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    environment:
+      name: uat
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Keyless. There is no service-account JSON anywhere in this repository or
+      # in GitHub secrets, which is the single biggest thing this setup buys: the
+      # credential that would otherwise leak does not exist.
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/github/providers/github
+          service_account: gh-deploy-uat@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+          token_format: access_token
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.GCP_REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          # provenance: false keeps the pushed tag a plain single-platform image
+          # manifest. With buildx's default attestations the tag becomes an OCI
+          # index, outputs.digest is the INDEX digest, and how Cloud Run treats
+          # that is a variable this pipeline does not need.
+          provenance: false
+          sbom: false
+          # The commit SHA, and the registry has immutable tags (ERT-1260), so
+          # this tag can never be moved to point at different bytes.
+          tags: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/ert/app:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Scan the image
+        # Non-blocking deliberately. Make it blocking on CRITICAL once there is a
+        # baseline -- until then a base-image CVE disclosed overnight would block
+        # an unrelated hotfix, which trains people to bypass the gate.
+        continue-on-error: true
+        run: |
+          gcloud artifacts docker images scan \
+            "${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/ert/app@${{ steps.build.outputs.digest }}" \
+            --remote --format=json > scan.json
+          echo "scan written; review in Artifact Registry"
+
+      - id: deploy
+        name: Deploy to Cloud Run
+        run: |
+          set -euo pipefail
+          IMAGE="${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/ert/app@${{ steps.build.outputs.digest }}"
+          gcloud run deploy ert-uat \
+            --region="${{ vars.GCP_REGION }}" \
+            --image="$IMAGE" \
+            --service-account="ert-uat-run@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --platform=managed \
+            --ingress=all \
+            --no-allow-unauthenticated \
+            --min-instances=0 \
+            --max-instances=2 \
+            --concurrency=80 \
+            --cpu=1 --memory=512Mi \
+            --cpu-boost \
+            --timeout=120 \
+            --network=ert-vpc --subnet=ert-run --vpc-egress=private-ranges-only \
+            --env-vars-file=deploy/uat.env.yaml \
+            --set-secrets=JWT_SECRET=ert-uat-jwt-secret:latest,TOKEN_PEPPER=ert-uat-token-pepper:latest,DATABASE_PASSWORD=ert-uat-db-password:latest \
+            --revision-suffix="$(echo '${{ github.sha }}' | cut -c1-7)"
+          URL=$(gcloud run services describe ert-uat --region="${{ vars.GCP_REGION }}" --format='value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "digest=${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+      # The service is IAM-gated, so this needs an identity token rather than a
+      # bare curl. It is also the proof that the revision actually serves --
+      # `gcloud run deploy` returning 0 only means the revision was accepted.
+      - name: Verify the revision serves
+        run: |
+          set -euo pipefail
+          TOKEN=$(gcloud auth print-identity-token)
+          curl -fsS -H "Authorization: Bearer $TOKEN" "${{ steps.deploy.outputs.url }}/health"
+          echo
+
+      - name: Summary
+        run: |
+          {
+            echo "### UAT deployed"
+            echo
+            echo "- image digest: \`${{ steps.deploy.outputs.digest }}\`"
+            echo "- url: ${{ steps.deploy.outputs.url }}"
+            echo
+            echo "UAT is IAM-gated. Reach it with:"
+            echo '```bash'
+            echo "gcloud run services proxy ert-uat --region=${{ vars.GCP_REGION }} --port=8080"
+            echo '```'
+            echo
+            echo "Promote this digest to production with the **deploy-prod** workflow."
+          } >> "$GITHUB_STEP_SUMMARY"

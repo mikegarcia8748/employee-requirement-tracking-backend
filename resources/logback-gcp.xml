@@ -1,0 +1,64 @@
+<configuration>
+    <!--
+        Structured logging for Cloud Logging (ERT-1250).
+
+        A SECOND configuration file rather than an edit to logback.xml, selected by the container
+        through the logback.configurationFile system property. `./kotlin run` and the test suite
+        keep the human-readable pattern, and nothing about local development changes.
+
+        Why it is worth a second file at all. Cloud Logging ingests ONE ENTRY PER STDOUT LINE. With
+        the pattern encoder a stack trace becomes about thirty separate entries, in an order that is
+        not guaranteed to be preserved, all at the default severity. Three things are lost, and the
+        third is the one that hurts daily:
+
+          - nothing is classified ERROR, so there is nothing to alert on;
+          - a trace is fragmented across entries, so it cannot be read;
+          - %X{requestId} — the ERT-195 correlation id, the most useful field in the system — is
+            embedded inside a formatted string instead of being a field you can filter on.
+
+        JsonEncoder is logback's own, so this costs no dependency. That matters because ERT-1140 is
+        specifically about REMOVING dependencies the build does not use, and adding one here to save
+        a little field-renaming would be working against it.
+
+        KNOWN LIMITATION, recorded rather than worked around: the field is `level`, not `severity`,
+        so Cloud Logging will not colour or classify entries natively. Recover it with a log-based
+        metric on jsonPayload.level="ERROR" and alert on that — which is where alerting
+        configuration belongs anyway. If native severity ever matters more than the zero-dependency
+        property, net.logstash.logback:logstash-logback-encoder renames the fields.
+
+        The logger levels below are DUPLICATED from logback.xml, and that duplication is the cost of
+        the two-file approach. Logback's own conditional processing would remove it and needs Janino
+        on the classpath, which is the dependency this file exists to avoid. Change one, change both.
+    -->
+    <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.classic.encoder.JsonEncoder">
+            <!--
+                withFormattedMessage renders the interpolated text; withMessage would emit the raw
+                pattern with its {} placeholders and the arguments separately, which is correct for
+                an aggregator that re-interpolates and useless in a log viewer that does not.
+            -->
+            <withFormattedMessage>true</withFormattedMessage>
+            <withMessage>false</withMessage>
+            <withArguments>false</withArguments>
+            <!-- The whole point: mdc carries requestId, so one request's lines are one filter away. -->
+            <withMDC>true</withMDC>
+            <!-- One `throwable` object holding the entire trace, rather than one entry per frame. -->
+            <withThrowable>true</withThrowable>
+            <withContext>false</withContext>
+            <withSequenceNumber>false</withSequenceNumber>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="JSON"/>
+    </root>
+
+    <logger name="org.eclipse.jetty" level="INFO"/>
+    <logger name="io.netty" level="INFO"/>
+
+    <!--
+        Kept at DEBUG to match logback.xml so the two files agree. It is the volume knob only;
+        TRACE_USECASES still decides whether the tracer is bound at all, and outside dev it is not.
+    -->
+    <logger name="usecase" level="DEBUG"/>
+</configuration>

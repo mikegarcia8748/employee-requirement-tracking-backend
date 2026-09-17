@@ -117,7 +117,7 @@ No portal token reaches a log line, and a future call site that would change tha
 | **Parent** | ERT-1100 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting — **Phase 1 exit checklist** |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-195 |
 | **PRD** | §12 |
 | **Architecture** | §14 |
@@ -148,6 +148,41 @@ per-process. The PIN counters are safe, being DB-backed, and ERT-1010's poller c
 conditionally so a double send is impossible. **This ticket records which assumption the deployment
 makes** — pinned to one instance, or not — and ERT-660 and ERT-1020 read it.
 
+> **Answered 2026-09-17, when ERT-1200 created the target environment: MULTI-INSTANCE. Nothing may
+> assume one process.**
+>
+> The pin was rejected rather than merely not chosen. **`--max-instances 1` is a per-revision ceiling,
+> not a mutex** — during any rollout the old revision's instance and the new revision's instance both
+> exist, and Cloud Run starts a replacement whenever an instance becomes unhealthy. Correctness resting
+> on `max-instances 1` rests on something Cloud Run does not promise, and it would be discovered during
+> a deploy, which is the worst available moment. Pinning also caps throughput permanently and makes the
+> service a single point of failure, in exchange for a property it does not actually deliver.
+>
+> What the three tickets that read this must now do:
+>
+> - **ERT-660** — an in-memory limiter is per-instance, so the effective limit is `N × instances`; at
+>   `--max-instances 4` a limit of N behaves like 4N in the worst case. That is tolerable for coarse
+>   request shaping and **not** tolerable for anything security-bearing. The PIN attempt counters are
+>   already DB-backed, which is the correct pattern; only non-security limiting may live in memory, and
+>   the multiplier must be documented where the limit is configured.
+> - **ERT-1020** — a bare per-process timer runs every job on every instance. Two acceptable designs:
+>   Cloud Scheduler calling an authenticated endpoint (one invocation, whichever instance answers —
+>   recommended, and it also removes the always-on-CPU dependency), or a DB-backed lease using
+>   `SELECT … FOR UPDATE SKIP LOCKED`.
+> - **ERT-1010** — already safe. The poller claims rows conditionally, so a double send is impossible.
+>   Stated explicitly here so that nobody "fixes" it.
+>
+> The resolved answer is also printed in the startup summary, so an operator reads it from the log
+> rather than from this file.
+
+**The ephemeral-filesystem refusal belongs with the adapter, not here.** ERT-710 will bind a local
+filesystem `DocumentStorage` under `STORAGE_ROOT`. On Cloud Run that is an in-memory tmpfs charged
+against the container's memory limit, never evicted, and **per-instance** — so a download following an
+upload misses roughly `(N-1)/N` of the time, and a day of uploads OOM-kills the instance. The check
+that refuses to start when that adapter is selected outside dev cannot be written before the adapter
+exists, so it is an acceptance criterion **on ERT-710** rather than a criterion here that would have to
+be marked done without being implemented.
+
 **Goal**
 
 A deployment that is misconfigured fails at startup instead of running permissively, and the log says
@@ -158,15 +193,15 @@ what mode it came up in.
   the docs and the metrics to the internet.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given `APP_ENV` is unset, then the application resolves to production and refuses to
+- [x] `[derived]` Given `APP_ENV` is unset, then the application resolves to production and refuses to
       start without `JWT_SECRET` and `TOKEN_PEPPER`
-- [ ] `[derived]` Given `APP_ENV=dev`, then the dev affordances apply exactly as they do today
-- [ ] `[derived]` Given a fresh checkout, then there is one documented command that runs the
+- [x] `[derived]` Given `APP_ENV=dev`, then the dev affordances apply exactly as they do today
+- [x] `[derived]` Given a fresh checkout, then there is one documented command that runs the
       application in dev without hand-setting variables
-- [ ] `[derived]` Given startup, then one log line names the resolved state of every environment-gated
+- [x] `[derived]` Given startup, then one log line names the resolved state of every environment-gated
       control
-- [ ] `[derived]` Given the documentation, then the single-instance assumption is stated, and ERT-660
-      and ERT-1020 cite it
+- [x] `[derived]` Given the documentation, then the instance assumption is stated, and ERT-660 and
+      ERT-1020 cite it
 
 **Tests**
 | Level | Test |
@@ -324,7 +359,7 @@ An uploaded file is scanned before it can be served, and the gate stops being a 
 | **Parent** | ERT-1100 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting — **Phase 1 exit checklist** |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | — |
 | **Architecture** | §10 |
@@ -347,16 +382,292 @@ Every push runs the build and the full suite, and a failing guard blocks the mer
 discovered later.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given a push, then `./kotlin build` and `./kotlin test` run
-- [ ] `[derived]` Given a failing test, then the check fails visibly on the pull request
-- [ ] `[derived]` Given the workflow, then it pins the toolchain version rather than tracking latest
-- [ ] `[derived]` Given a run, then the test count is reported, so a suite that silently stops
+- [x] `[derived]` Given a push, then `./kotlin build` and `./kotlin test` run
+- [x] `[derived]` Given a failing test, then the check fails visibly on the pull request
+- [x] `[derived]` Given the workflow, then it pins the toolchain version rather than tracking latest
+- [x] `[derived]` Given a run, then the test count is reported, so a suite that silently stops
       discovering tests is visible — the Kotest-discovery trap in architecture §10 is exactly this
       failure
+- [x] `[derived]` Given a compiled class whose major version is not 65, then the build fails —
+      ERT-1210 pinned `settings.jvm.release`, and a pin without a guard is a comment
+- [x] `[derived]` Given a pull request, then the container image builds and boots against in-memory
+      H2, so a change that breaks the image is caught before it reaches a deploy workflow
+- [x] `[derived]` Given a commit, then a secret scanner runs — `.gitignore` re-includes files named
+      `.env.*` (ERT-1120, ERT-1230), and git's last-matching-pattern rule makes that list fragile
 
 **Files**
 - create `.github/workflows/build.yml`
 - modify [`README.md`](../../README.md) — the status badge, with ERT-1140
 
 **Out of scope**
-- Deployment pipelines. ERT-1120 first; there is no target environment yet.
+- Deployment pipelines. ERT-1120 first; there is no target environment yet. **ERT-1200 is that
+  pipeline**, and its deploy workflows sit beside this file rather than inside it.
+- Pinning third-party actions to commit SHAs. ERT-1165.
+
+---
+
+## ERT-1165 — Pin every third-party GitHub Action to a commit SHA
+
+| | |
+|---|---|
+| **Parent** | ERT-1100 |
+| **Type** | Ticket |
+| **Phase** | Cross-cutting — **Phase 1 exit checklist** |
+| **Status** | Not started |
+| **Depends on** | ERT-1160 |
+| **PRD** | §12 |
+| **Architecture** | §14 |
+
+**Description**
+
+The three workflows reference actions by tag — `actions/checkout@v4`, `google-github-actions/auth@v2`,
+`gitleaks/gitleaks-action@v2`. A tag is mutable. Whoever controls one of those repositories, or
+anyone who compromises it, can change what `@v4` points at and run arbitrary code **inside a job that
+holds an OIDC token able to impersonate a deployment service account**.
+
+That is not hypothetical for this repository specifically. `deploy-uat.yml` can push to Artifact
+Registry and deploy a Cloud Run revision; `deploy-prod.yml` can move production traffic. The blast
+radius of a compromised action here is the production service.
+
+**This project already knows the answer** — the `kotlin` wrapper pins both a version *and* a
+sha256, and refuses to run on a mismatch. A workflow floating on `@v4` is a weaker link than the
+toolchain it is guarding, which is the whole argument.
+
+**Goal**
+
+Every third-party action resolves to bytes that cannot change under us.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given any `uses:` line naming a third-party action, then it references a full
+      40-character commit SHA with the human-readable tag in a trailing comment
+- [ ] `[derived]` Given a pinned action, then a renovation tool or a documented procedure exists for
+      moving the pin deliberately — a pin nobody can update is abandoned, not secure
+- [ ] `[derived]` Given the deploy workflows, then their `permissions:` blocks grant the narrowest
+      set each job needs
+
+**Files**
+- modify `.github/workflows/build.yml`, `.github/workflows/deploy-uat.yml`,
+  `.github/workflows/deploy-prod.yml`
+
+---
+
+## ERT-1170 — Bound how many sign-in attempts reach bcrypt
+
+| | |
+|---|---|
+| **Parent** | ERT-1100 |
+| **Type** | Ticket |
+| **Phase** | Cross-cutting — **gate before the service is publicly reachable** |
+| **Status** | Not started |
+| **Depends on** | ERT-190, ERT-1185 |
+| **PRD** | §12 |
+| **Architecture** | §12 invariant 10 |
+
+**Description**
+
+`POST /api/auth/login` is public, unthrottled, and **measured at 3.95 requests per second at
+concurrency 1** — roughly 340× slower than every other endpoint in the system (SEC-19, PERF-01).
+Every request costs one bcrypt cost-12 verification, about 250 ms of CPU, **including every failure**.
+
+That cost is not a defect. Invariant 10 requires that an unknown email, a wrong password, a malformed
+address and a deactivated account are indistinguishable **in elapsed time as well as in body**, and
+the decoy verify is how that is bought. **The obvious fix is the wrong one**: skipping the
+verification when the user is unknown closes the denial of service by reopening the enumeration
+oracle, and it would pass a load test while silently breaking a security property.
+
+What is missing is a bound on how many attempts reach bcrypt at all. Two attacks come through this
+one endpoint: unauthenticated CPU exhaustion — at `--concurrency=80` on `--cpu=1`, eighty concurrent
+sign-ins is about twenty seconds of queued work on one core — and unbounded password guessing, whose
+only named compensating control is an audit row nobody reads, which is why ERT-1185 is a dependency
+rather than a suggestion.
+
+**The limiter must be database-backed.** The deployment is multi-instance (ERT-1120), so an in-memory
+counter gives an effective limit of `configured × instances`. `countRecentFailures` already
+establishes the correct pattern for portal PINs.
+
+**Re-measure the cost factor while here.** `BcryptHasher.DEFAULT_COST`'s comment says "~100 ms per
+hash on current hardware"; it measured about 250 ms. Raising the cost makes the denial of service
+cheaper, so the two decisions have to be made together — and the cost should be readable from the
+environment with 12 as a **floor**, not merely a default (SEC-28).
+
+**Goal**
+
+A sustained guessing run costs the attacker more than it costs the service, and a legitimate first
+attempt is unchanged.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given repeated failed attempts against one address, then further attempts are
+      refused **before** any password verification is performed
+- [ ] `[derived]` Given a refusal, then it is indistinguishable from a wrong password in body **and**
+      in elapsed time
+- [ ] `[derived]` Given the limiter, then its counters are held in the database, not in memory
+- [ ] `[derived]` Given the bcrypt cost, then it is read from the environment and a value below 12 is
+      refused rather than accepted
+- [ ] `[derived]` Given the existing timing-uniformity tests, then all of them still pass
+
+**Tests**
+| Level | Test |
+|---|---|
+| Use case | `hr sign in - repeated failures against one address - the next attempt is refused without verifying` |
+| Use case | `hr sign in - a rate-limited refusal - is indistinguishable from a wrong password` |
+| Use case | `hr sign in - a configured bcrypt cost below the floor - is refused at startup` |
+
+**Files**
+- modify [`src/domain/usecase/AuthenticateHrUserUseCase.kt`](../../src/domain/usecase/AuthenticateHrUserUseCase.kt),
+  [`src/data/crypto/BcryptHasher.kt`](../../src/data/crypto/BcryptHasher.kt),
+  [`src/di/CoreModule.kt`](../../src/di/CoreModule.kt)
+
+**Out of scope**
+- Volumetric edge limiting. Cloud Armor is the answer for that and it is infrastructure, not code;
+  [`docs/deployment.md`](../deployment.md) records it.
+- Portal rate limiting. ERT-660, and it must read the multi-instance answer on ERT-1120.
+
+---
+
+## ERT-1175 — Security headers, HSTS, and a request body limit
+
+| | |
+|---|---|
+| **Parent** | ERT-1100 |
+| **Type** | Ticket |
+| **Phase** | Cross-cutting — **gate before ERT-630** |
+| **Status** | Not started |
+| **Depends on** | ERT-1120 |
+| **PRD** | §12 |
+| **Architecture** | §14 |
+
+**Description**
+
+The complete plugin inventory is `Koin`, `CORS`, `ContentNegotiation`, `StatusPages`, `CallLogging`
+and `MicrometerMetrics`. Grepping `src/` for `HSTS`, `DefaultHeaders`, `X-Frame`, `Content-Security`
+or `RequestValidation` returns **nothing** (SEC-20). `embeddedServer(Netty)` is configured with a
+connector and a shutdown window and nothing else — no body cap.
+
+Two consequences with different timelines. The **body cap is immediate**: an unauthenticated
+`POST /api/auth/login` carrying a multi-megabyte body is buffered before `ContentNegotiation` rejects
+it, which is a second and cheaper denial of service than ERT-1170's. The **headers matter from
+ERT-630**, which puts a phone browser on the portal — that is where a missing `X-Frame-Options` and a
+missing `X-Content-Type-Options` stop being theoretical.
+
+`HSTS` must be gated on `APP_ENV != dev`. Sending it from `localhost` poisons a developer's browser
+for the whole origin, and the resulting "my other local app stopped working over http" is a long
+afternoon.
+
+**Goal**
+
+The transport-level defaults are set once, deliberately, before a browser is pointed at this service.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given any response, then it carries `X-Content-Type-Options: nosniff` and a frame
+      policy
+- [ ] `[derived]` Given `APP_ENV != dev`, then responses carry `Strict-Transport-Security`; given
+      dev, then they do not
+- [ ] `[derived]` Given a request body above the configured limit, then it is refused with 413
+      **without being fully buffered**
+- [ ] `[derived]` Given the limit, then it is configurable — ERT-710 needs a different one for
+      uploads than for JSON
+
+**Tests**
+| Level | Test |
+|---|---|
+| Route | `security headers - any response - carries nosniff and a frame policy` |
+| Route | `security headers - dev - sends no HSTS` |
+| Route | `request limits - a body above the cap - is refused with 413` |
+
+**Files**
+- modify [`src/plugin/Http.kt`](../../src/plugin/Http.kt), [`src/main.kt`](../../src/main.kt),
+  [`src/Application.kt`](../../src/Application.kt)
+
+---
+
+## ERT-1180 — Dependency and image scanning, with an SBOM
+
+| | |
+|---|---|
+| **Parent** | ERT-1100 |
+| **Type** | Ticket |
+| **Phase** | Cross-cutting — **Phase 1 exit checklist** |
+| **Status** | Not started |
+| **Depends on** | ERT-1160 |
+| **PRD** | §12 |
+| **Architecture** | §14 |
+
+**Description**
+
+CI runs the build, the suite and a secret scan. Nothing scans the 176 runtime dependencies for known
+vulnerabilities and no SBOM is produced (SEC-23). `deploy-uat.yml` calls
+`gcloud artifacts docker images scan`, but it is `continue-on-error: true` and nobody is required to
+read the result.
+
+For a system holding government IDs, birth certificates and medical results, "are we affected by
+this CVE?" needs an answer better than reading `libs.versions.toml` by hand.
+
+**The prerequisite is already satisfied**, which is why this is cheap: every version in
+`libs.versions.toml` is pinned exactly — no `+`, no `latest.release`, no snapshots — so the
+dependency set is deterministic and therefore scannable.
+
+**Make the image scan blocking only after a baseline exists.** A base-image CVE disclosed overnight
+blocking an unrelated hotfix is how a gate gets bypassed permanently.
+
+**Goal**
+
+A vulnerable dependency fails a build rather than waiting to be noticed.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given a dependency with a known High or Critical advisory, then the build fails
+- [ ] `[derived]` Given a finding that has been assessed and accepted, then a documented suppression
+      records who accepted it and why
+- [ ] `[derived]` Given an image build, then an SBOM is produced and attached to the image
+- [ ] `[derived]` Given the image scan, then it blocks on Critical **after** a baseline exists
+
+**Files**
+- modify `.github/workflows/build.yml`, `.github/workflows/deploy-uat.yml`
+
+---
+
+## ERT-1185 — Alert on the audit trail that already exists
+
+| | |
+|---|---|
+| **Parent** | ERT-1100 |
+| **Type** | Ticket |
+| **Phase** | Cross-cutting — **with or before ERT-1170** |
+| **Status** | Not started |
+| **Depends on** | ERT-1250, ERT-1260 |
+| **PRD** | §12, §13 |
+| **Architecture** | §14 |
+
+**Description**
+
+Sign-in failures, admin actions and permission changes are recorded in an append-only table. **Nothing
+reads them** (SEC-24). That is the whole point of the 2025 rename of the OWASP category — logs nobody
+reads are not a control — and this codebase leans on the unread one explicitly:
+[`AuthRoutes.kt`](../../src/route/hr/AuthRoutes.kt) justifies the absence of rate limiting with *"until
+then the audit row is the detection."*
+
+So a sustained password-guessing run against an HR account produces a perfect record and no
+notification. **This ticket is what makes that sentence true**, which is why ERT-1170 depends on it
+rather than the other way round.
+
+The pieces are already in place. ERT-1250 made logs structured JSON, so a Cloud Monitoring
+**log-based metric** and an alerting policy are configuration rather than code. And
+`AuditEntryMapper` already refuses to persist credential-shaped metadata, so an alert can carry the
+event without carrying a secret.
+
+**Goal**
+
+Someone finds out.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given a burst of failed sign-ins, then an alert fires
+- [ ] `[derived]` Given an `HR_ADMIN` action outside working hours, then an alert fires
+- [ ] `[derived]` Given an alert payload, then it carries no credential and no PIN
+- [ ] `[derived]` Given the policies, then they are recorded in [`docs/deployment.md`](../deployment.md)
+      rather than existing only in a console
+
+**Files**
+- modify [`docs/deployment.md`](../deployment.md) — the policies, so they are reviewable
+
+**Out of scope**
+- Application code. If this needs a code change, the event is not being logged and that is a
+  different ticket.

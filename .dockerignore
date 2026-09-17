@@ -1,0 +1,41 @@
+# What does not go into the build context (ERT-1220).
+
+# The single most important line here. build/ is ~326 MB, of which build/logs
+# alone is ~290 MB, and every byte of it would be shipped to the daemon on every
+# image build for no purpose whatsoever.
+build/
+out/
+.kotlin/
+.amper/
+
+.git/
+.github/
+.idea/
+*.iml
+
+# The PRD, the audits, the backlog. Nothing in the image reads them, and they
+# churn constantly, which would invalidate a layer for a documentation edit.
+docs/
+*.md
+
+# Inert for the application -- it reads System.getenv directly and there is no
+# dotenv library on the classpath -- and must never enter an image regardless.
+.env
+.env.*
+
+.DS_Store
+*.log
+.mcp.json
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Excluded deliberately. The task graph is
+#   executableJarJvm -> compileJvm, runtimeClasspathJvm
+# with no test task in it, so `./kotlin package` does not compile tests -- and
+# excluding them means a test-only commit does not invalidate the image build.
+#
+# IF THE BUILD FAILS WHILE LOADING THE PROJECT MODEL, delete the next line. That
+# is the failure mode to expect (Amper reading module.yaml's test-dependencies
+# and looking for the directory), and it is a model error, not a compile error.
+test/

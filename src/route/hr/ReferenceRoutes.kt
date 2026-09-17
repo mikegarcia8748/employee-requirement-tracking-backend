@@ -5,6 +5,7 @@ import com.pgsystem.employee.requirement.tracker.route.dto.ApiMeta
 import com.pgsystem.employee.requirement.tracker.route.dto.ApiResponse
 import com.pgsystem.employee.requirement.tracker.route.dto.DepartmentDto
 import com.pgsystem.employee.requirement.tracker.route.dto.EmploymentTypeDto
+import com.pgsystem.employee.requirement.tracker.route.auth.hrUserOrRefuse
 import com.pgsystem.employee.requirement.tracker.route.mapper.respondOk
 import com.pgsystem.employee.requirement.tracker.route.mapper.toDto
 import io.ktor.openapi.jsonSchema
@@ -23,10 +24,15 @@ import io.ktor.server.routing.openapi.describe
  * which an aggregate can answer later by composing these two; the contract document now carries both
  * rows.
  *
- * Auth-agnostic for the reason `Routing.kt` gives: the gate is applied once, around every HR route.
+ * **Authentication is applied once in `Routing.kt`; the password gate is not** (ERT-1245). The
+ * `authenticate(HR_AUTH)` block around every HR route is what makes this file auth-agnostic, and it
+ * is easy to read that as covering `hrUserOrRefuse()` too. It does not: that gate is per-handler, and
+ * the earlier wording here claimed otherwise — which is how both handlers below shipped without it,
+ * letting an account that still owes a password change read the reference data.
  */
 fun Route.referenceRoutes(reference: ReferenceDataRepository) {
     get("/api/departments") {
+        hrUserOrRefuse() ?: return@get
         val departments = reference.findDepartments().map { it.toDto() }
 
         call.respondOk(departments, meta = ApiMeta(total = departments.size))
@@ -49,6 +55,7 @@ fun Route.referenceRoutes(reference: ReferenceDataRepository) {
     }
 
     get("/api/employment-types") {
+        hrUserOrRefuse() ?: return@get
         val employmentTypes = reference.findEmploymentTypes().map { it.toDto() }
 
         call.respondOk(employmentTypes, meta = ApiMeta(total = employmentTypes.size))

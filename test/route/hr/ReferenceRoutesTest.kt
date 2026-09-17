@@ -9,7 +9,13 @@ import com.pgsystem.employee.requirement.tracker.plugin.configureStatusPages
 import com.pgsystem.employee.requirement.tracker.rootModule
 import com.pgsystem.employee.requirement.tracker.testdata.aDepartment
 import com.pgsystem.employee.requirement.tracker.testdata.anEmploymentType
+import com.pgsystem.employee.requirement.tracker.plugin.HR_AUTH
+import com.pgsystem.employee.requirement.tracker.plugin.configureSecurity
+import com.pgsystem.employee.requirement.tracker.testdata.anHrUser
+import com.pgsystem.employee.requirement.tracker.testdata.authenticatedAs
 import com.pgsystem.employee.requirement.tracker.testdata.entityId
+import com.pgsystem.employee.requirement.tracker.testdata.testJwtConfig
+import io.ktor.server.auth.authenticate
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.ktor.client.request.get
@@ -42,6 +48,50 @@ class ReferenceRoutesTest {
     }
 
     @Test
+    fun `reference data - a caller who must change their password - is refused`() = testApplication {
+        // ERT-1245, and the comment in ReferenceRoutes.kt is why both handlers were missed together:
+        // it claimed "the gate is applied once, around every HR route". True of `authenticate`, false
+        // of the password gate, which is per-handler. A reader who trusted it wrote the next route
+        // the same way -- which is exactly what happened.
+        application {
+            configureStatusPages()
+            configureSerialization()
+            configureSecurity(testJwtConfig())
+            routing {
+                authenticate(HR_AUTH) {
+                    referenceRoutes(FakeReferenceData())
+                }
+            }
+        }
+
+        val mustChange = anHrUser(passwordChangeRequired = true)
+
+        client.get("/api/departments") { authenticatedAs(mustChange) }
+            .status shouldBe HttpStatusCode.Conflict
+        client.get("/api/employment-types") { authenticatedAs(mustChange) }
+            .status shouldBe HttpStatusCode.Conflict
+    }
+
+    @Test
+    fun `reference data - a caller in good standing - is served`() = testApplication {
+        application {
+            configureStatusPages()
+            configureSerialization()
+            configureSecurity(testJwtConfig())
+            routing {
+                authenticate(HR_AUTH) {
+                    referenceRoutes(FakeReferenceData())
+                }
+            }
+        }
+
+        client.get("/api/departments") { authenticatedAs(anHrUser()) }
+            .status shouldBe HttpStatusCode.OK
+        client.get("/api/employment-types") { authenticatedAs(anHrUser()) }
+            .status shouldBe HttpStatusCode.OK
+    }
+
+    @Test
     fun `reference data - an authenticated caller - returns the departments in the order given`() =
         testApplication {
             // Ordering is the adapter's job and is asserted against SQL; what matters here is that
@@ -55,7 +105,7 @@ class ReferenceRoutesTest {
                 )
             )
 
-            val response = client.get("/api/departments")
+            val response = client.get("/api/departments") { authenticatedAs(anHrUser()) }
 
             response.status shouldBe HttpStatusCode.OK
             response.bodyAsText() shouldBe
@@ -73,7 +123,7 @@ class ReferenceRoutesTest {
             )
         )
 
-        client.get("/api/employment-types").bodyAsText() shouldBe
+        client.get("/api/employment-types") { authenticatedAs(anHrUser()) }.bodyAsText() shouldBe
             """{"result":"success","data":[{"id":"e00000000001","name":"Regular"}],"meta":{"total":1}}"""
     }
 
@@ -81,7 +131,7 @@ class ReferenceRoutesTest {
     fun `reference data - an empty department list - returns 200 with an empty list`() = testApplication {
         withReference(FakeReferenceData())
 
-        val response = client.get("/api/departments")
+        val response = client.get("/api/departments") { authenticatedAs(anHrUser()) }
 
         response.status shouldBe HttpStatusCode.OK
         response.bodyAsText() shouldBe """{"result":"success","data":[],"meta":{"total":0}}"""
@@ -101,10 +151,20 @@ class ReferenceRoutesTest {
             spec shouldContain "DepartmentDto"
         }
 
+    /**
+     * The payload harness.
+     *
+     * It used to mount the handlers with no security plugin at all, which was possible while
+     * `authenticate` was the only gate and it lived in `Routing.kt`. ERT-1245 put `hrUserOrRefuse()`
+     * inside each handler — correctly, since that gate is per-handler — so a payload case now needs a
+     * caller. The cost is this block; the benefit is that a payload assertion is made against the
+     * same wiring the route actually runs under.
+     */
     private fun ApplicationTestBuilder.withReference(reference: ReferenceDataRepository) = application {
         configureStatusPages()
         configureSerialization()
-        routing { referenceRoutes(reference) }
+        configureSecurity(testJwtConfig())
+        routing { authenticate(HR_AUTH) { referenceRoutes(reference) } }
     }
 
     /**

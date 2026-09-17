@@ -1,11 +1,14 @@
 package com.pgsystem.employee.requirement.tracker
 
 import io.kotest.assertions.withClue
+import com.pgsystem.employee.requirement.tracker.testdata.withoutComments
 import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertTrue
 
 /**
  * The dependency rule and the write-mostly rule, executable.
@@ -452,6 +455,102 @@ class ArchitectureTest {
                 .toList()
         }
 
+    // ── The HR password-change gate ─────────────────────────────────────────────────────────────
+
+    /**
+     * Every HR handler opens with a gate, and the build fails on one that does not (ERT-1245).
+     *
+     * `authenticate(HR_AUTH)` in `Routing.kt` proves *who* the caller is. It says nothing about
+     * whether they still owe a password change, and that second gate is **per-handler** — so three
+     * routes shipped without it, readable by the bootstrap admin before first sign-in and by anyone
+     * whose password an admin had just reset.
+     *
+     * The two-line fix is not the deliverable; this is. The comment in `ReferenceRoutes.kt` that
+     * claimed the gate was "applied once, around every HR route" is how the omission spread from one
+     * file to the next, and a comment cannot stop the fourth route. A guard can.
+     *
+     * [PUBLIC_HR_ROUTES] is an allow-list rather than an inferred rule, because "this endpoint is
+     * deliberately unauthenticated" is a decision that should cost someone an edit here and a
+     * reviewer's attention — which is exactly what an inferred rule would give away.
+     */
+    @Test
+    fun `hr routes - every handler under route hr - opens with an authorisation gate`() {
+        val ungated = ungatedHandlersIn(sourcesUnder(HR_ROUTE_DIR))
+
+        assertTrue(
+            ungated.isEmpty(),
+            "These HR handlers do not call one of $GATES before touching a repository. " +
+                "authenticate(HR_AUTH) is not this gate -- it proves identity, not standing:\n" +
+                ungated.joinToString("\n"),
+        )
+    }
+
+    @Test
+    fun `hr routes - a handler that skips the gate - the build fails`() {
+        // The guard's own tripwire. Without it a refactor that broke the detection would leave the
+        // test above passing over nothing, which is the failure mode this file exists to avoid.
+        val offender = source(
+            "src/route/hr/PayrollRoutes.kt",
+            """
+            fun Route.payrollRoutes(payroll: PayrollRepository) {
+                get("/api/payroll") {
+                    call.respondOk(payroll.findAll())
+                }
+            }
+            """.trimIndent(),
+        )
+
+        ungatedHandlersIn(listOf(offender)) shouldHaveSize 1
+    }
+
+    @Test
+    fun `hr routes - a handler that opens with the gate - passes`() {
+        val gated = source(
+            "src/route/hr/PayrollRoutes.kt",
+            """
+            fun Route.payrollRoutes(payroll: PayrollRepository) {
+                get("/api/payroll") {
+                    hrUserOrRefuse() ?: return@get
+                    call.respondOk(payroll.findAll())
+                }
+            }
+            """.trimIndent(),
+        )
+
+        ungatedHandlersIn(listOf(gated)).shouldBeEmpty()
+    }
+
+    @Test
+    fun `guard integrity - the hr route directory is populated - the guard reports checked`() {
+        // Same tripwire as the use-case guard above: a guard that walks an empty directory passes
+        // vacuously, and reports success for having checked nothing.
+        val handlers = sourcesUnder(HR_ROUTE_DIR).sumOf { countHandlers(it) }
+
+        assertTrue(handlers >= 8, "expected the HR route surface to be non-trivial; found $handlers handlers")
+    }
+
+    /**
+     * Handlers whose body does not begin with a gate call.
+     *
+     * Deliberately crude: it looks at the first non-blank code line of each handler body rather than
+     * parsing Kotlin. A gate that is not the first statement is a finding in itself — anything before
+     * it runs unauthorised, and the one route entitled to a weaker gate says so at its first line.
+     */
+    private fun ungatedHandlersIn(files: List<SourceFile>): List<String> =
+        files.flatMap { file ->
+            val lines = file.text.withoutComments().lines()
+            lines.withIndex().mapNotNull { (index, line) ->
+                val match = HANDLER.find(line) ?: return@mapNotNull null
+                val path = match.groupValues[2]
+                if (path in PUBLIC_HR_ROUTES) return@mapNotNull null
+                val firstStatement = lines.drop(index + 1).firstOrNull { it.isNotBlank() }.orEmpty()
+                if (GATES.any { it in firstStatement }) null else "${file.path}: ${match.groupValues[1]} $path"
+            }
+        }
+
+    private fun countHandlers(file: SourceFile): Int =
+        HANDLER.findAll(file.text.withoutComments()).count()
+
     private fun source(path: String, text: String) = SourceFile(path, text)
 
     private fun sourcesUnder(dir: String): List<SourceFile> =
@@ -471,11 +570,25 @@ class ArchitectureTest {
             .flatMap { it.walkTopDown().filter { f -> f.isFile && f.extension == "kt" } }
 
     private companion object {
+        const val HR_ROUTE_DIR = "src/route/hr"
         const val PORTAL_DTO_DIR = "src/route/dto/portal"
         const val USE_CASE_DIR = "src/domain/usecase"
         const val PORTAL_ROUTE_DIR = "src/route/portal"
         const val PLUGIN_PACKAGE = "com.pgsystem.employee.requirement.tracker.plugin"
         const val DOMAIN_PORT_PACKAGE = "com.pgsystem.employee.requirement.tracker.domain.port"
+
+        val HANDLER = Regex("""\b(get|post|put|patch|delete)\(\s*"([^"]+)"\s*\)\s*\{""")
+
+        val GATES = listOf("hrUserOrRefuse", "hrAdminOrRefuse", "hrPrincipalOrRefuse")
+
+        /**
+         * HR paths that are deliberately reachable without a gate.
+         *
+         * Sign-in is the only one, and it must be: it is how a caller obtains the credential every
+         * other route requires. Adding to this list is the point — it is a decision that should be
+         * visible in a diff rather than inferred from an absent call.
+         */
+        val PUBLIC_HR_ROUTES = setOf("/api/auth/login")
 
         val DECLARATION = Regex("""\b(?:val|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*:""")
         val TRACER_PARAMETER = Regex(""":\s*UseCaseTracer\b""")

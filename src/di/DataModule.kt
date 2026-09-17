@@ -44,7 +44,7 @@ import org.koin.dsl.module
  * transaction.
  */
 val dataModule = module {
-    single { DatabaseConfig.fromEnvironment() }
+    single { DatabaseConfig.fromEnvironment(isDevMode()) }
     single { DatabaseFactory(get()) }
 
     single<AuditLog> { ExposedAuditLog(get()) }

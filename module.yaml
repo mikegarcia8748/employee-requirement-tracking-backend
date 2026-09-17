@@ -39,6 +39,16 @@ test-dependencies:
   - $libs.mockk
 
 settings:
+  jvm:
+    release: 21
+    mainClass: com.pgsystem.employee.requirement.tracker.MainKt
+    test:
+      # ERT-1120 inverted the default: an unset APP_ENV now means production, so the suite would
+      # otherwise refuse to start on a missing JWT_SECRET. This is a real environment variable for
+      # the test JVM -- the same input production reads -- so the resolution rule keeps exactly one
+      # source and no test-only backdoor was added to a security control.
+      extraEnvironment:
+        APP_ENV: dev
   ktor:
     enabled: true
     version: 3.5.2

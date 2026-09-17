@@ -75,6 +75,22 @@ inside a key leaks content through logs and URLs exactly as the document does �
 `NBI_Clearance_DelaCruz_1998.pdf` says everything. Get the key scheme wrong and the swap becomes a
 data migration rather than a binding change.
 
+> **ERT-1200 added a hard constraint on 2026-09-17: this adapter must refuse to run outside dev.**
+> The deployment target is Cloud Run, where every write outside the image layers goes to an
+> **in-memory tmpfs charged against the container's memory limit**, with no eviction — and it is
+> **per-instance**. Two consequences, both fatal and neither visible in a test: a 10 MB upload
+> permanently consumes 10 MB of the memory budget until the instance is recycled, so a day of uploads
+> OOM-kills it; and a document written by instance A is invisible to instance B, so the download that
+> follows an upload misses roughly `(N-1)/N` of the time. The deployment is multi-instance — see the
+> answer recorded on ERT-1120 — so `N` is not 1.
+>
+> `STORAGE_ROOT` being unset outside dev already fails. That is not enough, because the failure this
+> prevents is someone *setting* it. The binding itself must refuse: **selected outside dev is a
+> startup error**, the same shape and the same justification as `JWT_SECRET` and `TOKEN_PEPPER`. PRD
+> §14 Q20 already chose GCS for production, so this only enforces a decision that is already made —
+> and it converts "someone will deploy the dev adapter one day" into a boot failure at the first
+> deploy, which is when it is cheap.
+
 `isClean` returns `true` with a startup warning naming the gap. Wire the gate anyway — ERT-810 calls
 it and renders "pending scan" on `false` — so the seam is live and swapping in a scanner is one
 adapter. **The scanner is Q22 and ERT-1150: ClamAV via `clamd` on a local socket**, deliberately not
@@ -101,6 +117,8 @@ binding change, and the malware gate exists even though it does not yet scan.
 - [ ] `[derived]` Given `isClean`, then it returns true and logs a warning naming the unimplemented
       control at startup
 - [ ] `[derived]` Given `STORAGE_ROOT` is unset outside dev, then startup fails
+- [ ] `[derived]` Given the filesystem adapter is the bound `DocumentStorage` outside dev, then
+      startup **refuses** — Cloud Run's filesystem is ephemeral and per-instance (ERT-1200)
 
 **Tests**
 | Level | Test |

@@ -622,6 +622,49 @@ a double send is impossible. **Rate limiting is what actually breaks**: ERT-660 
 Cloud Run or GKE each instance would keep its own counter. Either pin Phase 1 to a single instance and
 record it, or ERT-660 needs a shared store. ERT-1120 carries the constraint.
 
+**Answered 2026-09-17: the deployment is multi-instance, and the pin was rejected rather than merely
+not chosen.** `--max-instances 1` is a **per-revision ceiling, not a mutex** — during any rollout the
+old revision's instance and the new revision's instance both exist, and Cloud Run starts a replacement
+whenever an instance becomes unhealthy. Correctness resting on `max-instances 1` rests on something
+Cloud Run does not promise, and it would be discovered during a deploy, which is the worst available
+moment. The pin also caps throughput permanently and makes the service a single point of failure, in
+exchange for a property it does not deliver. ERT-660 must therefore treat an in-memory limiter as
+coarse shaping with an effective limit of `configured × instances`, and count anything
+security-bearing in the database; ERT-1020's scheduler needs Cloud Scheduler or a
+`FOR UPDATE SKIP LOCKED` lease rather than a per-process timer. The resolved answer is printed in the
+startup summary, so an operator reads it from the log rather than from this file.
+
+**A rolled-back revision does not roll back its migration, so every migration is backward-compatible
+with the revision before it.** Cloud Run shifts traffic between revisions in seconds and Flyway has no
+undo, so the two halves of a rollback move at completely different speeds. Concretely: add columns
+nullable, never rename or drop a column in the same release that starts using the new shape, and
+expand before contracting. This is the cost of migrating in-process at startup, which is the right
+design for the six DDL and seed migrations that exist; ERT-1285 is the ticket for the first migration
+that rewrites data, and its trigger is stated — the first migration whose SQL is not purely additive.
+
+**Cloud SQL is reached over Direct VPC egress to a private IP, not through the socket factory.** The
+alternative adds `com.google.cloud.sql:postgres-socket-factory` and fetches ephemeral client
+certificates from the Cloud SQL Admin API. Both work; what decides it is that **Flyway runs
+synchronously before Netty binds and the service has no degraded mode**, so the socket factory would
+put a second Google API on the boot path and convert an Admin API hiccup into a total outage. Direct
+VPC egress also needs no code change at all — `DatabaseConfig` already selects the driver on
+`url.startsWith("jdbc:postgresql")` — costs nothing beyond the subnet, and lets the instance drop its
+public IP.
+
+**Production runs the image UAT ran, promoted by digest.** A rebuild from the same commit is a
+different image no matter how careful the Dockerfile is: a different base-image digest, differently
+resolved transitive dependencies, different timestamps. The promotion workflow reads the digest off
+the revision UAT is currently serving and refuses anything not digest-pinned, and production's deploy
+identity holds Artifact Registry **reader** only — so "production never builds" is enforced by IAM
+rather than by discipline.
+
+**`settings.jvm.release` is pinned, and `settings.jvm.jdk.version` deliberately is not.** Both were
+inferred from whichever JDK the Amper wrapper provisioned, which meant the bytecode target could drift
+between a laptop, a CI runner and a build container without anyone reviewing the change — and the
+symptom is an `UnsupportedClassVersionError` in a container, traced back to a toolchain bump. Pinning
+`release` fixes the artefact contract while leaving the toolchain free to upgrade itself. CI reads the
+class-file major version and fails on anything but 65, because a pin without a guard is a comment.
+
 ### Open questions that block architectural work
 
 | # | Question | Blocks | Owner | Due |

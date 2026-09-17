@@ -162,6 +162,15 @@ person by accident.
   schedule is per instance. GCP runs multiple instances by default (Q20) — if this service is ever run
   more than once, revisit. ERT-1120 carries the constraint.
 
+  > **ERT-1120 answered it on 2026-09-17: MULTI-INSTANCE, and it is running more than once.** This
+  > poller is nonetheless **safe as designed** — the conditional claim is the right pattern and must
+  > not be "fixed". Two things do change. Cloud Run throttles CPU to near zero between requests, so a
+  > 30-second in-process timer does not fire on a service that is idle — which for an invitation
+  > system is a defect, not a degradation; production therefore runs with always-on CPU, and UAT does
+  > not, so UAT does not faithfully test this poller. And the better shape is Cloud Scheduler calling
+  > an authenticated endpoint: one invocation whichever instance answers, and no always-on-CPU
+  > dependency at all. Evaluate that before building an in-process timer.
+
 ---
 
 ## ERT-1020 — Expiry sweep: idle and absolute clocks, one warning if incomplete
