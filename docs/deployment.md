@@ -58,7 +58,7 @@ That starts **only** Postgres, on `127.0.0.1:55432` — port 55432 so it does no
 Postgres is already installed on your machine. Then:
 
 ```bash
-set -a; . ./.env; set +a; ./kotlin run
+set -a; . ./.env.local-pg; set +a; ./kotlin run
 ```
 
 Flyway migrates on startup, every time. To start over:
@@ -603,7 +603,7 @@ before the deploy — because a multi-minute migration inside a startup probe is
 
 | Symptom | Cause |
 |---|---|
-| `TOKEN_PEPPER must be set outside dev` on a laptop | `APP_ENV` is unset, which means production since ERT-1120. Use `.env.dev`. |
+| `TOKEN_PEPPER must be set outside dev` on a laptop | `APP_ENV` is unset, which means production since ERT-1120. Run `set -a; . ./.env.dev; set +a; ./kotlin run` — sourcing the file is what sets it. |
 | `.env.dev` "does nothing" | You sourced it without `set -a`, so the values never reached the process. Nothing loads these files. |
 | The container starts and loses all data | `DATABASE_URL` was unset. Since ERT-1241 that refuses outside dev; if you see this in dev, it is the H2 fallback working as designed. |
 | `connection reset by peer` on the first request after a quiet period | `maxLifetime`/`keepaliveTime` exceeded a middlebox idle drop, or CPU throttling stopped Hikari's housekeeper. Production sets `--no-cpu-throttling` for this. |
