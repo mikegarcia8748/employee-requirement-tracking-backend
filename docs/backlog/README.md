@@ -3,10 +3,10 @@
 Every unit of work, one row each. Open [docs/roadmap.md](../roadmap.md) for sequencing, the decision
 register, the escalation list, and the pointer to what is next.
 
-**11 epics · 55 tickets · 17 sub-tasks.**
+**12 epics · 67 tickets · 17 sub-tasks.**
 Phase 0 and Phase 1 are specified to ticket depth. Phases 2–4 are epic-level entries in the roadmap,
-expanded when their predecessor closes. ERT-1100 is cross-cutting and its tickets carry gates rather
-than a phase.
+expanded when their predecessor closes. ERT-1100 and ERT-1200 are cross-cutting and their tickets
+carry gates rather than a phase.
 
 Status values: `Not started` · `In progress` · `Done` · `Blocked`. A session updates the status of the
 ticket it takes **in two places** — here and in the ticket's own block. Sub-tasks carry a Status row
@@ -161,3 +161,22 @@ Cross-cutting · depends on —
 | [ERT-1150](ERT-1100-operability-hardening.md#ert-1150--malware-scanning-behind-the-isclean-gate) | Malware scanning behind the `isClean` gate | Ticket | ERT-710, ERT-810 | **Blocked on Q22** |
 | [ERT-1160](ERT-1100-operability-hardening.md#ert-1160--ci-build-and-test-on-every-push) | CI: build and test on every push | Ticket | — | Not started |
 
+
+## [ERT-1200](ERT-1200-deployment.md) — Environments, containerisation and deployment
+
+Cross-cutting · depends on ERT-1120, ERT-1160
+
+| ID | Title | Type | Depends on | Status |
+|---|---|---|---|---|
+| [ERT-1210](ERT-1200-deployment.md#ert-1210--pin-the-jvm-target-and-the-main-class) | Pin the JVM target and the main class | Ticket | — | Not started |
+| [ERT-1220](ERT-1200-deployment.md#ert-1220--the-production-container-image) | The production container image | Ticket | ERT-1210, ERT-1240 | Not started |
+| [ERT-1230](ERT-1200-deployment.md#ert-1230--local-development-compose-and-the-three-ways-to-run) | Local development: compose, and the three ways to run | Ticket | ERT-1220, ERT-1120 | Not started |
+| [ERT-1240](ERT-1200-deployment.md#ert-1240--runtime-hardening-for-a-container-pool-shutdown-boot-time-codegen) | Runtime hardening for a container: pool, shutdown, boot-time codegen | Ticket | — | Not started |
+| [ERT-1241](ERT-1200-deployment.md#ert-1241--database_url-fails-closed-outside-dev) | `DATABASE_URL` fails closed outside dev | Ticket | ERT-1120 | Not started |
+| [ERT-1245](ERT-1200-deployment.md#ert-1245--the-password-change-gate-three-hr-routes-skip) | The password-change gate three HR routes skip | Ticket | ERT-190 | Not started |
+| [ERT-1250](ERT-1200-deployment.md#ert-1250--json-logging-for-cloud-logging) | JSON logging for Cloud Logging | Ticket | — | Not started |
+| [ERT-1260](ERT-1200-deployment.md#ert-1260--gcp-foundation-identity-federation-registry-network-database-secrets) | GCP foundation: identity federation, registry, network, database, secrets | Ticket | — | Not started |
+| [ERT-1270](ERT-1200-deployment.md#ert-1270--deploy-uatyml-every-merge-reaches-uat) | `deploy-uat.yml`: every merge reaches UAT | Ticket | ERT-1220, ERT-1240, ERT-1260, ERT-1160 | Not started |
+| [ERT-1280](ERT-1200-deployment.md#ert-1280--deploy-prodyml-promote-the-digest-uat-ran) | `deploy-prod.yml`: promote the digest UAT ran | Ticket | ERT-1270 | Not started |
+| [ERT-1285](ERT-1200-deployment.md#ert-1285--move-migrations-out-of-startup-before-the-first-data-rewriting-migration) | Move migrations out of startup before the first data-rewriting migration | Ticket | ERT-1280 | Not started |
+| [ERT-1290](ERT-1200-deployment.md#ert-1290--the-deployment-security-and-bottleneck-audits) | The deployment security and bottleneck audits | Ticket | ERT-1270 | Not started |
