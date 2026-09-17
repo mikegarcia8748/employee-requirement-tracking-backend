@@ -3,7 +3,7 @@
 Every unit of work, one row each. Open [docs/roadmap.md](../roadmap.md) for sequencing, the decision
 register, the escalation list, and the pointer to what is next.
 
-**12 epics · 68 tickets · 17 sub-tasks.**
+**12 epics · 72 tickets · 17 sub-tasks.**
 Phase 0 and Phase 1 are specified to ticket depth. Phases 2–4 are epic-level entries in the roadmap,
 expanded when their predecessor closes. ERT-1100 and ERT-1200 are cross-cutting and their tickets
 carry gates rather than a phase.
@@ -161,6 +161,10 @@ Cross-cutting · depends on —
 | [ERT-1150](ERT-1100-operability-hardening.md#ert-1150--malware-scanning-behind-the-isclean-gate) | Malware scanning behind the `isClean` gate | Ticket | ERT-710, ERT-810 | **Blocked on Q22** |
 | [ERT-1160](ERT-1100-operability-hardening.md#ert-1160--ci-build-and-test-on-every-push) | CI: build and test on every push | Ticket | — | Done |
 | [ERT-1165](ERT-1100-operability-hardening.md#ert-1165--pin-every-third-party-github-action-to-a-commit-sha) | Pin every third-party GitHub Action to a commit SHA | Ticket | ERT-1160 | Not started |
+| [ERT-1170](ERT-1100-operability-hardening.md#ert-1170--bound-how-many-sign-in-attempts-reach-bcrypt) | Bound how many sign-in attempts reach bcrypt | Ticket | ERT-190, ERT-1185 | Not started |
+| [ERT-1175](ERT-1100-operability-hardening.md#ert-1175--security-headers-hsts-and-a-request-body-limit) | Security headers, HSTS, and a request body limit | Ticket | ERT-1120 | Not started |
+| [ERT-1180](ERT-1100-operability-hardening.md#ert-1180--dependency-and-image-scanning-with-an-sbom) | Dependency and image scanning, with an SBOM | Ticket | ERT-1160 | Not started |
+| [ERT-1185](ERT-1100-operability-hardening.md#ert-1185--alert-on-the-audit-trail-that-already-exists) | Alert on the audit trail that already exists | Ticket | ERT-1250, ERT-1260 | Not started |
 
 
 ## [ERT-1200](ERT-1200-deployment.md) — Environments, containerisation and deployment

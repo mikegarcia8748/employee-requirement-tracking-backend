@@ -448,3 +448,226 @@ Every third-party action resolves to bytes that cannot change under us.
 **Files**
 - modify `.github/workflows/build.yml`, `.github/workflows/deploy-uat.yml`,
   `.github/workflows/deploy-prod.yml`
+
+---
+
+## ERT-1170 — Bound how many sign-in attempts reach bcrypt
+
+| | |
+|---|---|
+| **Parent** | ERT-1100 |
+| **Type** | Ticket |
+| **Phase** | Cross-cutting — **gate before the service is publicly reachable** |
+| **Status** | Not started |
+| **Depends on** | ERT-190, ERT-1185 |
+| **PRD** | §12 |
+| **Architecture** | §12 invariant 10 |
+
+**Description**
+
+`POST /api/auth/login` is public, unthrottled, and **measured at 3.95 requests per second at
+concurrency 1** — roughly 340× slower than every other endpoint in the system (SEC-19, PERF-01).
+Every request costs one bcrypt cost-12 verification, about 250 ms of CPU, **including every failure**.
+
+That cost is not a defect. Invariant 10 requires that an unknown email, a wrong password, a malformed
+address and a deactivated account are indistinguishable **in elapsed time as well as in body**, and
+the decoy verify is how that is bought. **The obvious fix is the wrong one**: skipping the
+verification when the user is unknown closes the denial of service by reopening the enumeration
+oracle, and it would pass a load test while silently breaking a security property.
+
+What is missing is a bound on how many attempts reach bcrypt at all. Two attacks come through this
+one endpoint: unauthenticated CPU exhaustion — at `--concurrency=80` on `--cpu=1`, eighty concurrent
+sign-ins is about twenty seconds of queued work on one core — and unbounded password guessing, whose
+only named compensating control is an audit row nobody reads, which is why ERT-1185 is a dependency
+rather than a suggestion.
+
+**The limiter must be database-backed.** The deployment is multi-instance (ERT-1120), so an in-memory
+counter gives an effective limit of `configured × instances`. `countRecentFailures` already
+establishes the correct pattern for portal PINs.
+
+**Re-measure the cost factor while here.** `BcryptHasher.DEFAULT_COST`'s comment says "~100 ms per
+hash on current hardware"; it measured about 250 ms. Raising the cost makes the denial of service
+cheaper, so the two decisions have to be made together — and the cost should be readable from the
+environment with 12 as a **floor**, not merely a default (SEC-28).
+
+**Goal**
+
+A sustained guessing run costs the attacker more than it costs the service, and a legitimate first
+attempt is unchanged.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given repeated failed attempts against one address, then further attempts are
+      refused **before** any password verification is performed
+- [ ] `[derived]` Given a refusal, then it is indistinguishable from a wrong password in body **and**
+      in elapsed time
+- [ ] `[derived]` Given the limiter, then its counters are held in the database, not in memory
+- [ ] `[derived]` Given the bcrypt cost, then it is read from the environment and a value below 12 is
+      refused rather than accepted
+- [ ] `[derived]` Given the existing timing-uniformity tests, then all of them still pass
+
+**Tests**
+| Level | Test |
+|---|---|
+| Use case | `hr sign in - repeated failures against one address - the next attempt is refused without verifying` |
+| Use case | `hr sign in - a rate-limited refusal - is indistinguishable from a wrong password` |
+| Use case | `hr sign in - a configured bcrypt cost below the floor - is refused at startup` |
+
+**Files**
+- modify [`src/domain/usecase/AuthenticateHrUserUseCase.kt`](../../src/domain/usecase/AuthenticateHrUserUseCase.kt),
+  [`src/data/crypto/BcryptHasher.kt`](../../src/data/crypto/BcryptHasher.kt),
+  [`src/di/CoreModule.kt`](../../src/di/CoreModule.kt)
+
+**Out of scope**
+- Volumetric edge limiting. Cloud Armor is the answer for that and it is infrastructure, not code;
+  [`docs/deployment.md`](../deployment.md) records it.
+- Portal rate limiting. ERT-660, and it must read the multi-instance answer on ERT-1120.
+
+---
+
+## ERT-1175 — Security headers, HSTS, and a request body limit
+
+| | |
+|---|---|
+| **Parent** | ERT-1100 |
+| **Type** | Ticket |
+| **Phase** | Cross-cutting — **gate before ERT-630** |
+| **Status** | Not started |
+| **Depends on** | ERT-1120 |
+| **PRD** | §12 |
+| **Architecture** | §14 |
+
+**Description**
+
+The complete plugin inventory is `Koin`, `CORS`, `ContentNegotiation`, `StatusPages`, `CallLogging`
+and `MicrometerMetrics`. Grepping `src/` for `HSTS`, `DefaultHeaders`, `X-Frame`, `Content-Security`
+or `RequestValidation` returns **nothing** (SEC-20). `embeddedServer(Netty)` is configured with a
+connector and a shutdown window and nothing else — no body cap.
+
+Two consequences with different timelines. The **body cap is immediate**: an unauthenticated
+`POST /api/auth/login` carrying a multi-megabyte body is buffered before `ContentNegotiation` rejects
+it, which is a second and cheaper denial of service than ERT-1170's. The **headers matter from
+ERT-630**, which puts a phone browser on the portal — that is where a missing `X-Frame-Options` and a
+missing `X-Content-Type-Options` stop being theoretical.
+
+`HSTS` must be gated on `APP_ENV != dev`. Sending it from `localhost` poisons a developer's browser
+for the whole origin, and the resulting "my other local app stopped working over http" is a long
+afternoon.
+
+**Goal**
+
+The transport-level defaults are set once, deliberately, before a browser is pointed at this service.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given any response, then it carries `X-Content-Type-Options: nosniff` and a frame
+      policy
+- [ ] `[derived]` Given `APP_ENV != dev`, then responses carry `Strict-Transport-Security`; given
+      dev, then they do not
+- [ ] `[derived]` Given a request body above the configured limit, then it is refused with 413
+      **without being fully buffered**
+- [ ] `[derived]` Given the limit, then it is configurable — ERT-710 needs a different one for
+      uploads than for JSON
+
+**Tests**
+| Level | Test |
+|---|---|
+| Route | `security headers - any response - carries nosniff and a frame policy` |
+| Route | `security headers - dev - sends no HSTS` |
+| Route | `request limits - a body above the cap - is refused with 413` |
+
+**Files**
+- modify [`src/plugin/Http.kt`](../../src/plugin/Http.kt), [`src/main.kt`](../../src/main.kt),
+  [`src/Application.kt`](../../src/Application.kt)
+
+---
+
+## ERT-1180 — Dependency and image scanning, with an SBOM
+
+| | |
+|---|---|
+| **Parent** | ERT-1100 |
+| **Type** | Ticket |
+| **Phase** | Cross-cutting — **Phase 1 exit checklist** |
+| **Status** | Not started |
+| **Depends on** | ERT-1160 |
+| **PRD** | §12 |
+| **Architecture** | §14 |
+
+**Description**
+
+CI runs the build, the suite and a secret scan. Nothing scans the 176 runtime dependencies for known
+vulnerabilities and no SBOM is produced (SEC-23). `deploy-uat.yml` calls
+`gcloud artifacts docker images scan`, but it is `continue-on-error: true` and nobody is required to
+read the result.
+
+For a system holding government IDs, birth certificates and medical results, "are we affected by
+this CVE?" needs an answer better than reading `libs.versions.toml` by hand.
+
+**The prerequisite is already satisfied**, which is why this is cheap: every version in
+`libs.versions.toml` is pinned exactly — no `+`, no `latest.release`, no snapshots — so the
+dependency set is deterministic and therefore scannable.
+
+**Make the image scan blocking only after a baseline exists.** A base-image CVE disclosed overnight
+blocking an unrelated hotfix is how a gate gets bypassed permanently.
+
+**Goal**
+
+A vulnerable dependency fails a build rather than waiting to be noticed.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given a dependency with a known High or Critical advisory, then the build fails
+- [ ] `[derived]` Given a finding that has been assessed and accepted, then a documented suppression
+      records who accepted it and why
+- [ ] `[derived]` Given an image build, then an SBOM is produced and attached to the image
+- [ ] `[derived]` Given the image scan, then it blocks on Critical **after** a baseline exists
+
+**Files**
+- modify `.github/workflows/build.yml`, `.github/workflows/deploy-uat.yml`
+
+---
+
+## ERT-1185 — Alert on the audit trail that already exists
+
+| | |
+|---|---|
+| **Parent** | ERT-1100 |
+| **Type** | Ticket |
+| **Phase** | Cross-cutting — **with or before ERT-1170** |
+| **Status** | Not started |
+| **Depends on** | ERT-1250, ERT-1260 |
+| **PRD** | §12, §13 |
+| **Architecture** | §14 |
+
+**Description**
+
+Sign-in failures, admin actions and permission changes are recorded in an append-only table. **Nothing
+reads them** (SEC-24). That is the whole point of the 2025 rename of the OWASP category — logs nobody
+reads are not a control — and this codebase leans on the unread one explicitly:
+[`AuthRoutes.kt`](../../src/route/hr/AuthRoutes.kt) justifies the absence of rate limiting with *"until
+then the audit row is the detection."*
+
+So a sustained password-guessing run against an HR account produces a perfect record and no
+notification. **This ticket is what makes that sentence true**, which is why ERT-1170 depends on it
+rather than the other way round.
+
+The pieces are already in place. ERT-1250 made logs structured JSON, so a Cloud Monitoring
+**log-based metric** and an alerting policy are configuration rather than code. And
+`AuditEntryMapper` already refuses to persist credential-shaped metadata, so an alert can carry the
+event without carrying a secret.
+
+**Goal**
+
+Someone finds out.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given a burst of failed sign-ins, then an alert fires
+- [ ] `[derived]` Given an `HR_ADMIN` action outside working hours, then an alert fires
+- [ ] `[derived]` Given an alert payload, then it carries no credential and no PIN
+- [ ] `[derived]` Given the policies, then they are recorded in [`docs/deployment.md`](../deployment.md)
+      rather than existing only in a console
+
+**Files**
+- modify [`docs/deployment.md`](../deployment.md) — the policies, so they are reviewable
+
+**Out of scope**
+- Application code. If this needs a code change, the event is not being logged and that is a
+  different ticket.

@@ -641,7 +641,10 @@ checked. Phase 1 is not done until every row is closed or consciously waived in 
 | A deployable container image exists and boots with no external service | Engineering | **ERT-1220 — Done 2026-09-17** |
 | The GCP project, identity federation, registry, network, database and secrets exist | Engineering | **ERT-1260** — the one remaining item that needs something outside this repository |
 | Third-party GitHub Actions pinned to commit SHAs | Engineering | **ERT-1165** — a tag is mutable, and these jobs hold a token that can deploy production |
-| The deployment security and bottleneck audits are dispositioned | Engineering / Security | **ERT-1290** |
+| The deployment security and bottleneck audits are dispositioned | Engineering / Security | **ERT-1290 — Done 2026-09-17** |
+| Sign-in is rate-limited, and something reads the audit trail | Engineering | **ERT-1170** + **ERT-1185** — SEC-19/PERF-01 is the one finding that is both a DoS and a guessing oracle |
+| Security headers, HSTS and a request body limit | Engineering | **ERT-1175** — gate before ERT-630 puts a phone browser on the portal |
+| Dependencies and images are scanned, and an SBOM exists | Engineering | **ERT-1180** |
 | Sending domain chosen, with SPF/DKIM/DMARC aligned | IT | Q12's second half |
 | Consent notice wording signed off, so the attestation text stops being a placeholder | Legal / compliance | Q5 → ERT-912 |
 | Object-storage project and bucket provisioned, private and encrypted at rest | Engineering | Q20 → ERT-710 |
@@ -726,6 +729,7 @@ Now a real epic with real tickets: [ERT-1100](backlog/ERT-1100-operability-harde
 |---|---|---|
 | HR authentication | Replace the placeholder JWT scheme with the real model; local `users`, two roles, sign-in | **Done — ERT-190, 2026-09-16** |
 | Security hardening | Malware scanning before a file becomes previewable; pepper rotation; retention sweep with the freeze honoured | **ERT-1150** (Q22), **ERT-1130**; retention needs Q7 and Q18 |
+| Audit follow-up | Sign-in rate limiting, alerting on the audit trail, security headers, supply-chain scanning, SHA-pinned actions | **ERT-1170**, **ERT-1185**, **ERT-1175**, **ERT-1180**, **ERT-1165** — from [the 2026-09-17 audits](2026-09-17-security-audit.md) |
 | Operability | `APP_ENV` fails closed, startup summary, deployment configuration, CI | **ERT-1120 — Done**, **ERT-1160 — Done** |
 | Environments and deployment | Container image, local compose, CI/CD to two Cloud Run services, the runbook, the audits | [**ERT-1200**](backlog/ERT-1200-deployment.md) — ERT-1260 is the only ticket left, and it needs a GCP project |
 | Documentation hygiene | The root README is still stock Ktor generator boilerplate and advertises deleted features; the unused R2DBC dependencies | **ERT-1140** |
