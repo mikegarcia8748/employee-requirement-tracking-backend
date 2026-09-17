@@ -24,13 +24,23 @@ import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeAuditLog
 import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeEmployeeRepository
 import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeRequirementTemplateRepository
+import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeUploadLinkRepository
+import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeAppSettingsRepository
+import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeNotifier
+import com.pgsystem.employee.requirement.tracker.testdata.FixedTokenGenerator
+import com.pgsystem.employee.requirement.tracker.data.crypto.HmacTokenDigest
+import com.pgsystem.employee.requirement.tracker.domain.model.LinkPolicy
+import com.pgsystem.employee.requirement.tracker.domain.model.LinkStatus
+import com.pgsystem.employee.requirement.tracker.domain.model.UploadLink
 import com.pgsystem.employee.requirement.tracker.testdata.ok
 import com.pgsystem.employee.requirement.tracker.testdata.personId
+import com.pgsystem.employee.requirement.tracker.core.error.DomainResult
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -67,6 +77,11 @@ class CreateHireUseCaseTest {
     private val personIds = FixedPersonIdGenerator("NEWHIRE1")
     private val audit = FakeAuditLog()
     private val employees = FakeEmployeeRepository(ids = personIds)
+    private val uploadLinks = FakeUploadLinkRepository()
+    private val tokenGenerator = FixedTokenGenerator()
+    private val tokenDigest = HmacTokenDigest("this-is-a-very-long-and-secure-test-pepper-32-chars")
+    private val appSettings = FakeAppSettingsRepository()
+    private val notifier = FakeNotifier()
     private val reference = FakeReferenceDataRepository(
         departments = listOf(aDepartment(id = Fixtures.DEPARTMENT_ID)),
         employmentTypes = listOf(anEmploymentType(id = Fixtures.EMPLOYMENT_TYPE_ID)),
@@ -688,6 +703,80 @@ class CreateHireUseCaseTest {
             nothingHappened()
         }
 
+    // ── The link and its expiry (ERT-433) ───────────────────────────────────────────────────────
+
+    @Test
+    fun `link issue - a hire is created - stores a token digest and no pin`() = runTest {
+        val result = useCase(createHire()).ok()
+
+        val savedLink = uploadLinks.saved.single()
+        savedLink.tokenHash shouldBe tokenDigest.digest("token-0000000001")
+        savedLink.pinHash.shouldBeNull()
+        savedLink.status shouldBe LinkStatus.ACTIVE
+        savedLink.extendedCount shouldBe 0
+        savedLink.failedPinCount shouldBe 0
+        savedLink.lockedUntil.shouldBeNull()
+        savedLink.warnedAt.shouldBeNull()
+        savedLink.revokedAt.shouldBeNull()
+        savedLink.revokedReason.shouldBeNull()
+    }
+
+    @Test
+    fun `link issue - a link is issued - persists no plaintext credential`() = runTest {
+        useCase(createHire()).ok()
+
+        val savedLink = uploadLinks.saved.single()
+        savedLink.tokenHash shouldNotBe "token-0000000001"
+    }
+
+    @Test
+    fun `link expiry - policy of ninety days - stores an expiry ninety days after issue`() = runTest {
+        appSettings.given(LinkPolicy(absoluteExpiryDays = 90, idleExpiryDays = 14))
+
+        useCase(createHire()).ok()
+
+        val savedLink = uploadLinks.saved.single()
+        savedLink.issuedAt shouldBe clock.now()
+        savedLink.expiresAt shouldBe clock.now().plus(java.time.Duration.ofDays(90))
+        savedLink.idleExpiresAt shouldBe clock.now().plus(java.time.Duration.ofDays(14))
+    }
+
+    @Test
+    fun `link expiry - the policy changes after issue - the stored expiry is unchanged`() = runTest {
+        appSettings.given(LinkPolicy(absoluteExpiryDays = 90))
+        useCase(createHire()).ok()
+
+        appSettings.given(LinkPolicy(absoluteExpiryDays = 30))
+
+        val savedLink = uploadLinks.saved.single()
+        savedLink.expiresAt shouldBe clock.now().plus(java.time.Duration.ofDays(90))
+    }
+
+    @Test
+    fun `link expiry - idle days of zero - stores no idle expiry`() = runTest {
+        appSettings.given(LinkPolicy(absoluteExpiryDays = 90, idleExpiryDays = 0))
+
+        useCase(createHire()).ok()
+
+        val savedLink = uploadLinks.saved.single()
+        savedLink.idleExpiresAt.shouldBeNull()
+    }
+
+    @Test
+    fun `link issue - the policy read fails - refuses to create the hire and propagates the error`() = runTest {
+        val policyError = AppError.Validation(
+            code = "policy_unreadable",
+            field = "linkPolicy",
+            detail = "Database error reading settings",
+        )
+        appSettings.refuses(policyError)
+
+        val result = useCase(createHire())
+
+        result shouldBe DomainResult.Err(policyError)
+        nothingHappened()
+    }
+
     // ── There is no transaction here, and there cannot be one ──────────────────────────────────
 
     @Test
@@ -710,6 +799,8 @@ class CreateHireUseCaseTest {
         employees.saved.shouldBeEmpty()
         // ERT-432: a refusal that still wrote a checklist would leave rows pointing at no hire.
         employees.savedRequirementBatches.shouldBeEmpty()
+        uploadLinks.saved.shouldBeEmpty()
+        notifier.attempts.shouldBeEmpty()
         audit.entries.shouldBeEmpty()
     }
 
@@ -725,10 +816,17 @@ class CreateHireUseCaseTest {
         employees: FakeEmployeeRepository = this.employees,
         templates: FakeRequirementTemplateRepository = this.templates,
         personIds: PersonIdGenerator = this.personIds,
+        uploadLinks: FakeUploadLinkRepository = this.uploadLinks,
+        appSettings: FakeAppSettingsRepository = this.appSettings,
     ) = CreateHireUseCase(
         employees = employees,
         reference = reference,
         templates = templates,
+        uploadLinks = uploadLinks,
+        tokenGenerator = tokenGenerator,
+        tokenDigest = tokenDigest,
+        appSettings = appSettings,
+        notifier = notifier,
         audit = audit,
         clock = clock,
         ids = ids,

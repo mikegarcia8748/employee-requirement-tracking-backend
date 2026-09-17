@@ -40,5 +40,5 @@ val domainModule = module {
     // The first business use case (ERT-431). Every port it names was already bound in
     // `dataModule` by the time it landed, so this ticket adds no adapter -- which is what
     // ERT-440 meant by leaving the epic with nothing unbound.
-    factory { CreateHireUseCase(get(), get(), get(), get(), get(), get(), get(), get()) }
+    factory { CreateHireUseCase(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
 }

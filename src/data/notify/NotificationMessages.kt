@@ -1,5 +1,6 @@
 package com.pgsystem.employee.requirement.tracker.data.notify
 
+import com.pgsystem.employee.requirement.tracker.core.value.AccessPin
 import com.pgsystem.employee.requirement.tracker.domain.model.Employee
 import com.pgsystem.employee.requirement.tracker.domain.port.RejectedItem
 
@@ -7,7 +8,7 @@ import com.pgsystem.employee.requirement.tracker.domain.port.RejectedItem
 data class RenderedMessage(val subject: String, val body: String)
 
 /**
- * The seven message bodies (ERT-440, PRD §8.9).
+ * The eight message bodies (ERT-440, PRD §8.9).
  *
  * Plain text, deliberately: ERT-1010 lands the transport and can add a multipart alternative then,
  * and a template engine chosen now would be chosen without a single real message to judge it by.
@@ -18,9 +19,8 @@ data class RenderedMessage(val subject: String, val body: String)
  * [PortalBaseUrl.linkTo] is reachable from exactly one function here.
  *
  * **No message contains a PIN.** The recovery PIN travels by phone or in person and never by email
- * (§6.6) — it is the first genuinely out-of-band factor the design has — so there is no `pin`
- * parameter anywhere below, including on [invitation]. See [OutboxNotifier.sendInvitation] for what
- * happens to the one the port still hands it.
+ * (§6.6) — it is the first genuinely out-of-band factor the design has. See [OutboxNotifier.sendInvitation]
+ * for what happens to the one the port still hands it.
  */
 class NotificationMessages(private val portalBaseUrl: PortalBaseUrl) {
 
@@ -36,6 +36,15 @@ class NotificationMessages(private val portalBaseUrl: PortalBaseUrl) {
 
             The link is personal to you — please do not forward it. If it stops working, or if you
             did not expect this message, contact HR and we will sort it out.
+        """.trimIndent()
+    )
+
+    fun recoveryPin(employee: Employee, pin: AccessPin) = RenderedMessage(
+        subject = "Your recovery PIN",
+        body = """
+            Hi ${employee.firstName},
+
+            Your recovery PIN has been generated: ${pin.value}
         """.trimIndent()
     )
 

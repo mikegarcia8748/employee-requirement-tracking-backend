@@ -1,13 +1,13 @@
 package com.pgsystem.employee.requirement.tracker.data.notify
 
 /**
- * The seven `Notifier` methods, as stored values (ERT-440, PRD §8.9).
+ * The eight `Notifier` methods, as stored values (ERT-440, PRD §8.9).
  *
  * **[storesBody] is a choice each kind makes, not a property it inherits**, and that is the whole
- * design. `INVITATION` is the only message in the system that carries a live credential — since
- * 2026-09-16 the link *is* the whole of authentication — so its rendered body must never reach a
- * row, a backup, a replica or a write-ahead log. The other six point at the portal without restating
- * the link and are ordinary text.
+ * design. `INVITATION` and `RECOVERY_PIN` are the only messages in the system that carry a live
+ * credential — since 2026-09-16 the link *is* the whole of authentication — so their rendered bodies
+ * must never reach a row, a backup, a replica or a write-ahead log. The other six point at the portal
+ * without restating the link and are ordinary text.
  *
  * Spelling it as a constructor parameter is the device [com.pgsystem.employee.requirement.tracker
  * .domain.model.AnomalyFlag.freezesRetention] and
@@ -17,8 +17,9 @@ package com.pgsystem.employee.requirement.tracker.data.notify
  * silence, which is the failure this shape exists to prevent.
  */
 enum class NotificationKind(val storesBody: Boolean) {
-    /** The only message carrying a credential, and therefore the only one whose body is dropped. */
+    /** The only messages carrying credentials, and therefore the only ones whose bodies are dropped. */
     INVITATION(storesBody = false),
+    RECOVERY_PIN(storesBody = false),
 
     PACKET_READY_FOR_REVIEW(storesBody = true),
     REJECTION(storesBody = true),

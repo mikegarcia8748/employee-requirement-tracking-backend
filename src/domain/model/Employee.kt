@@ -98,6 +98,7 @@ data class HireCreated(
      * behavioural difference it cannot demonstrate.
      */
     val requirements: RequirementSet,
+    val link: UploadLink,
 )
 
 /**

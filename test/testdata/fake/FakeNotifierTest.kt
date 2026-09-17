@@ -27,7 +27,7 @@ class FakeNotifierTest {
         // attempt would make "HR gets a retry action" impossible to test.
         val notifier = FakeNotifier().failNextSend(reason = "mailbox full")
 
-        val result = notifier.sendInvitation(anEmail(), anEmployee(), "the-token", anAccessPin())
+        val result = notifier.sendInvitation(anEmail(), anEmployee(), "the-token")
 
         result shouldBe DeliveryResult.Failed("mailbox full")
         notifier.attempts shouldHaveSize 1
@@ -41,8 +41,8 @@ class FakeNotifierTest {
         // the use case gave up.
         val notifier = FakeNotifier().failNextSend()
 
-        val first = notifier.sendInvitation(anEmail(), anEmployee(), "t1", anAccessPin())
-        val second = notifier.sendInvitation(anEmail(), anEmployee(), "t2", anAccessPin())
+        val first = notifier.sendInvitation(anEmail(), anEmployee(), "t1")
+        val second = notifier.sendInvitation(anEmail(), anEmployee(), "t2")
 
         (first is DeliveryResult.Failed) shouldBe true
         second shouldBe DeliveryResult.Sent
@@ -84,19 +84,30 @@ class FakeNotifierTest {
     }
 
     @Test
-    fun `fake notifier - an invitation is sent - records the address token and pin`() = runTest {
-        // The invitation is the only place either plaintext exists. Capturing both is what lets a
-        // later test present them to the portal exactly as the employee would.
+    fun `fake notifier - an invitation is sent - records the address and token`() = runTest {
+        // The invitation is the only place the plaintext token exists. Capturing it is what lets a
+        // later test present it to the portal exactly as the employee would.
         val notifier = FakeNotifier()
         val to = anEmail("maria.santos@example.com")
 
-        notifier.sendInvitation(to, anEmployee(), "the-invited-token", anAccessPin("424242"))
+        notifier.sendInvitation(to, anEmployee(), "the-invited-token")
 
         val invitation = notifier.invitationTo(to)
         invitation.shouldNotBeNull()
         invitation.to shouldBe to
         invitation.linkToken shouldBe "the-invited-token"
-        invitation.pin shouldBe anAccessPin("424242")
+    }
+
+    @Test
+    fun `fake notifier - a recovery pin is sent - records the address and pin`() = runTest {
+        val notifier = FakeNotifier()
+        val to = anEmail("maria.santos@example.com")
+
+        notifier.sendRecoveryPin(to, anEmployee(), anAccessPin("424242"))
+
+        val recovery = notifier.sentOfType<FakeNotifier.Sent.RecoveryPin>().single()
+        recovery.to shouldBe to
+        recovery.pin shouldBe anAccessPin("424242")
     }
 
     @Test
@@ -104,7 +115,7 @@ class FakeNotifierTest {
         val notifier = FakeNotifier()
         val to = anEmail("maria.santos@example.com")
 
-        notifier.sendInvitation(to, anEmployee(), "t", anAccessPin())
+        notifier.sendInvitation(to, anEmployee(), "t")
 
         notifier.sentInvitationTo(to) shouldBe true
         notifier.sentInvitationTo(anEmail("someone.else@example.com")) shouldBe false
@@ -117,7 +128,7 @@ class FakeNotifierTest {
         val notifier = FakeNotifier().failNextSend()
         val to = anEmail()
 
-        notifier.sendInvitation(to, anEmployee(), "t", anAccessPin())
+        notifier.sendInvitation(to, anEmployee(), "t")
 
         notifier.sentInvitationTo(to) shouldBe false
         notifier.invitations shouldHaveSize 1
@@ -141,7 +152,8 @@ class FakeNotifierTest {
         val notifier = FakeNotifier()
         val employee = anEmployee()
 
-        notifier.sendInvitation(anEmail(), employee, "t", anAccessPin())
+        notifier.sendInvitation(anEmail(), employee, "t")
+        notifier.sendRecoveryPin(anEmail(), employee, anAccessPin())
         notifier.sendPacketReadyForReview(employee)
         notifier.sendRejection(anEmail(), employee, emptyList())
         notifier.sendExpiryWarning(anEmail(), employee, daysRemaining = 7)
@@ -149,7 +161,7 @@ class FakeNotifierTest {
         notifier.sendEmailChangedNotice(anEmail(), employee)
         notifier.notifyHrOfSuspension(employee, reason = "Ten failed PIN attempts")
 
-        notifier.attempts shouldHaveSize 7
+        notifier.attempts shouldHaveSize 8
         notifier.sentOfType<FakeNotifier.Sent.ExpiryWarning>().single().daysRemaining shouldBe 7
         notifier.sentOfType<FakeNotifier.Sent.HrSuspensionNotice>().single().reason shouldBe "Ten failed PIN attempts"
     }
@@ -162,7 +174,7 @@ class FakeNotifierTest {
         notifier.failure.failNextCall()
 
         assertFailsWith<IllegalStateException> {
-            notifier.sendInvitation(anEmail(), anEmployee(), "t", anAccessPin())
+            notifier.sendInvitation(anEmail(), anEmployee(), "t")
         }
 
         notifier.attempts.shouldBeEmpty()

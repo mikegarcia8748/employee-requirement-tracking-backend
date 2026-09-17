@@ -773,7 +773,7 @@ Added with the `sort_order_snapshot` column, and by the review step:
 |---|---|
 | **Parent** | ERT-430 |
 | **Type** | Sub-task |
-| **Status** | Not started |
+| **Status** | Completed |
 | **Depends on** | ERT-432 |
 | **PRD** | §6.4, §6.6, §8.1, §12 |
 
@@ -801,23 +801,27 @@ non-arrival it exists to remedy.
 > the port** so `sendInvitation` takes no PIN and a separate `sendRecoveryPin` does — the only one
 > that keeps the guard, and the one ERT-650 will want anyway. Decide it here, in writing.
 
+> **Decision (Closed):** Split the port so `Notifier.sendInvitation` takes no PIN and a separate `sendRecoveryPin` does. This keeps the compile-time guard for the recovery PIN on its own dedicated method, which is also the exact method ERT-650 will need anyway.
+>
+> **Decision on Link Policy:** As `AppSettingsRepository.linkPolicy()` returns a `DomainResult`, the use case must propagate this failure rather than falling back to defaults. Refusing to issue a link is the correct response to a policy nobody can read.
+
 `expiresAt` is computed from the policy read at this moment and **stored**, exactly like the
 requirement snapshot. Changing `link.absolute_expiry_days` tomorrow must not move this link (§6.4).
 The idle clock is the second of two clocks — when `idleExpiryDays` is 0 it is disabled and
 `idleExpiresAt` is null, and where both apply the earlier one wins.
 
 **Acceptance criteria**
-- [ ] Given a hire is created, then a link token is generated and stored as a keyed digest, and the
+- [x] Given a hire is created, then a link token is generated and stored as a keyed digest, and the
       invitation carries the link and **no PIN** (§8.1, §6.6)
-- [ ] `[derived]` Given a link is issued, then the plaintext token is persisted nowhere, and no
+- [x] `[derived]` Given a link is issued, then the plaintext token is persisted nowhere, and no
       recovery PIN exists on the record until HR issues one
-- [ ] Given an admin changes an expiry setting, then links already issued keep their stored
+- [x] Given an admin changes an expiry setting, then links already issued keep their stored
       `expires_at` (§8.10)
-- [ ] `[derived]` Given a policy with `absoluteExpiryDays = 90`, then `expiresAt` is 90 days after
+- [x] `[derived]` Given a policy with `absoluteExpiryDays = 90`, then `expiresAt` is 90 days after
       `issuedAt` as measured by the injected clock
-- [ ] Given `link.idle_expiry_days` is `0`, then `idleExpiresAt` is null and only the absolute ceiling
+- [x] Given `link.idle_expiry_days` is `0`, then `idleExpiresAt` is null and only the absolute ceiling
       applies (§6.4)
-- [ ] `[derived]` Given a new link, then its status is `ACTIVE`, `failedPinCount` is 0,
+- [x] `[derived]` Given a new link, then its status is `ACTIVE`, `failedPinCount` is 0,
       `extendedCount` is 0, and the recovery-PIN fields are null
 
 **Tests**

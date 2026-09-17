@@ -7,13 +7,15 @@ import com.pgsystem.employee.requirement.tracker.domain.model.Employee
 /**
  * Outbound notifications (PRD 8.9).
  *
- * Note the shape of this interface: **only [sendInvitation] accepts an [AccessPin].** Every other
- * method is structurally incapable of carrying the credential, so the rule "no email other than the
- * invitation ever contains the PIN" is enforced by the type system rather than by reviewer
+ * Note the shape of this interface: **only [sendRecoveryPin] accepts an [AccessPin].** Every other
+ * method is structurally incapable of carrying the credential, so the rule "no email other than a
+ * recovery notification ever contains the PIN" is enforced by the type system rather than by reviewer
  * vigilance. A forwarded rejection notice or expiry warning carries nothing useful.
  */
 interface Notifier {
-    suspend fun sendInvitation(to: EmailAddress, employee: Employee, linkToken: String, pin: AccessPin): DeliveryResult
+    suspend fun sendInvitation(to: EmailAddress, employee: Employee, linkToken: String): DeliveryResult
+
+    suspend fun sendRecoveryPin(to: EmailAddress, employee: Employee, pin: AccessPin): DeliveryResult
 
     suspend fun sendPacketReadyForReview(employee: Employee): DeliveryResult
 
