@@ -80,6 +80,19 @@ fun Route.signInRoutes(authenticate: AuthenticateHrUserUseCase) {
         """.trimIndent()
         operationId = "signIn"
         tag("Authentication")
+        // Declared, not inferred. `OpenApiDocSource.Routing` reads the route tree and never the
+        // handler body, so it no more sees `call.receive<SignInRequest>()` than it sees
+        // `call.respond` -- and an operation with no `requestBody` gives Swagger UI no body editor,
+        // so its "Try it out" posts nothing at all and this route answers 415 (ERT-146). Note that
+        // `description` here belongs to the body: the inner receiver shadows the operation's.
+        //
+        // It describes the shape and says nothing about which inputs fail. Naming a failing input
+        // here would put back, in prose, the oracle the four identical 401s exist to close.
+        requestBody {
+            description = "The address and password to exchange for a token."
+            required = true
+            schema = jsonSchema<SignInRequest>()
+        }
         responses {
             response(200) {
                 description = "A bearer token, its expiry, and the signed-in user."
@@ -131,6 +144,11 @@ fun Route.accountRoutes(changePassword: ChangeHrPasswordUseCase, users: HrUserRe
         """.trimIndent()
         operationId = "changeOwnPassword"
         tag("Authentication")
+        requestBody {
+            description = "The current password and its replacement."
+            required = true
+            schema = jsonSchema<ChangePasswordRequest>()
+        }
         responses {
             response(204) { description = "Changed. Sign in again to obtain a token without the flag." }
             response(401) { description = "The current password is wrong." }

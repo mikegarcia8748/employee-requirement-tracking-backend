@@ -45,7 +45,7 @@ recorded by a named officer, and it is separate on purpose (§1, SEC-04). Any co
 | | |
 |---|---|
 | Base path | `/api` |
-| Content type | `application/json`, except the upload endpoint (`multipart/form-data`) |
+| Content type | `application/json`, except the upload endpoint (`multipart/form-data`). A request whose `Content-Type` is missing or does not match is **415**, not 422 — the header is the fault, and nothing was parsed |
 | Timestamps | ISO-8601 UTC (`2026-09-14T08:30:00Z`) |
 | Ids | Alphanumeric strings, `A-Z a-z 0-9`. An employee id is **8** characters; every other id is **12**. Case-sensitive, and never to be normalised |
 | HR auth | bearer JWT, scheme `hr-jwt` — **provisional, see below** |
@@ -121,6 +121,23 @@ responses { response(200) { schema = jsonSchema<ApiResponse<HireDto>>() } }
 Verified, not assumed: the generator does **not** infer a body type from `call.respond`. A route
 without this block publishes an operation with no schema, and nothing a client can generate from.
 
+**Every route that reads a body must declare its request schema** in the same block:
+
+```kotlin
+requestBody { required = true; schema = jsonSchema<SignInRequest>() }
+```
+
+The same defect in the other direction, and it went unwritten for five routes: the generator infers
+no body from `call.receive<T>()` either. An operation without this block gives Swagger UI no body
+editor, so its "Try it out" sends a POST with no payload and no `Content-Type` — **415 from an
+endpoint that is working perfectly**, which is how `POST /api/auth/login` was found untestable from
+its own documentation (ERT-146). A schema that reaches `components.schemas` but no operation is not
+enough; what the UI builds an editor from is `requestBody` on the operation.
+
+`ArchitectureTest` now fails the build on a handler that calls `receive` and publishes no
+`requestBody`, because the rule above existed in this document for a sprint and five routes broke it
+anyway. Prose does not stop the sixth.
+
 ### `AppError` → HTTP status
 
 Use cases return `DomainResult<T>` = `Ok(value) | Err(AppError)`; a single mapper turns the error
@@ -136,7 +153,8 @@ into a status so no route invents its own. Defined in ERT-140.
 | `Denied` | **404** | the shared denied body, **identical in every instance** |
 | `AuthenticationFailed` | **401** | the shared sign-in failure body, **identical in every instance**. HR-side only |
 | `Forbidden` | **403** | the shared role-refusal body; it never names the role required |
-| malformed JSON body | **422** | `request_malformed`, cause logged server-side only |
+| missing or non-matching `Content-Type` | **415** | `unsupported_media_type`; nothing was parsed, so this is not "well-formed but unprocessable". Cause logged server-side only |
+| malformed JSON body, sent as `application/json` | **422** | `request_malformed`, cause logged server-side only |
 | unmatched route | **404** | the **same body** a `Denied` produces |
 | — | **429** | rate limiting, ERT-660 |
 | unexpected `Throwable` | **500** | generic code, cause logged server-side only |

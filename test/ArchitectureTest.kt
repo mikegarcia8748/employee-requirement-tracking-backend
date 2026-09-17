@@ -530,6 +530,83 @@ class ArchitectureTest {
     }
 
     /**
+     * Every handler that reads a body publishes its schema, and the build fails on one that does not
+     * (ERT-146).
+     *
+     * `OpenApiDocSource.Routing` reads the route tree and never the handler body, so it infers a
+     * request body no more than ERT-145 found it infers a response one. Five POST routes shipped with
+     * `responses { }` and no `requestBody { }`: Swagger UI rendered no body editor for any of them,
+     * its "Try it out" sent a POST with no payload and no `Content-Type`, and `POST /api/auth/login`
+     * answered 415 from an endpoint that was working perfectly.
+     *
+     * The five `describe { }` blocks are not the deliverable; this is. `api-contract.md` had carried
+     * the response half of the rule since ERT-145 and simply never had the request half written
+     * down — and a rule that exists only in prose is what let the same omission repeat five times.
+     */
+    @Test
+    fun `documented request bodies - every handler that reads a body - publishes its request schema`() {
+        val undocumented = undocumentedRequestBodiesIn(sourcesUnder(ROUTE_DIR))
+
+        assertTrue(
+            undocumented.isEmpty(),
+            "These handlers read a request body but publish no requestBody schema. Swagger UI shows " +
+                "no body editor for them, so \"Try it out\" posts nothing and the route answers 415:\n" +
+                undocumented.joinToString("\n"),
+        )
+    }
+
+    @Test
+    fun `documented request bodies - a handler that receives without describing one - the build fails`() {
+        // The guard's own tripwire, as above: without it, a refactor that broke the detection would
+        // leave the test above passing over nothing.
+        val offender = source(
+            "src/route/hr/PayrollRoutes.kt",
+            """
+            fun Route.payrollRoutes(payroll: PayrollRepository) {
+                post("/api/payroll") {
+                    val body = call.receive<PayrollRequest>()
+                    call.respondOk(payroll.save(body))
+                }.describe {
+                    summary = "Record payroll"
+                    responses { response(200) { schema = jsonSchema<PayrollDto>() } }
+                }
+            }
+            """.trimIndent(),
+        )
+
+        undocumentedRequestBodiesIn(listOf(offender)) shouldHaveSize 1
+    }
+
+    @Test
+    fun `documented request bodies - a handler that describes its request body - passes`() {
+        val documented = source(
+            "src/route/hr/PayrollRoutes.kt",
+            """
+            fun Route.payrollRoutes(payroll: PayrollRepository) {
+                post("/api/payroll") {
+                    val body = call.receive<PayrollRequest>()
+                    call.respondOk(payroll.save(body))
+                }.describe {
+                    summary = "Record payroll"
+                    requestBody { schema = jsonSchema<PayrollRequest>() }
+                    responses { response(200) { schema = jsonSchema<PayrollDto>() } }
+                }
+            }
+            """.trimIndent(),
+        )
+
+        undocumentedRequestBodiesIn(listOf(documented)).shouldBeEmpty()
+    }
+
+    @Test
+    fun `guard integrity - the route tree holds handlers that read a body - the guard reports checked`() {
+        // A guard that finds no `receive` at all passes vacuously. Five routes read a body today.
+        val receiving = sourcesUnder(ROUTE_DIR).sumOf { countBodyReadingHandlers(it) }
+
+        assertTrue(receiving >= 5, "expected the route tree to read request bodies; found $receiving handlers")
+    }
+
+    /**
      * Handlers whose body does not begin with a gate call.
      *
      * Deliberately crude: it looks at the first non-blank code line of each handler body rather than
@@ -551,6 +628,43 @@ class ArchitectureTest {
     private fun countHandlers(file: SourceFile): Int =
         HANDLER.findAll(file.text.withoutComments()).count()
 
+    /**
+     * Handlers that read a request body without publishing its schema (ERT-146).
+     *
+     * Crude by the same standard as the gate guard, and in the same way: a handler's span runs from
+     * its own `post("…") {` to the next handler's, which covers the body and the `.describe { }`
+     * chained onto it. A span that calls `receive` and never says `requestBody` is the finding.
+     * Comments are stripped first, so prose about `requestBody` cannot satisfy the guard.
+     *
+     * [RECEIVES_BODY] matches `receive<T>`, `receiveNullable<T>` and `receiveMultipart()` only.
+     * `receiveText` and `receiveParameters` want a *different* content type declared and have no
+     * call site in this project yet; inventing the rule for them here, in one file, would leave the
+     * first real caller to re-invent it — the reasoning C26 already records.
+     */
+    private fun undocumentedRequestBodiesIn(files: List<SourceFile>): List<String> =
+        files.flatMap { file ->
+            val text = file.text.withoutComments()
+            val handlers = HANDLER.findAll(text).toList()
+            handlers.mapIndexedNotNull { index, match ->
+                val end = handlers.getOrNull(index + 1)?.range?.first ?: text.length
+                val span = text.substring(match.range.first, end)
+                if (RECEIVES_BODY.containsMatchIn(span) && "requestBody" !in span) {
+                    "${file.path}: ${match.groupValues[1]} ${match.groupValues[2]}"
+                } else {
+                    null
+                }
+            }
+        }
+
+    private fun countBodyReadingHandlers(file: SourceFile): Int {
+        val text = file.text.withoutComments()
+        val handlers = HANDLER.findAll(text).toList()
+        return handlers.withIndex().count { (index, match) ->
+            val end = handlers.getOrNull(index + 1)?.range?.first ?: text.length
+            RECEIVES_BODY.containsMatchIn(text.substring(match.range.first, end))
+        }
+    }
+
     private fun source(path: String, text: String) = SourceFile(path, text)
 
     private fun sourcesUnder(dir: String): List<SourceFile> =
@@ -570,6 +684,7 @@ class ArchitectureTest {
             .flatMap { it.walkTopDown().filter { f -> f.isFile && f.extension == "kt" } }
 
     private companion object {
+        const val ROUTE_DIR = "src/route"
         const val HR_ROUTE_DIR = "src/route/hr"
         const val PORTAL_DTO_DIR = "src/route/dto/portal"
         const val USE_CASE_DIR = "src/domain/usecase"
@@ -580,6 +695,8 @@ class ArchitectureTest {
         val HANDLER = Regex("""\b(get|post|put|patch|delete)\(\s*"([^"]+)"\s*\)\s*\{""")
 
         val GATES = listOf("hrUserOrRefuse", "hrAdminOrRefuse", "hrPrincipalOrRefuse")
+
+        val RECEIVES_BODY = Regex("""call\.receive(?:Nullable)?\s*<|call\.receiveMultipart\s*\(""")
 
         /**
          * HR paths that are deliberately reachable without a gate.

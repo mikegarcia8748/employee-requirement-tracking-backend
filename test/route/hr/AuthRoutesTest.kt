@@ -39,6 +39,9 @@ import io.ktor.server.auth.authenticate
 import io.ktor.server.routing.routing
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 
 /**
@@ -313,9 +316,37 @@ class AuthRoutesTest {
             spec shouldContain "/api/auth/login"
             spec shouldContain "/api/auth/change-password"
             // As in ERT-340: the path lines pass against an operation with no body type, so a DTO
-            // name is what proves the schema was published.
+            // name is what proves the schema was published. Both directions are pinned since
+            // ERT-146 -- the request half was the half that was missing, and the half nobody
+            // noticed, because this test only ever asked about the response.
             spec shouldContain "SignInResponse"
+            spec shouldContain "SignInRequest"
+            spec shouldContain "ChangePasswordRequest"
             spec shouldContain "hr-jwt"
+        }
+
+    @Test
+    fun `api docs - a route that reads a request body - publishes it on the operation itself`() =
+        testApplication {
+            // A DTO name in `components.schemas` is not enough, and the test above would accept one:
+            // what Swagger UI builds a body editor from is `requestBody` on the *operation*. Without
+            // it, "Try it out" sends a POST carrying no body and no `Content-Type`, which this
+            // application answers 415 -- from an endpoint that works perfectly (ERT-146).
+            //
+            // Navigated rather than string-matched. The spec is served as JSON despite the `.yaml`
+            // path, and a `shouldContain` over the whole document cannot tell an operation's own
+            // body from a component definition sitting elsewhere in the file -- which is exactly the
+            // distinction this test exists to make.
+            application { rootModule() }
+
+            val spec = Json.parseToJsonElement(client.get("/swagger/documentation.yaml").bodyAsText())
+
+            val ref = spec.jsonObject["paths"]!!.jsonObject["/api/auth/login"]!!
+                .jsonObject["post"]!!.jsonObject["requestBody"]!!
+                .jsonObject["content"]!!.jsonObject["application/json"]!!
+                .jsonObject["schema"]!!.jsonObject["\$ref"]!!.jsonPrimitive.content
+
+            ref shouldBe "#/components/schemas/SignInRequest"
         }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────────────────────

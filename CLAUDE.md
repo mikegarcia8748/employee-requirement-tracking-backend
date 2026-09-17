@@ -119,7 +119,9 @@ Fakes, `FixedClock` and builders live in `test/testdata/`.
   against the real system clock, which no injected `Clock` reaches. This is the one documented
   boundary of the fixed-clock rule.
 - The OpenAPI spec is generated from the live route tree. Attach detail with `describe { }` beside
-  the handler; never hand-edit a spec file.
+  the handler; never hand-edit a spec file. A route that reads a body declares `requestBody { }` and
+  a route that answers with one declares `responses { schema = … }` — the generator infers neither,
+  and `ArchitectureTest` fails the build on a handler that receives without publishing.
 - When documenting portal routes, present the deliberate behaviours as **intended** — identical
   failures for wrong PIN vs unknown token, constant response from `request-new-link`. Otherwise a
   future reader "fixes" them into an enumeration oracle.

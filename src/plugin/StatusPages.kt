@@ -10,6 +10,7 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.application.log
 import io.ktor.server.plugins.BadRequestException
+import io.ktor.server.plugins.ContentTransformationException
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
 
@@ -38,6 +39,45 @@ fun Application.configureStatusPages() {
                 errorEnvelope(
                     HttpStatusCode.UnprocessableEntity,
                     ApiError(code = "request_malformed", message = messageFor("request_malformed")),
+                ),
+            )
+        }
+
+        // A body the server never got to read, because the request's `Content-Type` matched no
+        // registered converter -- most often because the request carried none. ContentNegotiation
+        // does not fail here: `convertRequestBody` skips every converter whose type does not match
+        // (an absent header parses as `*/*`, which matches nothing), returns the raw bytes, and
+        // `receive<T>()` throws on finding them. That exception is `ContentTransformationException :
+        // IOException`, **not** a `BadRequestException`, so the arm above never saw it and it landed
+        // in the 500 below -- which is what Swagger UI's "Try it out" produced on
+        // `POST /api/auth/login`, having sent no body and no header because the route published no
+        // `requestBody` schema for it to fill (ERT-146).
+        //
+        // **415 rather than 422**, which is also what Ktor's own `defaultExceptionStatusCode` gives
+        // this exception before `StatusPages` displaces it. Nothing was parsed, so the payload is
+        // not "well-formed but unprocessable" -- there may be no payload. The split is the one thing
+        // a client can act on: 422 means fix the body, 415 means fix the header. It discloses
+        // nothing, because it is decided from caller-supplied headers before any lookup happens.
+        //
+        // **The parent class, not `CannotTransformContentToTypeException`.** Its sibling
+        // `UnsupportedMediaTypeException` is the identical mistake against a `receiveMultipart()`
+        // handler, which ERT-710 writes; registering the narrow class here would hand the upload
+        // route this same 500. Register a class and never an interface -- `selectNearestParentClass`
+        // measures distance by walking `superclass`, and an interface has none.
+        //
+        // `cause.message` names the Kotlin type that could not be built. It stays in the log.
+        exception<ContentTransformationException> { call, cause ->
+            call.application.log.info(
+                "Unreadable request content type on ${call.request.local.uri}: ${cause.message}"
+            )
+            call.respond(
+                HttpStatusCode.UnsupportedMediaType,
+                errorEnvelope(
+                    HttpStatusCode.UnsupportedMediaType,
+                    ApiError(
+                        code = "unsupported_media_type",
+                        message = messageFor("unsupported_media_type"),
+                    ),
                 ),
             )
         }

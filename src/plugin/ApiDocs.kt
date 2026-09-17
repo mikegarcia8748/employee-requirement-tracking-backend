@@ -28,6 +28,13 @@ import io.ktor.server.routing.routing
  * up from the `authenticate` blocks rather than restated by hand. Per-route detail is attached with
  * `describe { }` beside the handler; `hide()` removes a route from the published spec.
  *
+ * **It reads the route *tree*, not the handler body**, so it infers neither `call.respond` (ERT-145)
+ * nor `call.receive` (ERT-146). Both halves are hand-declared — `responses { schema = ... }` and
+ * `requestBody { schema = ... }` — and an operation missing the second gives Swagger UI no body
+ * editor, so "Try it out" posts nothing and the route answers 415. Five routes shipped that way.
+ * `ArchitectureTest` fails the build on a handler that reads a body and publishes no schema for it,
+ * because the convention alone did not hold.
+ *
  * This required declaring `io.ktor:ktor-server-routing-openapi` explicitly in `libs.versions.toml`:
  * Amper 0.12.0's Ktor catalog has no key for it, and the `$ktor.server.routingOpenapi` key the
  * scaffold referenced does not exist — which is why the project did not build at all before.

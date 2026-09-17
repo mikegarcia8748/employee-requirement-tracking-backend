@@ -56,10 +56,16 @@ notice.
 
 **Description**
 
-[`StatusPages.kt`](../../src/plugin/StatusPages.kt) logs `call.request.local.uri` unredacted at two
-call sites — the malformed-request path and the unhandled-exception path. Both bypass the portal-token
-redaction that [`Monitoring.kt`](../../src/plugin/Monitoring.kt) applies inside `CallLogging`'s
-`format` block, three files over.
+[`StatusPages.kt`](../../src/plugin/StatusPages.kt) logs `call.request.local.uri` unredacted at
+**three** call sites — the malformed-request path, the unsupported-content-type path, and the
+unhandled-exception path. All three bypass the portal-token redaction that
+[`Monitoring.kt`](../../src/plugin/Monitoring.kt) applies inside `CallLogging`'s `format` block,
+three files over.
+
+The third arrived with ERT-146 on 2026-09-17, which is the argument below making itself: it was
+added by someone fixing an unrelated 500, it copied the line above it, and nothing objected. The
+guard this ticket describes would have caught it, and covers all three at once when it lands — so
+this is a re-count and not a change of design.
 
 Today that is harmless, because `route/portal/` is empty and no path contains a credential. **ERT-630
 creates the first route whose path *is* the credential.** From that moment the first malformed body
@@ -69,7 +75,7 @@ un-logged.
 
 **The fix is to stop having two copies of the rule.** Extract the redaction out of `Monitoring.kt`'s
 `format` block into one function both plugins call. Then add an architecture guard that fails the
-build on any file under `plugin/` referencing `local.uri` outside that function — otherwise the third
+build on any file under `plugin/` referencing `local.uri` outside that function — otherwise the next
 call site, added in a year by someone debugging, re-opens it silently. That guard is the deliverable;
 the two-line fix is not.
 
@@ -85,6 +91,8 @@ No portal token reaches a log line, and a future call site that would change tha
 - [ ] `[derived]` Given a malformed request body on a portal path, then the logged line contains
       `[redacted]` and no token
 - [ ] `[derived]` Given an unhandled exception on a portal path, then the same holds
+- [ ] `[derived]` Given a request on a portal path whose `Content-Type` matches no converter, then
+      the same holds — the third call site, added by ERT-146
 - [ ] `[derived]` Given the redaction, then `Monitoring.kt` and `StatusPages.kt` call one shared
       function rather than each carrying a copy
 - [ ] `[derived]` Given any file under `plugin/` referencing `local.uri` outside that function, then
@@ -97,6 +105,7 @@ No portal token reaches a log line, and a future call site that would change tha
 |---|---|
 | Route | `status pages logging - a malformed body on a portal path - writes no token to the log` |
 | Route | `status pages logging - an unhandled exception on a portal path - writes no token to the log` |
+| Route | `status pages logging - an unreadable content type on a portal path - writes no token to the log` |
 | Route | `status pages logging - a non-portal path - logs the uri in full` |
 | Architecture | `uri redaction - every plugin referencing local.uri - goes through the shared redaction` |
 
