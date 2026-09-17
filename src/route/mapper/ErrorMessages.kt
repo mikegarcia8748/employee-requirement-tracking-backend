@@ -28,6 +28,9 @@ internal fun messageFor(code: String): String = when {
     code == "not_found" || code.endsWith("_not_found") -> "Not found."
     code == "internal_error" -> "An unexpected error occurred."
     code == "request_malformed" -> "The request could not be read."
+    // Its sibling, and deliberately not "send JSON": the same code answers the multipart
+    // upload route ERT-710 writes, where JSON is exactly the wrong thing to send.
+    code == "unsupported_media_type" -> "The request body was not sent in a supported format."
     code == "validation_failed" -> "Some fields need attention."
     // One string for all four sign-in failures. It must not hint at which occurred, so it names
     // neither the email nor the account -- "incorrect" covers a wrong password and an address with

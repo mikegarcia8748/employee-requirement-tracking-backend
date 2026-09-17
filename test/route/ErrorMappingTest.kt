@@ -189,6 +189,58 @@ class ErrorMappingTest {
     }
 
     @Test
+    fun `error mapping - a request body with no content type - is 415 rather than 500`() = testApplication {
+        // The Swagger UI case, and the reason ERT-146 exists. ContentNegotiation does not fail on a
+        // header it cannot match -- it skips every converter whose type does not match (an absent
+        // header parses as `*/*`, which matches nothing), hands the raw bytes back, and `receive`
+        // throws. That exception is an `IOException`, not a `BadRequestException`, so before this
+        // ticket it reached `exception<Throwable>` and the server claimed *it* had failed.
+        withErrorRoutes()
+
+        val response = client.post("/test/employees") { setBody("""{"id":"aB3xK9Lm"}""") }
+
+        response.status shouldBe HttpStatusCode.UnsupportedMediaType
+        response.bodyAsText() shouldBe
+            """{"result":"fail","error":{"code":"unsupported_media_type",""" +
+            """"message":"The request body was not sent in a supported format."}}"""
+    }
+
+    @Test
+    fun `error mapping - a request body sent as text plain - is 415 rather than 500`() = testApplication {
+        // The rule is that the header must *match*, not merely be present, and the answer is the
+        // same either way -- a client that chose the wrong type learns the same thing as one that
+        // sent none. `shouldNotContain` is the disclosure pin: the exception's message names the
+        // Kotlin type it could not build, and that belongs in the log and nowhere else (PRD 12).
+        withErrorRoutes()
+
+        val response = client.post("/test/employees") {
+            contentType(ContentType.Text.Plain)
+            setBody("""{"id":"aB3xK9Lm"}""")
+        }
+
+        response.status shouldBe HttpStatusCode.UnsupportedMediaType
+        response.bodyAsText() shouldNotContain "IdRequest"
+    }
+
+    @Test
+    fun `error mapping - a matching content type with the wrong body shape - stays 422 rather than 415`() =
+        testApplication {
+            // The two handlers must not shadow each other. `BadRequestException` is not in the
+            // `ContentTransformationException` hierarchy, so `instanceOf` filters it out in both
+            // directions -- this is the test that fails if someone later folds the two arms into one.
+            withErrorRoutes()
+
+            val response = client.post("/test/employees") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"wrongKey":"aB3xK9Lm"}""")
+            }
+
+            response.status shouldBe HttpStatusCode.UnprocessableEntity
+            response.bodyAsText() shouldContain "request_malformed"
+            response.bodyAsText() shouldNotContain "unsupported_media_type"
+        }
+
+    @Test
     fun `error mapping - an unexpected throwable - leaks no detail to the client`() = testApplication {
         withErrorRoutes()
 

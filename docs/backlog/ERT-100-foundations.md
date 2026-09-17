@@ -472,6 +472,131 @@ has no body type and the front-end has nothing to generate a client from.
 
 ---
 
+## ERT-146 — A request with no `Content-Type` is 415, and every body-taking route publishes its schema
+
+| | |
+|---|---|
+| **Parent** | ERT-100 |
+| **Type** | Ticket |
+| **Phase** | 0 |
+| **Status** | Done |
+| **Depends on** | ERT-140, ERT-145, ERT-190 |
+| **PRD** | §12 |
+| **Architecture** | §9, §12 |
+
+**Description**
+
+Found by hand, through Swagger UI, on 2026-09-17. `POST /api/auth/login` answered **500** with
+`Unhandled exception … CannotTransformContentToTypeException: Cannot transform this request's
+content to SignInRequest`. Nothing was wrong with the DTO, the use case, or the JSON. Two
+independent defects compose into that one symptom, and **neither half alone fixes it** — which is
+why they are one ticket.
+
+**1. The spec published no request body, so Swagger sent none.** `describe { }` on the five POST
+routes declared `summary`, `description`, `operationId`, `tag` and `responses { }` — and never
+`requestBody { }`. `OpenApiDocSource.Routing` reads the route *tree*; it cannot see inside a handler
+lambda, so it infers a body from `call.receive<T>()` no more than ERT-145 found it infers one from
+`call.respond`. The generated spec carried `SignInResponse` and no `SignInRequest`, and the
+generated sample was `curl -X POST -H "Accept: application/json" "/api/auth/login"` — no body, no
+`Content-Type`. Swagger UI renders no body editor for an operation with no `requestBody`, so "Try it
+out" sent exactly that.
+
+**This is ERT-145's rule with one half missing.** That ticket established that the generator infers
+nothing from `call.respond` and wrote the response rule into `api-contract.md`. The identical
+sentence is true of `call.receive` and was never written down, so five routes shipped without one
+and the contract had nothing to say about it. The omission *is* the defect.
+
+**2. A 415 condition was answered as a 500.** `Serialization.kt` registers `json(...)` with no
+`contentType` argument, so `application/json` is the only converter. ContentNegotiation does not
+fail on a mismatch: `convertRequestBody` skips every converter whose type does not match — an absent
+header parses as `*/*`, which matches nothing — returns the raw bytes, and `receive<T>()` throws on
+finding them. That exception is `ContentTransformationException : IOException`, **not** a
+`BadRequestException`, so ERT-140's 422 arm never saw it and `exception<Throwable>` told the client
+the server had broken. Ktor's own `defaultExceptionStatusCode` maps it to 415; installing
+`StatusPages` displaces that default, and this application never restored it.
+
+**Why 415 and not 422.** Nothing was parsed — there may be no body at all — so the payload is not
+"well-formed but unprocessable". 422 is already spent on domain `Validation` and on
+`request_malformed`, a body that *was* parsed and failed; folding this into it destroys the one
+distinction a client can act on: **422 means fix the body, 415 means fix the header.**
+
+**Why the parent exception class.** `ContentTransformationException` has two subclasses and Ktor
+treats them identically. The sibling, `UnsupportedMediaTypeException`, is the same client mistake
+against a `receiveMultipart()` handler — which **ERT-710 writes**. Registering the narrow class here
+would have handed the upload route this same 500.
+
+**Why the suite was green.** Every route test sets `contentType(ContentType.Application.Json)`. The
+suite never sent a request without one, so it could not see either half. The malformed-JSON case at
+`ErrorMappingTest:177` is the neighbouring branch and has passed since ERT-140 — it is kept
+unmodified here as the pin that the two `StatusPages` arms do not shadow each other.
+
+**Acceptance criteria**
+
+- [x] `[derived]` Given a POST with no `Content-Type`, then the response is 415 `unsupported_media_type`
+      and names no Kotlin type.
+- [x] `[derived]` Given a POST whose `Content-Type` matches no converter, then the answer is
+      identical to the one above — the header must match, not merely be present.
+- [x] `[derived]` Given a POST with `Content-Type: application/json` and a malformed body, then the
+      response is still 422 `request_malformed`.
+- [x] `[derived]` Given the generated spec, then each of the five POST operations carries a
+      `requestBody` whose schema `$ref`s its DTO — on the **operation**, not only in
+      `components.schemas`.
+- [x] `[derived]` Given a handler that calls `call.receive<T>()` and publishes no `requestBody`, then
+      the architecture test fails the build.
+
+**Tests**
+
+| Level | Test |
+|---|---|
+| Route | `error mapping - a request body with no content type - is 415 rather than 500` |
+| Route | `error mapping - a request body sent as text plain - is 415 rather than 500` |
+| Route | `error mapping - a matching content type with the wrong body shape - stays 422 rather than 415` |
+| Route | `api docs - a route that reads a request body - publishes it on the operation itself` |
+| Route | `api docs - the user routes are mounted - publish their request as well as their response schemas` |
+| Architecture | `documented request bodies - every handler that reads a body - publishes its request schema` |
+| Architecture | `documented request bodies - a handler that receives without describing one - the build fails` |
+| Architecture | `documented request bodies - a handler that describes its request body - passes` |
+| Architecture | `guard integrity - the route tree holds handlers that read a body - the guard reports checked` |
+
+**Implementation notes**
+
+- `src/plugin/StatusPages.kt` — an `exception<ContentTransformationException>` arm between the
+  existing two. Handler selection is by nearest registered superclass (`findHandlerByValue` filters
+  on `instanceOf`, then `selectNearestParentClass`), so registration order is irrelevant and
+  `BadRequestException` — not in this hierarchy — is untouched. **Register a class, never an
+  interface**: `selectNearestParentClass` measures distance by walking `superclass`.
+- `src/route/mapper/ErrorMessages.kt` — `unsupported_media_type`. Worded without naming
+  `application/json`, so ERT-710's multipart route can reuse it.
+- `src/route/hr/AuthRoutes.kt`, `src/route/hr/UserRoutes.kt` — `requestBody { }` on all five POST
+  routes. Inside that block `description` is the **body's**; the inner receiver shadows the
+  operation's.
+- `test/ArchitectureTest.kt` — the guard, on ERT-1245's precedent. Verified against the pre-fix tree
+  rather than only against its synthetic offender: it reports exactly those five routes before the
+  fix and none after.
+- The sign-in `requestBody` description says nothing about which inputs fail. Naming one would put
+  back, in prose, the oracle the four identical 401s exist to close (invariant 10).
+- Suite 673 → 682. **Measured before and after on this branch**, not added up — the roadmap's 653
+  predates ERT-432 and ERT-1120.
+
+**The five `describe { }` blocks are not the deliverable.** `api-contract.md` had carried the
+response half of this rule since ERT-145, and five routes broke the unwritten request half anyway.
+A convention that lives only in prose does not stop the sixth route; `ArchitectureTest` does. Same
+argument, and the same shape, as ERT-1245's gate guard.
+
+**Out of scope**
+- Registering a second converter content type. Accepting `*/*` would make the server guess at an
+  absent header and read a `text/plain` body as JSON, and — because `json(...)` registers a response
+  converter too — negotiate responses under `*/*`. The client's missing header is the defect; the
+  converter is not the place to paper over it.
+- `receiveText` and `receiveParameters`. They want a different content type declared and have no
+  call site in this project; inventing the rule for them in one file leaves the first real caller to
+  re-invent it (C26's reasoning).
+- Redacting the URI in the new log line. It is the **third** unredacted `local.uri` call site in
+  `StatusPages.kt` and ERT-1110 owns all three; this ticket re-counts it there and adds its
+  acceptance criterion. Harmless until ERT-630 mounts a route whose path is a credential.
+
+---
+
 ## ERT-150 — Expose the Micrometer registry on a scrape route
 
 | | |

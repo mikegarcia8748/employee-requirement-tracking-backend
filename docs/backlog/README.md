@@ -3,7 +3,7 @@
 Every unit of work, one row each. Open [docs/roadmap.md](../roadmap.md) for sequencing, the decision
 register, the escalation list, and the pointer to what is next.
 
-**12 epics · 72 tickets · 17 sub-tasks.**
+**12 epics · 73 tickets · 17 sub-tasks.**
 Phase 0 and Phase 1 are specified to ticket depth. Phases 2–4 are epic-level entries in the roadmap,
 expanded when their predecessor closes. ERT-1100 and ERT-1200 are cross-cutting and their tickets
 carry gates rather than a phase.
@@ -23,6 +23,7 @@ Phase 0 · depends on — · **Done**
 | [ERT-130](ERT-100-foundations.md#ert-130--seed-reference-data-and-app_setting-defaults-with-bounds) | Seed reference data and `app_setting` defaults with bounds | Ticket | ERT-120 | Done |
 | [ERT-140](ERT-100-foundations.md#ert-140--map-apperror-to-http-status-in-statuspages) | Map `AppError` to HTTP status in `StatusPages` | Ticket | — | Done |
 | [ERT-145](ERT-100-foundations.md#ert-145--a-uniform-response-envelope-for-api) | A uniform response envelope for `/api` | Ticket | ERT-140 | Done |
+| [ERT-146](ERT-100-foundations.md#ert-146--a-request-with-no-content-type-is-415-and-every-body-taking-route-publishes-its-schema) | A request with no `Content-Type` is 415, and every body-taking route publishes its schema | Ticket | ERT-140, ERT-145, ERT-190 | Done |
 | [ERT-150](ERT-100-foundations.md#ert-150--expose-the-micrometer-registry-on-a-scrape-route) | Expose the Micrometer registry on a scrape route | Ticket | — | Done |
 | [ERT-160](ERT-100-foundations.md#ert-160--deterministic-token-digest-separate-from-pin-hashing) | Deterministic token digest, separate from PIN hashing | Ticket | — | Done |
 | [ERT-170](ERT-100-foundations.md#ert-170--architecture-guards-for-the-write-mostly-rule) | Architecture guards for the write-mostly rule | Ticket | — | Done |

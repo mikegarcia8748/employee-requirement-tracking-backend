@@ -132,6 +132,12 @@ fun Route.userAdminRoutes(
         """.trimIndent()
         operationId = "createHrUser"
         tag("User administration")
+        requestBody {
+            description =
+                "The account to create. `initialPassword` is chosen by the admin and is never returned."
+            required = true
+            schema = jsonSchema<CreateHrUserRequest>()
+        }
         responses {
             response(201) {
                 description = "The account, which owes a password change."
@@ -171,6 +177,11 @@ fun Route.userAdminRoutes(
         """.trimIndent()
         operationId = "setHrUserActive"
         tag("User administration")
+        requestBody {
+            description = "The state to set. Setting the state the account already has is a no-op."
+            required = true
+            schema = jsonSchema<SetActiveRequest>()
+        }
         responses {
             response(200) {
                 description = "The account in its new state."
@@ -212,6 +223,11 @@ fun Route.userAdminRoutes(
         """.trimIndent()
         operationId = "resetHrPassword"
         tag("User administration")
+        requestBody {
+            description = "The replacement password. `passwordChangeRequired` is set unconditionally."
+            required = true
+            schema = jsonSchema<ResetPasswordRequest>()
+        }
         responses {
             response(204) { description = "Reset. The user must change it at next sign-in." }
             response(404) { description = "No such account, or a malformed id." }

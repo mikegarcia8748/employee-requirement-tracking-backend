@@ -7,6 +7,13 @@ policy](backlog/ERT-400-hire-creation.md#ert-433--token-issue-digested-with-expi
 is the one piece of work in this project that needs something outside the repository: a GCP project
 and an Owner. Take ERT-433 unless that exists.
 
+> **[ERT-146](backlog/ERT-100-foundations.md#ert-146--a-request-with-no-content-type-is-415-and-every-body-taking-route-publishes-its-schema)
+> jumped the queue on 2026-09-17 and is Done**, which is why ERT-433 is still the next ticket rather
+> than the one after it. `POST /api/auth/login` answered a user-reachable **500** to a request with
+> no `Content-Type` — which is the only kind Swagger UI could send it, because no POST route in the
+> project published a request schema. A 673-test suite was green throughout: every route test sets
+> `contentType(...)`, so none of them ever sent the request that breaks. Read C28, and the ticket.
+
 > **ERT-433 owes two decisions in writing before it writes code.** **C23** is its to settle:
 > `Notifier.sendInvitation` still *requires* an `AccessPin`, and since 2026-09-16 the invitation must
 > carry none — the parameter is what makes "only the invitation may carry a credential" a
@@ -108,9 +115,13 @@ a path id decided to be a 404 rather than a 422. ERT-145 then wrapped every `/ap
 envelope (`result`, `data`, `meta`, `error`), taken now because `/health` was still the only route
 mounted; it also established that **the OpenAPI generator infers nothing from `call.respond`**, so
 every route from here on must declare its response schema in `describe { }` or publish an operation
-a client cannot generate from.
+a client cannot generate from. **ERT-146 later found the other half of that sentence missing** — the
+generator infers nothing from `call.receive` either, and five POST routes had shipped with no
+request schema at all, which made `POST /api/auth/login` answer 415 to its own documentation and 500
+to the caller. Both halves are now in `api-contract.md` and both are enforced by `ArchitectureTest`
+rather than by convention.
 
-**ERT-100 is now closed.** ERT-150 exposed the
+**ERT-100 is now closed** — reopened once, on 2026-09-17, for ERT-146, and closed again in the same session. ERT-150 exposed the
 Prometheus registry on a `/metrics` route — hidden from the spec, open in dev and HR-gated
 otherwise — mounted from `Monitoring.kt` rather than `Routing.kt`, because the gate needs `HR_AUTH`
 and `isDevMode()` and the `plugin` → `route` arrow does not reverse. ERT-160 split the two portal
@@ -905,6 +916,8 @@ tracking are listed.
 | C26 | **Nothing enforces the column widths, so over-long input is a 500 rather than a 422.** `first_name` and `last_name` are `varchar(128)`, `position` `varchar(256)`, `email` `varchar(320)`, and `EmailAddress`'s regex is unbounded — so a 400-character address passes validation and dies at the insert *(opened 2026-09-17 by ERT-431)* | **Open, owned by ERT-450.** Unreachable until a route accepts a body. Not fixed in ERT-431 because a length rule belongs to every string-taking use case, and inventing it in one file leaves five later ones to re-invent it; the email cap belongs on `EmailAddress` itself |
 
 | C27 | **A catalogue that is entirely optional produces the record the empty-catalogue guard exists to prevent.** ERT-432 refuses an employment type with no active templates, because a hire at zero of zero required documents is *complete* and passes straight through the §8.5 validation loop with nothing uploaded. The guard asks `isEmpty()` — and an employment type whose templates are all `isRequired = false` has exactly that property while passing it *(opened 2026-09-17 by ERT-432's review step)* | **Open, owned by the Phase 2 admin-catalogue epic (§8.10, §8.11).** Deliberately not tightened at hire creation: the defect is in the **catalogue**, not in the hire, and the remedy is the admin screen refusing to publish an all-optional assignment — refusing at creation would block HR for something only an admin can fix, one hire at a time, late. Unreachable today: the V2 seed cross-joins all fourteen templates and ten are required. It becomes reachable the moment **Q2**'s real checklist replaces the seed, or the Phase 2 screen ships. `CreateHireUseCaseTest` **pins today's behaviour** with a named test on ERT-431's C25 precedent, so the trap is visible rather than discovered in production |
+
+| C28 | **The API contract required every route to declare its *response* schema and said nothing about its *request* schema — and the generator infers neither.** All five POST routes carried `describe { }` blocks with `responses { }` and no `requestBody { }`, so Swagger UI rendered no body editor and its "Try it out" sent `POST /api/auth/login` with no body and no `Content-Type`. ContentNegotiation then skipped every converter, `receive` threw a `ContentTransformationException` — an `IOException`, not a `BadRequestException` — and `StatusPages` answered **500**. The suite was green throughout, because every route test sets `contentType(...)` and so never sent a request without one *(opened 2026-09-17 by manual Swagger testing)* | **Closed as ERT-146.** Both halves are one defect and neither alone fixes it. 415 rather than 422, matching Ktor's own `defaultExceptionStatusCode`, so a client can tell "fix your header" from "fix your body". The handler registers the parent `ContentTransformationException`, because `UnsupportedMediaTypeException` is the identical mistake against the `receiveMultipart()` handler ERT-710 writes. The five `describe { }` blocks are not the deliverable: an `ArchitectureTest` guard now fails the build on a handler that reads a body without publishing its schema, and was checked against the pre-fix tree rather than only against a synthetic offender |
 
 **Still open, and deliberately so:** the PRD has **no owner**. E3's ratification, and any future
 contradiction between two P0 sections, route to a role nobody holds. Escalated 2026-09-16, due

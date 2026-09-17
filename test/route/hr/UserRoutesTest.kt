@@ -12,6 +12,7 @@ import com.pgsystem.employee.requirement.tracker.plugin.HR_AUTH
 import com.pgsystem.employee.requirement.tracker.plugin.configureSecurity
 import com.pgsystem.employee.requirement.tracker.plugin.configureSerialization
 import com.pgsystem.employee.requirement.tracker.plugin.configureStatusPages
+import com.pgsystem.employee.requirement.tracker.rootModule
 import com.pgsystem.employee.requirement.tracker.testdata.FixedClock
 import com.pgsystem.employee.requirement.tracker.testdata.FixedEntityIdGenerator
 import com.pgsystem.employee.requirement.tracker.testdata.FixedPersonIdGenerator
@@ -251,6 +252,24 @@ class UserRoutesTest {
             }.status shouldBe HttpStatusCode.NoContent
 
             users.current(officer.id)!!.passwordChangeRequired shouldBe true
+        }
+
+    // ── The generated spec ──────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `api docs - the user routes are mounted - publish their request as well as their response schemas`() =
+        testApplication {
+            // This file had no spec assertion at all until ERT-146, which is part of why three POST
+            // routes published no request body and nobody noticed. The response DTO is here too, so
+            // the test fails whichever half regresses.
+            application { rootModule() }
+
+            val spec = client.get("/swagger/documentation.yaml").bodyAsText()
+
+            spec shouldContain "CreateHrUserRequest"
+            spec shouldContain "SetActiveRequest"
+            spec shouldContain "ResetPasswordRequest"
+            spec shouldContain "HrUserDto"
         }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────────────────────
