@@ -57,17 +57,12 @@ import java.time.Instant
  * `resend-link`. [retry] is for the six kinds that keep their body. That is not a gap; it is the
  * reason the body is absent, stated from the other end.
  *
- * ### The `AccessPin` this port still takes
+ * ### The `AccessPin` is now on its own port method
  *
- * [sendInvitation]'s signature carries one, and since 2026-09-16 the invitation carries **no PIN**:
- * the PIN became a recovery credential HR issues out of band, and one that travelled in the same
- * email whose non-arrival it exists to remedy could not serve that purpose. The parameter survives
- * because it is what makes "only the invitation may carry a credential" a compile-time property of
- * the `Notifier` interface rather than a review checklist item — every other method is structurally
- * incapable of accepting one. **This adapter therefore accepts it and renders nothing from it.**
- * That contradiction belongs to ERT-433, which has to decide what to pass; it is on the roadmap's
- * escalation table rather than resolved here, because changing the port's shape is a specification
- * change and this ticket is not the place for one.
+ * [sendRecoveryPin]'s signature carries one, and since 2026-09-16 the invitation carries **no PIN**:
+ * the PIN became a recovery credential HR issues out of band. Splitting the port makes the
+ * invitation method clean, while keeping the compile-time property of the `Notifier` interface
+ * where only the dedicated recovery pin method handles the PIN.
  */
 class OutboxNotifier(
     private val factory: DatabaseFactory,
@@ -80,15 +75,25 @@ class OutboxNotifier(
         to: EmailAddress,
         employee: Employee,
         linkToken: String,
-        pin: AccessPin,
     ): DeliveryResult = queue(
         kind = NotificationKind.INVITATION,
         to = to,
         employee = employee,
         // Rendered so that a missing PORTAL_BASE_URL or a malformed link fails HERE, on the call
         // that holds the token, rather than in ERT-1010 when the token is long gone. The body then
-        // goes no further: see this class's own note. `pin` is not passed -- no email carries one.
+        // goes no further: see this class's own note.
         message = messages.invitation(employee, linkToken),
+    )
+
+    override suspend fun sendRecoveryPin(
+        to: EmailAddress,
+        employee: Employee,
+        pin: AccessPin,
+    ): DeliveryResult = queue(
+        kind = NotificationKind.RECOVERY_PIN,
+        to = to,
+        employee = employee,
+        message = messages.recoveryPin(employee, pin),
     )
 
     override suspend fun sendPacketReadyForReview(employee: Employee): DeliveryResult = queue(

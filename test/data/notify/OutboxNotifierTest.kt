@@ -104,7 +104,7 @@ class OutboxNotifierTest : RepositoryTestBase() {
     @Test
     fun `outbox notifier - an invitation is sent - writes a pending row for the recipient`() =
         runTest {
-            val result = notifier.sendInvitation(anEmail(), hire, TOKEN, PIN)
+            val result = notifier.sendInvitation(anEmail(), hire, TOKEN)
 
             result shouldBe DeliveryResult.Sent
             val queued = notifier.forEmployee(hire.id).single()
@@ -116,13 +116,14 @@ class OutboxNotifierTest : RepositoryTestBase() {
         }
 
     @Test
-    fun `outbox notifier - each of the seven notifier methods - writes one row of its own kind`() =
+    fun `outbox notifier - each of the eight notifier methods - writes one row of its own kind`() =
         runTest {
             // Named rather than counted, so the failure says which kind is missing. Paired with the
             // reflection check below, which is what notices an EIGHTH method being added: this test
             // would still pass against a Notifier that had grown one, because nothing here would
             // mention it.
-            notifier.sendInvitation(anEmail(), hire, TOKEN, PIN)
+            notifier.sendInvitation(anEmail(), hire, TOKEN)
+            notifier.sendRecoveryPin(anEmail(), hire, PIN)
             notifier.sendPacketReadyForReview(hire)
             notifier.sendRejection(anEmail(), hire, listOf(RejectedItem("NBI Clearance", "Expired")))
             notifier.sendExpiryWarning(anEmail(), hire, daysRemaining = 7)
@@ -132,11 +133,11 @@ class OutboxNotifierTest : RepositoryTestBase() {
 
             notifier.forEmployee(hire.id).map { it.kind }.toSet() shouldBe
                 NotificationKind.entries.toSet()
-            countOf("notification_outbox") shouldBe 7
+            countOf("notification_outbox") shouldBe 8
         }
 
     @Test
-    fun `outbox notifier - the notifier port - has exactly the seven kinds this adapter stores`() {
+    fun `outbox notifier - the notifier port - has exactly the eight kinds this adapter stores`() {
         // The guard on the guard. `Notifier` gaining an eighth method would leave the test above
         // passing while one kind was never queued at all, and the first symptom would be a
         // notification that silently went nowhere in production.
@@ -165,7 +166,7 @@ class OutboxNotifierTest : RepositoryTestBase() {
             //
             // Reads the COLUMNS, not the OutboxEntry: the entry cannot hold a token because no field
             // is named for one, which proves nothing about what reached the row.
-            notifier.sendInvitation(anEmail(), hire, TOKEN, PIN)
+            notifier.sendInvitation(anEmail(), hire, TOKEN)
 
             val row = wholeRow()
             row.contains(TOKEN) shouldBe false
@@ -178,7 +179,7 @@ class OutboxNotifierTest : RepositoryTestBase() {
         // The subject is what makes the row legible to an operator reading the table; the body is
         // the half that carries the link. Asserting only "no token" would pass against an adapter
         // that stored nothing at all and left the row unreadable.
-        notifier.sendInvitation(anEmail(), hire, TOKEN, PIN)
+        notifier.sendInvitation(anEmail(), hire, TOKEN)
 
         val queued = notifier.forEmployee(hire.id).single()
         queued.body.shouldBeNull()
@@ -217,7 +218,7 @@ class OutboxNotifierTest : RepositoryTestBase() {
             // The SECOND place a credential can reach the table. A drain loop that stored the SMTP
             // exception verbatim would be fine for six kinds and catastrophic for this one, because
             // an exception raised while sending an invitation can quote the message it was sending.
-            notifier.sendInvitation(anEmail(), hire, TOKEN, PIN)
+            notifier.sendInvitation(anEmail(), hire, TOKEN)
             val queued = notifier.forEmployee(hire.id).single()
 
             notifier.markFailed(queued.id, "550 5.1.1 Recipient address rejected")
@@ -239,7 +240,7 @@ class OutboxNotifierTest : RepositoryTestBase() {
         val unstored = anEmployee(id = com.pgsystem.employee.requirement.tracker.testdata
             .personId("EMP99999"))
 
-        val result = notifier.sendInvitation(anEmail(), unstored, TOKEN, PIN)
+        val result = notifier.sendInvitation(anEmail(), unstored, TOKEN)
 
         (result is DeliveryResult.Failed) shouldBe true
         countOf("notification_outbox") shouldBe 0
@@ -261,7 +262,7 @@ class OutboxNotifierTest : RepositoryTestBase() {
             val unstored = anEmployee(id = com.pgsystem.employee.requirement.tracker.testdata
                 .personId("EMP99999"))
 
-            val result = notifier.sendInvitation(anEmail(), unstored, TOKEN, PIN)
+            val result = notifier.sendInvitation(anEmail(), unstored, TOKEN)
 
             val reason = (result as DeliveryResult.Failed).reason
             Regex("^[A-Za-z]+$").matches(reason) shouldBe true
@@ -305,7 +306,7 @@ class OutboxNotifierTest : RepositoryTestBase() {
             // The cost of dropping the body, asserted rather than left implicit. Reissuing is
             // ERT-1030's resend-link; silently re-queueing would give ERT-1010's drain a row with
             // nothing to send and a loop that never terminates.
-            notifier.sendInvitation(anEmail(), hire, TOKEN, PIN)
+            notifier.sendInvitation(anEmail(), hire, TOKEN)
             val queued = notifier.forEmployee(hire.id).single()
             notifier.markFailed(queued.id, "Connection refused")
 

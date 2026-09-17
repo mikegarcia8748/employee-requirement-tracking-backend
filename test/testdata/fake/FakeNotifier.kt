@@ -12,9 +12,9 @@ import com.pgsystem.employee.requirement.tracker.domain.port.RejectedItem
  *
  * ### The PIN rule survives into the double
  *
- * [Notifier] encodes "no email but the invitation carries the PIN" in its *shape*: only
- * `sendInvitation` accepts an [AccessPin], so every other method is structurally incapable of
- * carrying the credential. [Sent] mirrors that exactly — **only [Sent.Invitation] declares a
+ * [Notifier] encodes "no email but the recovery notification carries the PIN" in its *shape*: only
+ * `sendRecoveryPin` accepts an [AccessPin], so every other method is structurally incapable of
+ * carrying the credential. [Sent] mirrors that exactly — **only [Sent.RecoveryPin] declares a
  * `pin`** — so the same property holds for anything asserting against recorded sends. A test cannot
  * accidentally claim a rejection notice leaked a PIN, because there is nowhere for it to have been.
  *
@@ -51,12 +51,17 @@ class FakeNotifier : Notifier {
 
     data class Attempt(val notification: Sent, val result: DeliveryResult)
 
-    /** One recorded send per [Notifier] method. Only [Invitation] can hold a credential. */
+    /** One recorded send per [Notifier] method. Only [RecoveryPin] can hold a credential. */
     sealed interface Sent {
         data class Invitation(
             val to: EmailAddress,
             val employee: Employee,
             val linkToken: String,
+        ) : Sent
+
+        data class RecoveryPin(
+            val to: EmailAddress,
+            val employee: Employee,
             val pin: AccessPin,
         ) : Sent
 
@@ -83,8 +88,13 @@ class FakeNotifier : Notifier {
         to: EmailAddress,
         employee: Employee,
         linkToken: String,
+    ): DeliveryResult = deliver(Sent.Invitation(to, employee, linkToken))
+
+    override suspend fun sendRecoveryPin(
+        to: EmailAddress,
+        employee: Employee,
         pin: AccessPin,
-    ): DeliveryResult = deliver(Sent.Invitation(to, employee, linkToken, pin))
+    ): DeliveryResult = deliver(Sent.RecoveryPin(to, employee, pin))
 
     override suspend fun sendPacketReadyForReview(employee: Employee): DeliveryResult =
         deliver(Sent.PacketReadyForReview(employee))

@@ -25,6 +25,14 @@ import com.pgsystem.employee.requirement.tracker.domain.port.AuditLog
 import com.pgsystem.employee.requirement.tracker.domain.port.EmployeeRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.ReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.RequirementTemplateRepository
+import com.pgsystem.employee.requirement.tracker.domain.port.UploadLinkRepository
+import com.pgsystem.employee.requirement.tracker.domain.port.AppSettingsRepository
+import com.pgsystem.employee.requirement.tracker.domain.port.Notifier
+import com.pgsystem.employee.requirement.tracker.core.id.TokenGenerator
+import com.pgsystem.employee.requirement.tracker.core.crypto.TokenDigest
+import com.pgsystem.employee.requirement.tracker.domain.model.UploadLink
+import com.pgsystem.employee.requirement.tracker.domain.model.LinkScope
+import com.pgsystem.employee.requirement.tracker.domain.model.LinkStatus
 import java.time.Instant
 
 /**
@@ -148,6 +156,11 @@ class CreateHireUseCase(
     private val employees: EmployeeRepository,
     private val reference: ReferenceDataRepository,
     private val templates: RequirementTemplateRepository,
+    private val uploadLinks: UploadLinkRepository,
+    private val tokenGenerator: TokenGenerator,
+    private val tokenDigest: TokenDigest,
+    private val appSettings: AppSettingsRepository,
+    private val notifier: Notifier,
     private val audit: AuditLog,
     private val clock: Clock,
     private val ids: EntityIdGenerator,
@@ -205,6 +218,11 @@ class CreateHireUseCase(
                 field = "employmentTypeId",
                 detail = "No active requirements are configured for that employment type",
             ).asErr()
+        }
+
+        val policy = when (val policyResult = appSettings.linkPolicy()) {
+            is DomainResult.Ok -> policyResult.value
+            is DomainResult.Err -> return policyResult
         }
 
         val duplicates = employees.findActiveByEmail(email)
@@ -311,7 +329,37 @@ class CreateHireUseCase(
             )
         }
 
-        return HireCreated(stored, RequirementSet(requirements)).asOk()
+        val plaintextToken = tokenGenerator.newToken()
+        val expiresAt = now.plus(java.time.Duration.ofDays(policy.absoluteExpiryDays.toLong()))
+        val idleExpiresAt = if (policy.idleClockEnabled) {
+            now.plus(java.time.Duration.ofDays(policy.idleExpiryDays.toLong()))
+        } else {
+            null
+        }
+
+        val link = uploadLinks.save(
+            UploadLink(
+                id = ids.newEntityId(),
+                employeeId = stored.id,
+                tokenHash = tokenDigest.digest(plaintextToken),
+                pinHash = null,
+                scope = LinkScope.All,
+                status = LinkStatus.ACTIVE,
+                issuedAt = now,
+                expiresAt = expiresAt,
+                idleExpiresAt = idleExpiresAt,
+                extendedCount = 0,
+                failedPinCount = 0,
+                lockedUntil = null,
+                warnedAt = null,
+                revokedAt = null,
+                revokedReason = null,
+            )
+        )
+
+        notifier.sendInvitation(stored.email, stored, plaintextToken)
+
+        return HireCreated(stored, RequirementSet(requirements), link).asOk()
     }
 
     /**
