@@ -544,10 +544,16 @@ written down.
 | **Parent** | ERT-1200 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting |
-| **Status** | Not started |
+| **Status** | In progress |
 | **Depends on** | ERT-1220, ERT-1240, ERT-1260, ERT-1160 |
 | **PRD** | — |
 | **Architecture** | §14 |
+
+> **Status note, 2026-09-17: the workflow file is written and committed; nothing has run it.** It
+> cannot run until ERT-1260 creates the pool, the service accounts, the registry and the secrets, and
+> nothing in this repository can create those — they need a GCP project and an Owner. So this ticket
+> is *In progress* rather than *Done*: the deliverable exists and is reviewable, and it is unproven.
+> The first merge to `main` after ERT-1260 is what closes it.
 
 **Description**
 
@@ -591,10 +597,16 @@ Merging to `main` produces a running UAT service without anyone opening a termin
 | **Parent** | ERT-1200 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting |
-| **Status** | Not started |
+| **Status** | In progress |
 | **Depends on** | ERT-1270 |
 | **PRD** | — |
 | **Architecture** | §14 |
+
+> **Status note, 2026-09-17: the workflow file is written and committed; nothing has run it.** It
+> cannot run until ERT-1260 creates the pool, the service accounts, the registry and the secrets, and
+> nothing in this repository can create those — they need a GCP project and an Owner. So this ticket
+> is *In progress* rather than *Done*: the deliverable exists and is reviewable, and it is unproven.
+> The first merge to `main` after ERT-1260 is what closes it.
 
 **Description**
 
