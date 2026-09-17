@@ -644,6 +644,20 @@ PRD deployment is GCP (Q20), where Cloud Run and GKE are multi-instance by defau
 constraint; this ticket must state which of the two it assumed.** The lockout and suspend counters do
 not have this problem: they are DB-backed through `countRecentFailures`.
 
+> **ERT-1120 answered it on 2026-09-17: MULTI-INSTANCE.** The pin is not available, and not because
+> nobody chose it — `--max-instances 1` is a per-revision ceiling rather than a mutex, so during any
+> rollout two instances exist. Read the answer on ERT-1120 before writing this limiter.
+>
+> What follows for this ticket:
+>
+> - The effective limit is `configured × instance_count`. At `--max-instances 4` a limit of 10
+>   behaves like 40 in the worst case. **The multiplier must be documented where the limit is
+>   configured**, or an operator sets 10 and gets 40 without being told.
+> - **Only non-security-bearing limiting may live in memory.** Coarse request shaping is fine.
+>   Anything the security model depends on is not, and the PIN attempt counters already show the
+>   correct pattern — DB-backed through `countRecentFailures`. They must stay that way.
+> - If a real distributed limit is needed, the store is the database, not a new dependency.
+
 **Goal**
 
 Public portal endpoints are limited per §7.1, keyed on the link rather than the caller, and a limited
@@ -669,8 +683,10 @@ request reaches the trail.
 - [ ] `[derived]` Given a burst of recovery attempts, then the limit applies per source and per
       address
 - [ ] `[derived]` Given the sign-in route, then it is limited by source
-- [ ] `[derived]` Given the limiter, then the code states whether it assumes a single instance, and
-      ERT-1120 records the matching deployment constraint
+- [ ] `[derived]` Given the limiter, then the code states that the deployment is multi-instance
+      (ERT-1120) and documents the `configured × instances` multiplier where the limit is set
+- [ ] `[derived]` Given anything the security model depends on, then it is counted in the database
+      rather than in memory
 
 **Tests**
 | Level | Test |
@@ -689,5 +705,6 @@ request reaches the trail.
 - modify [`src/Application.kt`](../../src/Application.kt)
 
 **Out of scope**
-- Distributed limiting across instances. Phase 1 runs one instance; record the assumption.
+- Distributed limiting across instances. The deployment is multi-instance (ERT-1120), so the
+  in-memory limiter is coarse shaping only; a real distributed limit is a later ticket.
 - HR-side limits. The HR surface is authenticated and low-volume.

@@ -117,7 +117,7 @@ No portal token reaches a log line, and a future call site that would change tha
 | **Parent** | ERT-1100 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting — **Phase 1 exit checklist** |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-195 |
 | **PRD** | §12 |
 | **Architecture** | §14 |
@@ -148,6 +148,41 @@ per-process. The PIN counters are safe, being DB-backed, and ERT-1010's poller c
 conditionally so a double send is impossible. **This ticket records which assumption the deployment
 makes** — pinned to one instance, or not — and ERT-660 and ERT-1020 read it.
 
+> **Answered 2026-09-17, when ERT-1200 created the target environment: MULTI-INSTANCE. Nothing may
+> assume one process.**
+>
+> The pin was rejected rather than merely not chosen. **`--max-instances 1` is a per-revision ceiling,
+> not a mutex** — during any rollout the old revision's instance and the new revision's instance both
+> exist, and Cloud Run starts a replacement whenever an instance becomes unhealthy. Correctness resting
+> on `max-instances 1` rests on something Cloud Run does not promise, and it would be discovered during
+> a deploy, which is the worst available moment. Pinning also caps throughput permanently and makes the
+> service a single point of failure, in exchange for a property it does not actually deliver.
+>
+> What the three tickets that read this must now do:
+>
+> - **ERT-660** — an in-memory limiter is per-instance, so the effective limit is `N × instances`; at
+>   `--max-instances 4` a limit of N behaves like 4N in the worst case. That is tolerable for coarse
+>   request shaping and **not** tolerable for anything security-bearing. The PIN attempt counters are
+>   already DB-backed, which is the correct pattern; only non-security limiting may live in memory, and
+>   the multiplier must be documented where the limit is configured.
+> - **ERT-1020** — a bare per-process timer runs every job on every instance. Two acceptable designs:
+>   Cloud Scheduler calling an authenticated endpoint (one invocation, whichever instance answers —
+>   recommended, and it also removes the always-on-CPU dependency), or a DB-backed lease using
+>   `SELECT … FOR UPDATE SKIP LOCKED`.
+> - **ERT-1010** — already safe. The poller claims rows conditionally, so a double send is impossible.
+>   Stated explicitly here so that nobody "fixes" it.
+>
+> The resolved answer is also printed in the startup summary, so an operator reads it from the log
+> rather than from this file.
+
+**The ephemeral-filesystem refusal belongs with the adapter, not here.** ERT-710 will bind a local
+filesystem `DocumentStorage` under `STORAGE_ROOT`. On Cloud Run that is an in-memory tmpfs charged
+against the container's memory limit, never evicted, and **per-instance** — so a download following an
+upload misses roughly `(N-1)/N` of the time, and a day of uploads OOM-kills the instance. The check
+that refuses to start when that adapter is selected outside dev cannot be written before the adapter
+exists, so it is an acceptance criterion **on ERT-710** rather than a criterion here that would have to
+be marked done without being implemented.
+
 **Goal**
 
 A deployment that is misconfigured fails at startup instead of running permissively, and the log says
@@ -158,15 +193,15 @@ what mode it came up in.
   the docs and the metrics to the internet.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given `APP_ENV` is unset, then the application resolves to production and refuses to
+- [x] `[derived]` Given `APP_ENV` is unset, then the application resolves to production and refuses to
       start without `JWT_SECRET` and `TOKEN_PEPPER`
-- [ ] `[derived]` Given `APP_ENV=dev`, then the dev affordances apply exactly as they do today
-- [ ] `[derived]` Given a fresh checkout, then there is one documented command that runs the
+- [x] `[derived]` Given `APP_ENV=dev`, then the dev affordances apply exactly as they do today
+- [x] `[derived]` Given a fresh checkout, then there is one documented command that runs the
       application in dev without hand-setting variables
-- [ ] `[derived]` Given startup, then one log line names the resolved state of every environment-gated
+- [x] `[derived]` Given startup, then one log line names the resolved state of every environment-gated
       control
-- [ ] `[derived]` Given the documentation, then the single-instance assumption is stated, and ERT-660
-      and ERT-1020 cite it
+- [x] `[derived]` Given the documentation, then the instance assumption is stated, and ERT-660 and
+      ERT-1020 cite it
 
 **Tests**
 | Level | Test |

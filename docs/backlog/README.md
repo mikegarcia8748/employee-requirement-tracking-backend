@@ -155,7 +155,7 @@ Cross-cutting · depends on —
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
 | [ERT-1110](ERT-1100-operability-hardening.md#ert-1110--redact-the-request-uri-in-statuspages-logging) | Redact the request URI in `StatusPages` logging | Ticket | ERT-140 | Not started |
-| [ERT-1120](ERT-1100-operability-hardening.md#ert-1120--app_env-fails-closed-and-one-deployment-configuration-check) | `APP_ENV` fails closed, and one deployment-configuration check | Ticket | ERT-195 | Not started |
+| [ERT-1120](ERT-1100-operability-hardening.md#ert-1120--app_env-fails-closed-and-one-deployment-configuration-check) | `APP_ENV` fails closed, and one deployment-configuration check | Ticket | ERT-195 | Done |
 | [ERT-1130](ERT-1100-operability-hardening.md#ert-1130--token-pepper-rotation-and-credential-re-issue) | Token pepper rotation and credential re-issue | Ticket | ERT-1030 | Not started |
 | [ERT-1140](ERT-1100-operability-hardening.md#ert-1140--documentation-hygiene-root-readme-and-the-unused-r2dbc-dependencies) | Documentation hygiene: root README and the unused R2DBC dependencies | Ticket | — | Not started |
 | [ERT-1150](ERT-1100-operability-hardening.md#ert-1150--malware-scanning-behind-the-isclean-gate) | Malware scanning behind the `isClean` gate | Ticket | ERT-710, ERT-810 | **Blocked on Q22** |

@@ -6,6 +6,7 @@ import com.pgsystem.employee.requirement.tracker.plugin.configureApiDocs
 import com.pgsystem.employee.requirement.tracker.plugin.configureDatabase
 import com.pgsystem.employee.requirement.tracker.plugin.configureHrBootstrap
 import com.pgsystem.employee.requirement.tracker.plugin.configureHttp
+import com.pgsystem.employee.requirement.tracker.plugin.logStartupConfiguration
 import com.pgsystem.employee.requirement.tracker.plugin.configureMonitoring
 import com.pgsystem.employee.requirement.tracker.plugin.HR_AUTH
 import com.pgsystem.employee.requirement.tracker.plugin.configureSecurity
@@ -31,12 +32,19 @@ import org.koin.ktor.ext.get
  * test without the rest of the graph — and a route test can then sign tokens with the very config the
  * verifier was given. Resolving it here also means a missing `JWT_SECRET` fails during assembly.
  *
+ * `logStartupConfiguration()` runs first and deliberately depends on nothing (ERT-1120). Every
+ * refusal below it — a missing `JWT_SECRET`, an absent `TOKEN_PEPPER`, an empty `users` table with
+ * no bootstrap credentials — aborts assembly before any other line is logged. Putting the summary
+ * ahead of them means a failed boot still says which mode it resolved to, rather than leaving the
+ * reader to reconstruct the environment by hand.
+ *
  * `configureHrBootstrap()` has the tightest ordering constraint of the three (ERT-190). It writes a
  * row, so it must follow `configureDatabase()`; and it may refuse to start, so it must run before
  * `configureRouting()` mounts anything — a deployment with no way in should fail during assembly
  * rather than answer requests it has nobody to authorise.
  */
 fun Application.rootModule() {
+    logStartupConfiguration()
     configureStatusPages()
     configureKoin()
     configureDatabase()

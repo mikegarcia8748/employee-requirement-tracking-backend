@@ -1,7 +1,14 @@
-# Local configuration -- .env.example is the tracked template; .env is yours and holds secrets
+# Local configuration -- .env is yours and holds secrets. The re-included files hold none and are
+# tracked on purpose: .env.example is the template, .env.dev and .env.local-pg are the documented
+# ways to run (ERT-1120, ERT-1230). Git's last-matching-pattern rule is what makes the negations
+# work, and it is fragile as the list grows -- the gitleaks gate in CI is what makes committing
+# files named .env.* safe rather than merely convenient.
 .env
 .env.*
 !.env.example
+!.env.dev
+!.env.docker
+!.env.local-pg
 
 # Build output
 build/

@@ -92,5 +92,3 @@ private fun OpenApiDocDsl.apiSpec() {
         """.trimIndent(),
     )
 }
-
-internal fun isDevMode(): Boolean = System.getenv("APP_ENV").orEmpty().ifEmpty { "dev" } == "dev"
