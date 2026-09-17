@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Epic |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | In progress |
 | **Depends on** | ERT-300 |
 | **PRD** | §8.1, §5, §6.4, §6.6 |
 | **Architecture** | §5, §8, §12 invariants 4 and 6 |
@@ -344,7 +344,7 @@ A link is resolvable by presented token without the plaintext ever being stored 
 | **Parent** | ERT-400 |
 | **Type** | Ticket — **split into ERT-431…434** |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | In progress — ERT-431 done |
 | **Depends on** | ERT-190, ERT-210, ERT-230, ERT-310, ERT-320, ERT-350, ERT-410, ERT-420, ERT-440 |
 | **PRD** | §8.1, §5, §6.4, §6.6 |
 | **Architecture** | §5, §8 |
@@ -373,7 +373,7 @@ The use case satisfies every §8.1 acceptance criterion against fakes, before an
 |---|---|
 | **Parent** | ERT-430 |
 | **Type** | Sub-task |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-210, ERT-230 |
 | **PRD** | §8.1 |
 
@@ -409,22 +409,27 @@ is the artefact.
 > 2026-09-16.)
 
 **Acceptance criteria**
-- [ ] Given an invalid email format, then the form blocks submission with a field-level message
+- [x] Given an invalid email format, then the form blocks submission with a field-level message
       (§8.1)
-- [ ] Given a duplicate email on an active hire, then HR sees a warning and must enter a typed reason
+- [x] Given a duplicate email on an active hire, then HR sees a warning and must enter a typed reason
       before proceeding, which is written to the audit log and surfaced in the exception report
       (§8.1)
-- [ ] `[derived]` Given a duplicate and a supplied reason, then the hire is created and carries the
+- [x] `[derived]` Given a duplicate and a supplied reason, then the hire is created and carries the
       `SHARED_EMAIL` anomaly flag
-- [ ] `[derived]` Given a duplicate email belonging to a completed or cancelled hire, then no reason
+- [x] `[derived]` Given a duplicate email belonging to a completed or cancelled hire, then no reason
       is required
-- [ ] `[derived]` Given an empty or whitespace-only reason, then it is treated as absent
-- [ ] `[derived]` Given an unknown department id, then the failure is `Validation` naming
+- [x] `[derived]` Given an empty or whitespace-only reason, then it is treated as absent
+- [x] `[derived]` Given an unknown department id, then the failure is `Validation` naming
       `departmentId` with code `department_unknown` — **not** `NotFound` (E8)
-- [ ] `[derived]` Given an unknown employment type id, then the failure names `employmentTypeId` with
+- [x] `[derived]` Given an unknown employment type id, then the failure names `employmentTypeId` with
       code `employment_type_unknown`
-- [ ] `[derived]` Given a department id supplied in the `employmentTypeId` field, then it is rejected
+- [x] `[derived]` Given a department id supplied in the `employmentTypeId` field, then it is rejected
       — the two existence checks are separate for exactly this reason (ERT-350)
+- [x] `[derived]` Given a blank first name, last name or position, then it is refused naming the
+      field — **added by the review step**, see the note below
+- [x] `[derived]` Given a successful creation, then the result is `HireCreated`, the hire is written
+      through `create` rather than `save`, and both the result and the audit row carry the id that
+      was **stored** rather than the one that was drawn
 
 **Tests**
 | Level | Test |
@@ -439,6 +444,32 @@ is the artefact.
 | Use case | `hire creation - an employment type id that does not exist - fails with a validation error naming which id` |
 | Use case | `hire creation - a department id supplied as the employment type - is rejected rather than accepted` |
 
+Added by the review step, each catching a break the nine above do not:
+
+| Level | Test |
+|---|---|
+| Use case | `hire creation - a valid command - stores the hire through create and audits it` |
+| Use case | `hire creation - a new hire - starts in draft collecting with nothing submitted` |
+| Use case | `hire creation - a unique email - carries no anomaly flag and records no override` |
+| Use case | `hire creation - a generated id that collides with an existing hire - returns and audits the id stored` |
+| Use case | `hire creation - a duplicate in another case - still needs a reason` |
+| Use case | `hire creation - a duplicate with a completed hire - needs no reason` |
+| Use case | `hire creation - a reason with no duplicate - is ignored and records no override` |
+| Use case | `hire creation - a duplicate with a reason - leaves the hire it duplicates unchanged` |
+| Use case | `hire creation - a typed reason with surrounding whitespace - is recorded trimmed` |
+| Use case | `hire creation - both reference ids unknown - names the department first` |
+| Use case | `hire creation - an unknown department and a duplicate email - fails on the department` |
+| Use case | `hire creation - a blank first name - is refused naming the field` |
+| Use case | `hire creation - a blank last name - is refused naming the field` |
+| Use case | `hire creation - a whitespace-only position - is refused naming the field` |
+| Use case | `hire creation - names with surrounding whitespace - are stored trimmed` |
+| Use case | `hire creation - a blank middle initial - is stored as absent` |
+| Use case | `hire creation - the audit write fails - the failure surfaces rather than a silently unaudited hire` |
+| Fake | `fake reference data - a department id - does not exist as an employment type` |
+| Fake | `fake reference data - departments seeded out of order - come back in name order` |
+| Fake | `fake reference data - an empty catalogue - reports that nothing exists` |
+| Mapper | `audit metadata - a long reason with no spaces - is refused today, which ERT-431 made reachable` |
+
 **Files**
 - create `src/domain/usecase/CreateHireUseCase.kt`
 - create `test/domain/usecase/CreateHireUseCaseTest.kt`
@@ -446,6 +477,94 @@ is the artefact.
   ERT-210 built ten; `ReferenceDataRepository` arrived later with ERT-350, which needed only a local
   fake in its route test. This is the first use-case test that needs a shared one, and nothing
   currently records it as anyone's job (C9)
+- modify [`src/domain/model/Employee.kt`](../../src/domain/model/Employee.kt) — `Employee.AUDIT_ENTITY`
+  and the `HireCreated` result type
+- modify [`src/di/DomainModule.kt`](../../src/di/DomainModule.kt) — bind it; no adapter was needed,
+  because ERT-440 left the epic with every port this use case names already bound
+- modify [`test/di/DataModuleTest.kt`](../../test/di/DataModuleTest.kt) — `resolves every HR use case`
+  becomes `resolves every use case`: the six it named were all HR-*account* use cases, and this is
+  the first that is not. The unbound-port tripwire still names `SubmissionRepository`
+- modify [`test/testdata/DomainResults.kt`](../../test/testdata/DomainResults.kt) — `errField()`
+- modify [`test/testdata/fake/FakesTest.kt`](../../test/testdata/fake/FakesTest.kt) — the new fake's
+  three semantics tests and its place in the construction roll-call
+- modify [`test/data/mapper/AuditEntryMapperTest.kt`](../../test/data/mapper/AuditEntryMapperTest.kt)
+  — the C25 pin below
+
+> **The result is `HireCreated`, not `Employee`, and ERT-432/433/434 should extend it rather than
+> re-argue it.** ERT-430 says this sub-task "establishes the result type the other three extend", and
+> `Employee` cannot be that type. ERT-434's own acceptance criterion is that *the result* reports a
+> delivery failure — which leaves only two options against a bare `Employee`: put a delivery column
+> on `employees`, which **E4 explicitly forbids** ("a column would be a second copy of a fact the
+> outbox already owns, and the two would drift the first time a retry succeeded"), or widen the
+> signature at ERT-434, which is the rework splitting ERT-430 into sub-tasks exists to avoid. ERT-450
+> also needs the requirement set in its 201 body, and that is reached through `requirementsOf` rather
+> than from the hire — so a bare `Employee` would force the route into a second repository call, which
+> the dependency rule forbids.
+>
+> It lives in `domain/model/Employee.kt` on the `HrSession` precedent: commands live beside their use
+> case, results live in the model. Growth is compile-checked where it should be — a new field without
+> a default breaks the one construction site inside the use case and leaves every test reading
+> `.employee` untouched.
+
+> **ERT-431 is the first code that ever sets `SHARED_EMAIL`, which makes the E3 defect live rather
+> than theoretical — and it is still ERT-734's to fix.** `Employee.retentionFrozen` is
+> `anomalyFlags.isNotEmpty()`, so a hire flagged here has its retention frozen, while the API
+> contract says this flag must **not** freeze it. `AnomalyFlag.freezesRetention` is named by four
+> documents — `CLAUDE.md` invariant 8 among them — and exists in none of the code.
+>
+> Deferred on ERT-410's precedent, and deliberately: landing it touches `AnomalyFlag`,
+> `Employee.retentionFrozen` and ERT-410's round-trip test, all outside this sub-task's file list,
+> and E3 is still marked *"PRD owner to ratify"* — so implementing it here would be the C2 failure
+> this very ticket documents, committed in the ticket that documents it.
+>
+> **The test says nothing about `retentionFrozen` in either direction**, and that is the point.
+> Asserting `true` would spell the defect as a requirement and turn ERT-734 into a red build for an
+> unrelated reason; asserting `false` would be red today. It asserts the flag set exactly —
+> `shouldBe setOf(SHARED_EMAIL)`, not `shouldContain`, which would pass against a use case that set
+> every flag — and pairs it with a unique-email test asserting the set is empty.
+
+> **Two rulings settled elsewhere, implemented here and not re-argued: E8 and C1.** An unknown
+> `departmentId` or `employmentTypeId` is a **422 naming the field**, with two codes rather than one,
+> because both ids are 12-character `EntityId`s and a single code could not tell HR which picker to
+> fix. A duplicate with no reason is **`ReasonRequired` → 422**, not `Conflict` → 409.
+>
+> A malformed id folds into the same `*_unknown` failure rather than earning a second code: from HR's
+> side a 13-character id and a well-formed absent one have one remedy — pick from the list. The
+> consequence for the tests is that the two "does not exist" cases must use **well-formed but absent**
+> ids, or they would fail before the existence check runs and prove nothing about it.
+>
+> **The two reference checks are spelled out twice rather than extracted.** A shared
+> `requireReference(raw, field, code, exists = ...)` reads better and would let a caller pass
+> `reference::departmentExists` for both ids — the exact defect `ReferenceDataRepository` split into
+> two methods to make unrepresentable. Here the duplication *is* the control. The blank-field helper
+> takes parameters safely for the opposite reason: its code and field travel together in one call.
+
+> **Required fields were nobody's, and the review step took them.** `employees.first_name`,
+> `last_name` and `position` are `not null` with **no check constraint**, so `""` stores cleanly and
+> the hire renders as a blank row in HR's list. ERT-432/433/434 are the snapshot, the token and the
+> invitation; ERT-450 is a thin route that makes no decisions; the next candidate owner is Phase 2.
+> Taken here because `CreateHrUserUseCase` already runs this exact rule on this exact kind of field
+> (`full_name.required`), so omitting it in the sibling use case would be an inconsistency rather
+> than a boundary — and because the roadmap's own recurring lesson is that a gap without a number is
+> invisible.
+
+> **Confirmed by breaking it, eighteen times — and the first run of the harness lied.** Each break was
+> applied to the finished use case and the suite re-run: dropping each reference check, pointing both
+> at `departmentExists`, swapping their order, moving the duplicate check ahead of them, never and
+> always setting `SHARED_EMAIL`, never and always recording the override row, dropping the
+> `ReasonRequired` guard, dropping the reason's `trim`, dropping the name trims and the blank checks,
+> keeping a blank middle initial, the wrong `packetStatus`, the wrong `createdBy`, swallowing an audit
+> failure, and using the argument's id rather than the one `create` stored. **Every one failed a named
+> test**, and the two ordering breaks and the id break were each caught by exactly the one test
+> written for them.
+>
+> The lesson is one layer up from ERT-420's. One break reported **SURVIVED** on the first pass, and it
+> had not: it was a compile error, and the harness detected compile failure by grepping for `error:`
+> — which Amper does not print, since it writes `ERROR:` inside a box. **The mutation harness needs
+> its own vacuity check**: it now requires the string `tests successful` to be present before it will
+> interpret an empty failure list as a survival. ERT-320 found vacuity in a seed, ERT-410 inside a
+> test written to prevent it, ERT-420 in two such tests at once — and this one was in the instrument
+> that finds them.
 
 ---
 
