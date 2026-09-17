@@ -64,6 +64,32 @@ class RequirementTemplateRoutesTest {
                 .status shouldBe HttpStatusCode.OK
         }
 
+    @Test
+    fun `requirement templates - a caller who must change their password - is refused`() =
+        testApplication {
+            // ERT-1245. `AuthGates.kt` says "Every HR route calls this", and this one did not -- it
+            // called the repository straight through. So the bootstrap admin before first sign-in,
+            // and anyone whose password an admin has just reset, could read the catalogue. The data
+            // is low-sensitivity; the gap between the stated control and the applied one is not.
+            application {
+                configureStatusPages()
+                configureSerialization()
+                configureSecurity(testJwtConfig())
+                routing {
+                    authenticate(HR_AUTH) {
+                        requirementTemplateRoutes(FakeRequirementTemplateRepository())
+                    }
+                }
+            }
+
+            val response = client.get("/api/requirement-templates") {
+                authenticatedAs(anHrUser(passwordChangeRequired = true))
+            }
+
+            response.status shouldBe HttpStatusCode.Conflict
+            response.bodyAsText() shouldContain "password_change_required"
+        }
+
     // ── The payload ─────────────────────────────────────────────────────────────────────────────
 
     @Test
@@ -76,7 +102,7 @@ class RequirementTemplateRoutesTest {
             )
             withCatalogue(catalogue)
 
-            val response = client.get("/api/requirement-templates")
+            val response = client.get("/api/requirement-templates") { authenticatedAs(anHrUser()) }
 
             response.status shouldBe HttpStatusCode.OK
             response.bodyAsText() shouldBe
@@ -100,7 +126,7 @@ class RequirementTemplateRoutesTest {
                 )
             )
 
-            val body = client.get("/api/requirement-templates").bodyAsText()
+            val body = client.get("/api/requirement-templates") { authenticatedAs(anHrUser()) }.bodyAsText()
 
             body shouldNotContain "isActive"
             body shouldNotContain "expires"
@@ -120,7 +146,7 @@ class RequirementTemplateRoutesTest {
             )
         )
 
-        val body = client.get("/api/requirement-templates").bodyAsText()
+        val body = client.get("/api/requirement-templates") { authenticatedAs(anHrUser()) }.bodyAsText()
 
         body shouldContain "Live"
         body shouldNotContain "Retired"
@@ -131,7 +157,7 @@ class RequirementTemplateRoutesTest {
         // Never a 404: an empty result is a fact about the catalogue, not a missing resource.
         withCatalogue(FakeRequirementTemplateRepository())
 
-        val response = client.get("/api/requirement-templates")
+        val response = client.get("/api/requirement-templates") { authenticatedAs(anHrUser()) }
 
         response.status shouldBe HttpStatusCode.OK
         response.bodyAsText() shouldBe """{"result":"success","data":[],"meta":{"total":0}}"""
@@ -145,7 +171,7 @@ class RequirementTemplateRoutesTest {
         val catalogue = FakeRequirementTemplateRepository(aRequirementTemplate())
         withCatalogue(catalogue)
 
-        client.get("/api/requirement-templates")
+        client.get("/api/requirement-templates") { authenticatedAs(anHrUser()) }
 
         catalogue.employmentTypeReads.shouldBeEmpty()
     }
@@ -191,10 +217,20 @@ class RequirementTemplateRoutesTest {
      * is auth-agnostic. `configureStatusPages` is included so a mapping failure surfaces as the
      * envelope rather than an empty 500 body.
      */
+    /**
+     * The payload harness.
+     *
+     * It used to mount the handler with no security plugin at all, which was possible while
+     * `authenticate` was the only gate and it lived in `Routing.kt`. ERT-1245 put `hrUserOrRefuse()`
+     * inside the handler — correctly, since that gate is per-handler — so a payload case now needs a
+     * caller. The cost is this block; the benefit is that a payload assertion is made against the
+     * same wiring the route actually runs under.
+     */
     private fun ApplicationTestBuilder.withCatalogue(catalogue: FakeRequirementTemplateRepository) =
         application {
             configureStatusPages()
             configureSerialization()
-            routing { requirementTemplateRoutes(catalogue) }
+            configureSecurity(testJwtConfig())
+            routing { authenticate(HR_AUTH) { requirementTemplateRoutes(catalogue) } }
         }
 }

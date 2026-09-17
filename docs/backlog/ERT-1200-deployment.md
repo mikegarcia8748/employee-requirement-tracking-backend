@@ -349,7 +349,7 @@ Every secret-or-destination configuration value fails the same way: loudly, at s
 | **Parent** | ERT-1200 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting — any time |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-190 |
 | **PRD** | §8.13 |
 | **Architecture** | §12 |
@@ -375,16 +375,25 @@ who trusts that comment writes the next route the same way.
 Found during the ERT-1200 deployment audit, and fixed here rather than filed, because deployment is
 what puts these routes on the internet.
 
+**The three-line fix is not the deliverable.** A comment is what spread this from one file to the
+next, and a comment cannot stop the fourth route — so the change also adds an architecture guard that
+fails the build on any handler under `route/hr/` whose body does not open with one of the three
+gates, with `/api/auth/login` on an explicit allow-list because sign-in is how a caller obtains the
+credential every other route requires. Adding to that list costs an edit and a reviewer's attention,
+which is what an inferred rule would have given away.
+
 **Goal**
 
 The gate the code documents is the gate the code applies.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given a token with `pwd_change=true`, then `GET /api/requirement-templates`,
+- [x] `[derived]` Given a token with `pwd_change=true`, then `GET /api/requirement-templates`,
       `GET /api/departments` and `GET /api/employment-types` all refuse
-- [ ] `[derived]` Given a token with `pwd_change=false`, then all three respond as before
-- [ ] `[derived]` Given `ReferenceRoutes.kt`, then its comment no longer claims the gate is applied
+- [x] `[derived]` Given a token with `pwd_change=false`, then all three respond as before
+- [x] `[derived]` Given `ReferenceRoutes.kt`, then its comment no longer claims the gate is applied
       route-wide
+- [x] `[derived]` Given any handler under `route/hr/` that does not open with a gate, then the
+      architecture test fails the build
 
 **Tests**
 | Level | Test |
@@ -393,14 +402,17 @@ The gate the code documents is the gate the code applies.
 | Route | `departments - a caller who must change their password - is refused` |
 | Route | `employment types - a caller who must change their password - is refused` |
 | Route | `reference data - a caller in good standing - is served` |
+| Architecture | `hr routes - every handler under route hr - opens with an authorisation gate` |
 
 **Files**
 - modify [`src/route/hr/RequirementTemplateRoutes.kt`](../../src/route/hr/RequirementTemplateRoutes.kt),
   [`src/route/hr/ReferenceRoutes.kt`](../../src/route/hr/ReferenceRoutes.kt)
+- modify [`test/ArchitectureTest.kt`](../../test/ArchitectureTest.kt) — the guard
 
 **Out of scope**
-- Making the gate structural rather than per-handler. Worth doing and worth its own ticket; this one
-  closes the live gap.
+- Making the gate structural rather than per-handler — an interceptor, or a route builder that cannot
+  mount an ungated handler. Worth doing and worth its own ticket. The guard above detects the
+  omission; it does not make it unrepresentable.
 
 ---
 

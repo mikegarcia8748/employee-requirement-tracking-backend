@@ -4,6 +4,7 @@ import com.pgsystem.employee.requirement.tracker.domain.port.RequirementTemplate
 import com.pgsystem.employee.requirement.tracker.route.dto.ApiMeta
 import com.pgsystem.employee.requirement.tracker.route.dto.ApiResponse
 import com.pgsystem.employee.requirement.tracker.route.dto.RequirementTemplateDto
+import com.pgsystem.employee.requirement.tracker.route.auth.hrUserOrRefuse
 import com.pgsystem.employee.requirement.tracker.route.mapper.respondOk
 import com.pgsystem.employee.requirement.tracker.route.mapper.toDto
 import io.ktor.openapi.jsonSchema
@@ -33,6 +34,10 @@ import io.ktor.server.routing.openapi.describe
  */
 fun Route.requirementTemplateRoutes(templates: RequirementTemplateRepository) {
     get("/api/requirement-templates") {
+        // ERT-1245. `authenticate(HR_AUTH)` in Routing.kt proves who the caller is; it says nothing
+        // about whether they still owe a password change. That gate is per-handler, and this route
+        // was one of three that skipped it.
+        hrUserOrRefuse() ?: return@get
         val catalogue = templates.findAll().map { it.toDto() }
 
         call.respondOk(catalogue, meta = ApiMeta(total = catalogue.size))
