@@ -174,8 +174,8 @@ Cross-cutting · depends on ERT-1120, ERT-1160
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
 | [ERT-1210](ERT-1200-deployment.md#ert-1210--pin-the-jvm-target-and-the-main-class) | Pin the JVM target and the main class | Ticket | — | Done |
-| [ERT-1220](ERT-1200-deployment.md#ert-1220--the-production-container-image) | The production container image | Ticket | ERT-1210, ERT-1240 | In progress |
-| [ERT-1230](ERT-1200-deployment.md#ert-1230--local-development-compose-and-the-three-ways-to-run) | Local development: compose, and the three ways to run | Ticket | ERT-1220, ERT-1120 | In progress |
+| [ERT-1220](ERT-1200-deployment.md#ert-1220--the-production-container-image) | The production container image | Ticket | ERT-1210, ERT-1240 | Done |
+| [ERT-1230](ERT-1200-deployment.md#ert-1230--local-development-compose-and-the-three-ways-to-run) | Local development: compose, and the three ways to run | Ticket | ERT-1220, ERT-1120 | Done |
 | [ERT-1240](ERT-1200-deployment.md#ert-1240--runtime-hardening-for-a-container-pool-shutdown-boot-time-codegen) | Runtime hardening for a container: pool, shutdown, boot-time codegen | Ticket | — | Done |
 | [ERT-1241](ERT-1200-deployment.md#ert-1241--database_url-fails-closed-outside-dev) | `DATABASE_URL` fails closed outside dev | Ticket | ERT-1120 | Done |
 | [ERT-1245](ERT-1200-deployment.md#ert-1245--the-password-change-gate-three-hr-routes-skip) | The password-change gate three HR routes skip | Ticket | ERT-190 | Done |
@@ -184,4 +184,4 @@ Cross-cutting · depends on ERT-1120, ERT-1160
 | [ERT-1270](ERT-1200-deployment.md#ert-1270--deploy-uatyml-every-merge-reaches-uat) | `deploy-uat.yml`: every merge reaches UAT | Ticket | ERT-1220, ERT-1240, ERT-1260, ERT-1160 | Not started |
 | [ERT-1280](ERT-1200-deployment.md#ert-1280--deploy-prodyml-promote-the-digest-uat-ran) | `deploy-prod.yml`: promote the digest UAT ran | Ticket | ERT-1270 | Not started |
 | [ERT-1285](ERT-1200-deployment.md#ert-1285--move-migrations-out-of-startup-before-the-first-data-rewriting-migration) | Move migrations out of startup before the first data-rewriting migration | Ticket | ERT-1280 | Not started |
-| [ERT-1290](ERT-1200-deployment.md#ert-1290--the-deployment-security-and-bottleneck-audits) | The deployment security and bottleneck audits | Ticket | ERT-1270 | In progress |
+| [ERT-1290](ERT-1200-deployment.md#ert-1290--the-deployment-security-and-bottleneck-audits) | The deployment security and bottleneck audits | Ticket | ERT-1270 | Done |

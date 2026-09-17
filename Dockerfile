@@ -73,6 +73,14 @@ COPY src ./src
 # uses the Spring Boot loader layout, so Main-Class is JarLauncher and the real
 # entry point is Start-Class. Asserting Main-Class would fail against a perfectly
 # good jar.
+#
+# AND THE DISCOVERY EARNED ITS KEEP ON THE FIRST RUN. On the host, Amper writes
+#   build/tasks/_PG-EmployeeRequirementsTracker_executableJarJvm/...-jvm-executable.jar
+# In here it writes
+#   build/tasks/_src_executableJarJvm/src-jvm-executable.jar
+# because the module name comes from the directory, and the directory is /src. A
+# hardcoded path taken from a host build would have failed here, and the error
+# would have pointed at the package task rather than at the assumption.
 RUN --mount=type=cache,id=ert-kotlin,target=/root/.cache/JetBrains/Kotlin,sharing=locked \
     --mount=type=cache,id=ert-build,target=/src/build,sharing=locked \
     set -eux; \

@@ -115,7 +115,7 @@ The bytecode target is a reviewed decision in `module.yaml`, not a side effect o
 | **Parent** | ERT-1200 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting |
-| **Status** | In progress |
+| **Status** | Done |
 | **Depends on** | ERT-1210, ERT-1240 |
 | **PRD** | — |
 | **Architecture** | §14 |
@@ -133,7 +133,10 @@ on musl with an opaque "not found" on a binary that plainly exists.
 
 **The jar path is discovered, not hardcoded**, and asserted. `./kotlin package --format=executable-jar`
 writes `build/tasks/_<module>_executableJarJvm/<module>-jvm-executable.jar`, but that path is an
-Amper implementation detail. Two assertions turn a silent wrong artefact into a build failure: the
+Amper implementation detail — and it **differs between the host and the container**: the module name
+comes from the directory, so a host build writes `_PG-EmployeeRequirementsTracker_executableJarJvm/`
+and the container, whose `WORKDIR` is `/src`, writes `_src_executableJarJvm/src-jvm-executable.jar`.
+A path copied from a host build would have failed on the first container build. Two assertions turn a silent wrong artefact into a build failure: the
 manifest's **`Start-Class`** names `MainKt` — note `Start-Class`, **not** `Main-Class`, which names
 Spring Boot's `JarLauncher` — and the jar exceeds 5 MB, i.e. it is not the 745 KB thin jar.
 
@@ -145,15 +148,15 @@ Spring Boot's `JarLauncher` — and the jar exceeds 5 MB, i.e. it is not the 745
 One command produces an image that boots with no external service, as a non-root user.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given `docker build`, then an image is produced and both jar assertions pass
-- [ ] `[derived]` Given the image run with `APP_ENV=dev` and no `DATABASE_URL`, then it migrates H2
+- [x] `[derived]` Given `docker build`, then an image is produced and both jar assertions pass
+- [x] `[derived]` Given the image run with `APP_ENV=dev` and no `DATABASE_URL`, then it migrates H2
       and answers `GET /health` — proving jar, JVM flags, non-root user, writable cwd, Flyway and
       the Netty bind in one step
-- [ ] `[derived]` Given the running container, then the process runs as a non-root uid
-- [ ] `[derived]` Given `SIGTERM`, then the pool-closing log line appears before exit — i.e. `java`
+- [x] `[derived]` Given the running container, then the process runs as a non-root uid
+- [x] `[derived]` Given `SIGTERM`, then the pool-closing log line appears before exit — i.e. `java`
       is PID 1 and the shutdown hook ran
-- [ ] `[derived]` Given a source-only change, then the dependency layers are reused
-- [ ] `[derived]` Given `.dockerignore`, then `build/` is excluded
+- [x] `[derived]` Given a source-only change, then the dependency layers are reused
+- [x] `[derived]` Given `.dockerignore`, then `build/` is excluded
 
 **Files**
 - create `Dockerfile`, `.dockerignore`
@@ -170,7 +173,7 @@ One command produces an image that boots with no external service, as a non-root
 | **Parent** | ERT-1200 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting |
-| **Status** | In progress |
+| **Status** | Done |
 | **Depends on** | ERT-1220, ERT-1120 |
 | **PRD** | — |
 | **Architecture** | §14 |
@@ -204,13 +207,13 @@ A developer runs the system against a real Postgres in one command, and the zero
 works.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given `docker compose up -d`, then Postgres is healthy and reachable on 55432
-- [ ] `[derived]` Given `docker compose --profile app up --build`, then the app starts only after
+- [x] `[derived]` Given `docker compose up -d`, then Postgres is healthy and reachable on 55432
+- [x] `[derived]` Given `docker compose --profile app up --build`, then the app starts only after
       Postgres is healthy and answers `/health`
-- [ ] `[derived]` Given the app container, then it fails to start if Postgres is unreachable — there
+- [x] `[derived]` Given the app container, then it fails to start if Postgres is unreachable — there
       is no degraded mode and the compose file must not hide that
-- [ ] `[derived]` Given a fresh checkout, then `.env.dev` is tracked by git
-- [ ] `[derived]` Given the documentation, then all three ways to run are stated with their trade-offs
+- [x] `[derived]` Given a fresh checkout, then `.env.dev` is tracked by git
+- [x] `[derived]` Given the documentation, then all three ways to run are stated with their trade-offs
 
 **Files**
 - create `docker-compose.yml`, `.env.docker`, `.env.local-pg`
@@ -693,7 +696,7 @@ The team decides how long migrations may take before a migration forces the ques
 | **Parent** | ERT-1200 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting — **Phase 1 exit checklist** |
-| **Status** | In progress |
+| **Status** | Done |
 | **Depends on** | ERT-1270 |
 | **PRD** | §12, §13 |
 | **Architecture** | §14 |
@@ -721,12 +724,12 @@ bcrypt cost 12 for secrets that are verified, keyed HMAC-SHA-256 for tokens that
 Every security and performance risk in the running system has a number, a severity and a disposition.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given the audits, then both cite source files and lines rather than PRD sections —
+- [x] `[derived]` Given the audits, then both cite source files and lines rather than PRD sections —
       this is a code and infrastructure audit, not a specification one
-- [ ] `[derived]` Given each finding, then it carries a severity and a disposition
-- [ ] `[derived]` Given a finding not fixed in this epic, then it has a ticket number
-- [ ] `[derived]` Given a finding fixed in this epic, then it names the ticket that closed it
-- [ ] `[derived]` Given both documents, then each records what the design gets right, not only what
+- [x] `[derived]` Given each finding, then it carries a severity and a disposition
+- [x] `[derived]` Given a finding not fixed in this epic, then it has a ticket number
+- [x] `[derived]` Given a finding fixed in this epic, then it names the ticket that closed it
+- [x] `[derived]` Given both documents, then each records what the design gets right, not only what
       it gets wrong
 
 **Files**

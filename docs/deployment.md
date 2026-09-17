@@ -94,6 +94,11 @@ docker compose --profile app up --build
 Builds the image and runs it against the compose Postgres. Slower to iterate on — you rebuild the
 image for every change — so use it to reproduce a container-only problem, not to develop.
 
+**This is also the only path that exercises the real database.** Verified 2026-09-17: all six
+migrations apply cleanly to PostgreSQL 17 and the schema reaches v6. Until ERT-1230 there was no way
+to run them anywhere but H2, so `MigrationTest`'s portability check was the only evidence they
+worked — and H2 in PostgreSQL mode is not a perfect oracle.
+
 The app waits for Postgres's healthcheck before starting, because **it has no degraded mode**: it
 does not start at all if the database is unreachable. That is by design (PRD §11); the healthcheck
 gate is what stops it being mistaken for a broken image on first run.
