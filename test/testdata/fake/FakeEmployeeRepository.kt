@@ -107,9 +107,24 @@ class FakeEmployeeRepository(
         return employee
     }
 
+    /**
+     * The snapshotted set, in the order the adapter returns it (ERT-432).
+     *
+     * Sorted here rather than returned in map order, because an unsorted fake would let a use case
+     * that wrote the wrong `sortOrderSnapshot` — or none at all — pass every use-case test, and the
+     * defect would first appear as a shuffled checklist on a hire's phone. The three keys match
+     * `ExposedEmployeeRepository.requirementsOf` exactly: a fake that agrees with the port's
+     * signature and disagrees with the adapter is the failure fakes exist to prevent.
+     */
     override suspend fun requirementsOf(employeeId: PersonId): RequirementSet {
         failure.check()
-        return RequirementSet(requirements.values.filter { it.employeeId == employeeId })
+        return RequirementSet(
+            requirements.values
+                .filter { it.employeeId == employeeId }
+                .sortedWith(
+                    compareBy({ it.sortOrderSnapshot }, { it.nameSnapshot }, { it.id.value }),
+                )
+        )
     }
 
     override suspend fun saveRequirements(requirements: List<EmployeeRequirement>) {

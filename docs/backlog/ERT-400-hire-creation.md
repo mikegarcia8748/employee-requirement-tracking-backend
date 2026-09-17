@@ -344,7 +344,7 @@ A link is resolvable by presented token without the plaintext ever being stored 
 | **Parent** | ERT-400 |
 | **Type** | Ticket — **split into ERT-431…434** |
 | **Phase** | 1 |
-| **Status** | In progress — ERT-431 done |
+| **Status** | In progress — ERT-431 and ERT-432 done |
 | **Depends on** | ERT-190, ERT-210, ERT-230, ERT-310, ERT-320, ERT-350, ERT-410, ERT-420, ERT-440 |
 | **PRD** | §8.1, §5, §6.4, §6.6 |
 | **Architecture** | §5, §8 |
@@ -574,7 +574,7 @@ Added by the review step, each catching a break the nine above do not:
 |---|---|
 | **Parent** | ERT-430 |
 | **Type** | Sub-task |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-431 |
 | **PRD** | §5, §8.11, §6.5 |
 
@@ -601,16 +601,24 @@ the snapshot into a join will pass every other test in the suite.
 > the tickets that would otherwise ship the wrong order.
 
 **Acceptance criteria**
-- [ ] Given a hire is created, then the hire appears at 0% progress (§8.1)
-- [ ] `[derived]` Given an employment type, then one `employee_requirement` is created per active
+- [x] Given a hire is created, then the hire appears at 0% progress (§8.1)
+- [x] `[derived]` Given an employment type, then one `employee_requirement` is created per active
       template, each carrying a name and required-flag copy
-- [ ] `[derived]` Given the catalogue is changed after creation, then the hire's requirement names and
+- [x] `[derived]` Given the catalogue is changed after creation, then the hire's requirement names and
       required flags are unchanged
-- [ ] Given a requirement is optional, then it is excluded from the progress denominator (§8.11)
-- [ ] `[derived]` Given every requirement starts at `PENDING`, then submission and approval progress
+- [x] Given a requirement is optional, then it is excluded from the progress denominator (§8.11)
+- [x] `[derived]` Given every requirement starts at `PENDING`, then submission and approval progress
       are both zero
-- [ ] `[derived]` Given an employment type with no templates assigned, then creation fails rather than
+- [x] `[derived]` Given an employment type with no templates assigned, then creation fails rather than
       producing a hire with an empty checklist
+- [x] `[derived]` Given the catalogue is **reordered** after creation, then the hire keeps the order it
+      was created with — the criterion the new column exists for, added with it
+- [x] `[derived]` Given a template's `sortOrder`, then it is **copied** onto the row rather than
+      re-derived from the row's position in the catalogue list
+- [x] `[derived]` Given a generated `PersonId` that collides, then the requirement rows carry the id
+      `create` **stored** — on these rows it is a foreign key
+- [x] `[derived]` Given the catalogue read fails, then no hire is written to be left without a
+      checklist — **added by the review step**
 
 **Tests**
 | Level | Test |
@@ -618,8 +626,144 @@ the snapshot into a join will pass every other test in the suite.
 | Use case | `requirement snapshot - a hire is created - one requirement per active template` |
 | Use case | `requirement snapshot - the template is renamed afterwards - the hire keeps the original name` |
 | Use case | `requirement snapshot - a template becomes optional afterwards - the hire keeps the original required flag` |
-| Use case | `requirement snapshot - an optional requirement - is excluded from the denominator` |
+| Use case | `requirement snapshot - an optional template - is excluded from the denominator` |
 | Use case | `hire creation - an employment type with no templates - fails rather than creating an empty checklist` |
+
+Added with the `sort_order_snapshot` column, and by the review step:
+
+| Level | Test |
+|---|---|
+| Use case | `requirement snapshot - templates carrying a deliberate sort order - copy it rather than deriving one` |
+| Use case | `requirement snapshot - the catalogue is reordered afterwards - the hire keeps the original order` |
+| Use case | `requirement snapshot - a hire is created - the set is saved as one batch of distinct rows` |
+| Use case | `requirement snapshot - a new hire - starts every requirement pending at zero progress` |
+| Use case | `requirement snapshot - the catalogue is read - it is read once at creation` |
+| Use case | `requirement snapshot - a generated id that collides - the requirements name the id stored` |
+| Use case | `requirement snapshot - a retired template still assigned to the type - is not snapshotted` |
+| Use case | `requirement snapshot - a catalogue of only optional templates - creates a hire at zero of zero` |
+| Use case | `hire creation - an unknown employment type and an unconfigured one - are told apart` |
+| Use case | `hire creation - an unconfigured employment type and a duplicate email - is refused before a reason is demanded` |
+| Use case | `hire creation - the catalogue read fails - no hire is written to be left without a checklist` |
+| Repository | `requirement set - a fully populated requirement - round-trips including its sort order snapshot` |
+| Repository | `requirement set - a sort order running against name and id order - is returned in sort order` |
+| Repository | `requirement set - requirements at an equal sort order - fall back to name order` |
+| Fake | `fake employee repository - requirements out of sort order - come back in the adapter's order` |
+| Fake | `fake employee repository - requirements at an equal sort order - fall back to name order` |
+
+**Files**
+- create [`resources/db/migration/V7__requirement_sort_order_snapshot.sql`](../../resources/db/migration/V7__requirement_sort_order_snapshot.sql)
+- modify [`src/data/db/table/Tables.kt`](../../src/data/db/table/Tables.kt) — `sortOrderSnapshot`; the drift test forces this and the migration to move together
+- modify [`src/domain/model/EmployeeRequirement.kt`](../../src/domain/model/EmployeeRequirement.kt) — the field, with **no default**
+- modify [`src/domain/model/Employee.kt`](../../src/domain/model/Employee.kt) — `HireCreated` gains `requirements`
+- modify [`src/domain/usecase/CreateHireUseCase.kt`](../../src/domain/usecase/CreateHireUseCase.kt)
+- modify [`src/domain/port/Repositories.kt`](../../src/domain/port/Repositories.kt) — the ordering becomes part of two contracts, per the note below
+- modify [`src/data/mapper/EmployeeMapper.kt`](../../src/data/mapper/EmployeeMapper.kt)
+- modify [`src/data/repository/ExposedEmployeeRepository.kt`](../../src/data/repository/ExposedEmployeeRepository.kt) — the `ORDER BY`
+- modify [`src/di/DomainModule.kt`](../../src/di/DomainModule.kt) — an eighth `get()`
+- modify [`test/data/db/MigrationTest.kt`](../../test/data/db/MigrationTest.kt) — the portability sweep counts its own files: 6 → 7
+- modify [`test/testdata/Builders.kt`](../../test/testdata/Builders.kt), [`test/testdata/fake/FakeEmployeeRepository.kt`](../../test/testdata/fake/FakeEmployeeRepository.kt) and the three test classes above
+
+> **`sort_order_snapshot` landed here, and `requirementsOf` now returns HR's order.** The migration is
+> `add column sort_order_snapshot int default 0 not null`, spelled exactly as V1 spells
+> `requirement_templates.sort_order`, and `requirementsOf` orders by `sort_order_snapshot`,
+> `name_snapshot`, `id` — every key a column of `employee_requirements`, so the order is as pure a
+> copy as the names are. ERT-510 and ERT-740 can now render the checklist HR arranged.
+>
+> **The default is a compromise with a stated cost.** `add column ... not null` with no default fails
+> on a table holding rows; this table holds none in any deployment, but a migration that is only
+> correct against an empty table breaks the first time that assumption is wrong, at deploy time. So
+> the column takes a default — and a default is exactly what lets a future writer inherit `0` in
+> silence, putting every row at the same value and collapsing the order back to name, which is the
+> defect this ticket removes. **The guard is on the Kotlin side**:
+> `EmployeeRequirement.sortOrderSnapshot` has no default value, so a construction site that forgets
+> it does not compile. That is `NotificationKind.storesBody` again.
+>
+> A catalogue whose templates all sit at `0` therefore snapshots `0` for every row and falls back to
+> name. That is honest rather than broken: there is no HR ordering to copy.
+
+> **The sort order is copied verbatim, not re-derived — and only one test tells the two apart.**
+> Numbering the rows `0, 1, 2` by their position in the catalogue-ordered list produces the
+> **identical order** and a different snapshot. Every ordering assertion in the suite passes against
+> it. Only `templates carrying a deliberate sort order - copy it rather than deriving one`, which
+> asserts the stored integers are `1, 2, 3`, fails. A snapshot copies; and copying is also what makes
+> the stored order reproduce `findActiveForEmploymentType`'s `sort_order, name` exactly, rather than
+> an approximation of it.
+
+> **An employment type with no active templates is a 422 naming `employmentTypeId`, and it is
+> refused before the duplicate is examined.** A hire with an empty checklist is worse than a refused
+> one: zero of zero required documents is *complete*, so the record passes straight through the §8.5
+> validation loop without anyone uploading anything.
+>
+> `Validation` and not `Conflict`, on C1's reasoning reached from a third direction: both remedies
+> belong to the field HR chose — pick another employment type, or have an admin configure this one
+> (§8.11) — and `Conflict` renders no `details` entry, so a form could not say which picker to fix.
+> Its own code rather than reusing `employment_type_unknown`, for E8's reason one guard later: "that
+> id is not in the list" is HR's mistake and "nothing is configured for it" is an admin's, and one
+> code would send both to the same place. **No `AppError` case was added** — C2's standing lesson.
+>
+> **The guard's position is a rule, not a preference**, and it is ERT-431's own rule applied to a new
+> branch: the duplicate check asks a human to type a justification that becomes a permanent audit
+> artefact, so demanding one on a request that is then going to fail on the catalogue is the worst
+> available ordering. Both orderings have a named test, so reversing them is a visible deliberate
+> break.
+
+> **The catalogue is read before anything is written, and that is what makes the missing transaction
+> survivable.** `create`, `saveRequirements` and `record` are three port calls with no seam between
+> them — a transaction boundary in the domain would mean a framework type in the layer that must hold
+> none — so a failure after the first leaves a hire whose checklist was never written. What the code
+> *can* control is the order: everything that can refuse happens before the first write, so the
+> reachable failure is a hire with no checklist rather than a checklist with no hire, and every
+> refusal leaves the repository untouched. `nothingHappened()` grew a fourth assertion for exactly
+> this.
+>
+> One gap is recorded rather than closed: **`FakeFailure` cannot target `saveRequirements` alone.**
+> It fails the next call or every call, and three of this use case's calls go to the same fake, so
+> `failEveryCall` stops at `findActiveByEmail` and proves nothing about the snapshot write. The
+> catalogue read *can* be targeted — it is the only call into its own fake — so the test that exists
+> asserts the stronger and more useful property: a failing catalogue read leaves no hire at all.
+
+> **Two things the review step found, and the second is filed rather than fixed.**
+>
+> The first is a real hole: nothing in the use case restates that the catalogue read is *active*
+> templates only, so the plausible break is someone reaching for `findAll` to "see everything" —
+> which compiles, reads as more thorough, and puts a retired document type on a new hire's checklist.
+> `findAll()` alone is caught by four tests; `findAll(includeInactive = true)` is caught **only** by
+> the test the review step added.
+>
+> The second is **C27**. The empty-catalogue guard's stated harm is "zero of zero required is
+> complete" — and a catalogue that is entirely *optional* has exactly that property while passing the
+> guard, because the guard asks `isEmpty()`. It was **not** tightened: the defect is in the catalogue
+> rather than in hire creation, the remedy is the §8.11 admin screen refusing to publish an
+> all-optional assignment, and refusing at creation would block HR for something only an admin can
+> fix. It is unreachable today — the V2 seed cross-joins all fourteen templates and ten are required
+> — and reachable the moment Q2's real checklist lands. Pinned with a named test on ERT-431's C25
+> precedent, so the trap is visible rather than discovered in production.
+
+> **`findActiveForEmploymentType`'s ordering is now part of the port's contract.** Both
+> implementations already sorted by `sortOrder` then `name`; the port promised nothing, and this use
+> case copies the order it is handed straight into `sortOrderSnapshot`. An implementation returning
+> rows in whatever order the storage held them would hand a new hire a shuffled checklist and satisfy
+> every other clause in the KDoc. One sentence, because the alternative is a rule that lives only in
+> two files that happen to agree.
+
+> **Confirmed by breaking it, twenty-four times, and none survived.** Six against the adapter and
+> mapper — dropping `sort_order_snapshot` from the `ORDER BY`, reversing it, dropping the `ORDER BY`
+> entirely, dropping the name tiebreak, writing a constant into the column, reading a constant out of
+> it. Eighteen against the use case, the fake and the guards — dropping the empty-catalogue guard,
+> moving it after the duplicate check, snapshotting the template id instead of its name, hardcoding
+> the required flag, writing a constant sort order, deriving it from list position, using the drawn
+> `PersonId` instead of the one `create` stored, starting at `UPLOADED`, starting with a rejection
+> already counted, reusing one `EntityId` for every row, reading the whole catalogue, reading it with
+> the department id, reading it twice, including retired templates, never writing the snapshot,
+> returning an empty set, reading the catalogue after the hire is written, and dropping the fake's
+> ordering.
+>
+> **Every one failed a named test on the first pass**, and the five sharpest — the two orderings, the
+> stored id, the derived sort order and the retired template — were each caught by exactly the one
+> test written for them. The harness kept ERT-431's vacuity check: a break counts as `SURVIVED` only
+> when the output carries the literal `tests successful` *and* the failure list is empty, because
+> Amper writes `ERROR:` inside a box-drawn frame and never prints `error:`, so a compile failure
+> otherwise reads as a green suite.
 
 ---
 

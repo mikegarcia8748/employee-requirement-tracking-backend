@@ -9,10 +9,12 @@ import org.jetbrains.exposed.v1.javatime.timestamp
  *
  * Two things here are load-bearing rather than incidental:
  *
- *  - **Snapshot columns.** `EmployeeRequirements.nameSnapshot` / `isRequiredSnapshot` and
- *    `UploadLinks.expiresAt` are copies, not joins. Editing a template or a policy later must not
- *    change the progress of anyone in flight, nor make a completed hire retroactively incomplete
- *    (PRD 5, 6.4). A foreign key read live would quietly break both.
+ *  - **Snapshot columns.** `EmployeeRequirements.nameSnapshot` / `isRequiredSnapshot` /
+ *    `sortOrderSnapshot` and `UploadLinks.expiresAt` are copies, not joins. Editing a template or a
+ *    policy later must not change the progress of anyone in flight, nor make a completed hire
+ *    retroactively incomplete (PRD 5, 6.4). A foreign key read live would quietly break both.
+ *    **Three columns, not two, since ERT-432**: the checklist's *order* is as much a copy as its
+ *    names, and reaching it through `RequirementTemplates` would be the live read PRD 5 forbids.
  *  - **`PortalAccessLogs` is append-only, and there is no `lastAccessedAt` column anywhere.** A
  *    single overwritten timestamp cannot answer who, from where, or how often — the first question
  *    asked when a fraudulent submission surfaces (SEC-05). Restoring such a column would undo the
@@ -114,6 +116,16 @@ object EmployeeRequirements : EntityIdTable("employee_requirements") {
     /** Snapshots, not joins — see the note at the top of this file. */
     val nameSnapshot = varchar("name_snapshot", 256)
     val isRequiredSnapshot = bool("is_required_snapshot")
+
+    /**
+     * The catalogue's `sort_order`, copied at creation (ERT-432).
+     *
+     * `default(0)` matches the migration, which needs one to apply to a table that may hold rows.
+     * The Kotlin side is what stops a writer inheriting it in silence:
+     * `EmployeeRequirement.sortOrderSnapshot` has no default, so a construction site that forgets
+     * it does not compile.
+     */
+    val sortOrderSnapshot = integer("sort_order_snapshot").default(0)
 
     val status = varchar("status", 32)
     val rejectionCount = integer("rejection_count").default(0)

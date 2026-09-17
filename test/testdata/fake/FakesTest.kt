@@ -16,10 +16,12 @@ import com.pgsystem.employee.requirement.tracker.testdata.anActiveLink
 import com.pgsystem.employee.requirement.tracker.testdata.anAuditEntry
 import com.pgsystem.employee.requirement.tracker.testdata.anEmail
 import com.pgsystem.employee.requirement.tracker.testdata.anEmployee
+import com.pgsystem.employee.requirement.tracker.testdata.anEmployeeRequirement
 import com.pgsystem.employee.requirement.tracker.testdata.anEmploymentType
 import com.pgsystem.employee.requirement.tracker.testdata.anEndedSession
 import com.pgsystem.employee.requirement.tracker.testdata.entityId
 import com.pgsystem.employee.requirement.tracker.testdata.personId
+import com.pgsystem.employee.requirement.tracker.testdata.requirementId
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldBeNull
@@ -139,6 +141,55 @@ class FakesTest {
         repository.savedRequirementBatches shouldHaveSize 1
         repository.savedRequirementBatches.single() shouldHaveSize 5
     }
+
+    @Test
+    fun `fake employee repository - requirements out of sort order - come back in the adapter's order`() =
+        runTest {
+            // ERT-432 gave `ExposedEmployeeRepository.requirementsOf` a sort-order-first ORDER BY.
+            // A fake still returning map order would let a use case that wrote the wrong
+            // `sortOrderSnapshot` -- or none at all -- pass every use-case test in the suite, and
+            // the defect would first appear as a shuffled checklist on a hire's phone.
+            //
+            // Sort order says Birth, NBI, Medical; the names say Birth, Medical, NBI; the ids say
+            // Medical, Birth, NBI; insertion order says NBI, Medical, Birth. Every accident names a
+            // different sequence than the rule does.
+            val repository = FakeEmployeeRepository().givenRequirements(
+                anEmployeeRequirement(
+                    id = requirementId(2), nameSnapshot = "NBI clearance", sortOrderSnapshot = 2,
+                ),
+                anEmployeeRequirement(
+                    id = requirementId(0), nameSnapshot = "Medical certificate", sortOrderSnapshot = 3,
+                ),
+                anEmployeeRequirement(
+                    id = requirementId(1), nameSnapshot = "Birth certificate", sortOrderSnapshot = 1,
+                ),
+            )
+
+            repository.requirementsOf(Fixtures.EMPLOYEE_ID).requirements.map { it.nameSnapshot } shouldBe
+                listOf("Birth certificate", "NBI clearance", "Medical certificate")
+        }
+
+    @Test
+    fun `fake employee repository - requirements at an equal sort order - fall back to name order`() =
+        runTest {
+            // The tiebreak the adapter also carries: `sort_order` has a column default, so ties are
+            // reachable, and an unbroken tie is left to whatever order the collection happens to
+            // hold -- which is not an order at all.
+            val repository = FakeEmployeeRepository().givenRequirements(
+                anEmployeeRequirement(
+                    id = requirementId(0), nameSnapshot = "Medical certificate", sortOrderSnapshot = 5,
+                ),
+                anEmployeeRequirement(
+                    id = requirementId(1), nameSnapshot = "Birth certificate", sortOrderSnapshot = 5,
+                ),
+                anEmployeeRequirement(
+                    id = requirementId(2), nameSnapshot = "NBI clearance", sortOrderSnapshot = 5,
+                ),
+            )
+
+            repository.requirementsOf(Fixtures.EMPLOYEE_ID).requirements.map { it.nameSnapshot } shouldBe
+                listOf("Birth certificate", "Medical certificate", "NBI clearance")
+        }
 
     @Test
     fun `fake employee repository - requirementsOf - returns only that employee's requirements`() = runTest {

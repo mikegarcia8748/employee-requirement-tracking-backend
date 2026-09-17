@@ -216,7 +216,7 @@ works.
 - [x] `[derived]` Given the documentation, then all three ways to run are stated with their trade-offs
 
 **Files**
-- create `docker-compose.yml`, `.env.docker`, `.env.local-pg`
+- create `docker-compose.yml`, `.env.docker`, `../../.env`
 - modify [`.gitignore`](../../.gitignore)
 
 ---

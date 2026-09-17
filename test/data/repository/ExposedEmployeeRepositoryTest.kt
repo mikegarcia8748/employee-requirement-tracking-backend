@@ -451,19 +451,76 @@ class ExposedEmployeeRepositoryTest : RepositoryTestBase() {
     }
 
     @Test
-    fun `requirement set - requirements whose names sort against insertion order - are returned in name order`() =
+    fun `requirement set - a fully populated requirement - round-trips including its sort order snapshot`() =
         runTest {
-            // Inserted in an order that is neither alphabetical nor the order asserted, and with ids
-            // running the opposite way to the names -- so neither insertion order nor id order can
-            // produce a pass. Without this, dropping the ORDER BY entirely fails nothing, which is
-            // the coincidence ERT-320 found and ERT-350 hit again.
+            // ERT-432 added a third snapshot column, and a column nothing reads back is a column
+            // that can be written wrong forever. The ordering tests below cannot catch that on their
+            // own: they assert relative order, which a mapper writing a constant would still satisfy
+            // as long as it wrote a DIFFERENT constant per row -- and an ordering where every row
+            // ties is indistinguishable from one where the write was dropped.
+            employees.create(anEmployee())
+            val requirement = anEmployeeRequirement(sortOrderSnapshot = 7)
+
+            employees.saveRequirements(listOf(requirement))
+
+            employees.requirementsOf(Fixtures.EMPLOYEE_ID).requirements.single() shouldBe requirement
+        }
+
+    @Test
+    fun `requirement set - a sort order running against name and id order - is returned in sort order`() =
+        runTest {
+            // Every accidental key names a different row than the rule does. Sort order says
+            // Birth, NBI, Medical; the ids say Medical, Birth, NBI; the names say Birth, Medical,
+            // NBI; insertion order says NBI, Medical, Birth. So dropping the ORDER BY entirely (H2
+            // returns the primary-key scan), reversing it, and falling back to name order each name
+            // a different sequence and each fails.
+            //
+            // This is the arrangement ERT-320, ERT-350, ERT-410 and ERT-420 each shipped WITHOUT,
+            // and it is why requirementsOf could order by nothing at all and still pass.
             employees.create(anEmployee())
 
             employees.saveRequirements(
                 listOf(
-                    anEmployeeRequirement(id = requirementId(0), nameSnapshot = "Medical certificate"),
-                    anEmployeeRequirement(id = requirementId(1), nameSnapshot = "Birth certificate"),
-                    anEmployeeRequirement(id = requirementId(2), nameSnapshot = "NBI clearance"),
+                    anEmployeeRequirement(
+                        id = requirementId(2), nameSnapshot = "NBI clearance", sortOrderSnapshot = 2,
+                    ),
+                    anEmployeeRequirement(
+                        id = requirementId(0), nameSnapshot = "Medical certificate", sortOrderSnapshot = 3,
+                    ),
+                    anEmployeeRequirement(
+                        id = requirementId(1), nameSnapshot = "Birth certificate", sortOrderSnapshot = 1,
+                    ),
+                ),
+            )
+
+            employees.requirementsOf(Fixtures.EMPLOYEE_ID).requirements.map { it.nameSnapshot } shouldContainExactly
+                listOf("Birth certificate", "NBI clearance", "Medical certificate")
+        }
+
+    @Test
+    fun `requirement set - requirements at an equal sort order - fall back to name order`() =
+        runTest {
+            // The tiebreak is not decoration. `sort_order` carries a column default of 0, so a
+            // catalogue nobody has ordered snapshots the same value for every row -- and a tie that
+            // the query does not break is left to the engine, which H2 and PostgreSQL are free to
+            // answer differently. Tied at 5 rather than at 0 so the test is about ties rather than
+            // about the default.
+            //
+            // Ids run the opposite way to the names, so insertion order and id order both name a
+            // different sequence than the rule does.
+            employees.create(anEmployee())
+
+            employees.saveRequirements(
+                listOf(
+                    anEmployeeRequirement(
+                        id = requirementId(0), nameSnapshot = "Medical certificate", sortOrderSnapshot = 5,
+                    ),
+                    anEmployeeRequirement(
+                        id = requirementId(1), nameSnapshot = "Birth certificate", sortOrderSnapshot = 5,
+                    ),
+                    anEmployeeRequirement(
+                        id = requirementId(2), nameSnapshot = "NBI clearance", sortOrderSnapshot = 5,
+                    ),
                 ),
             )
 
