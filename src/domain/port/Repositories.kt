@@ -95,7 +95,14 @@ interface EmployeeRepository {
      */
     suspend fun save(employee: Employee): Employee
 
-    /** The snapshotted requirement set for one hire, in a stable order (PRD 5, 6.5). */
+    /**
+     * The snapshotted requirement set for one hire (PRD 5, 6.5).
+     *
+     * **In the order HR arranged the catalogue, and that order is a copy too (ERT-432).** An
+     * implementation orders by the snapshotted sort order with the snapshotted name as a tiebreak;
+     * it may not reach the catalogue to find one, because a template reordered after creation must
+     * not reorder a checklist already in flight.
+     */
     suspend fun requirementsOf(employeeId: PersonId): RequirementSet
 
     suspend fun saveRequirements(requirements: List<EmployeeRequirement>)
@@ -105,10 +112,17 @@ interface RequirementTemplateRepository {
     suspend fun findById(id: EntityId): RequirementTemplate?
 
     /**
-     * The templates that make up the requirement set for an employment type.
+     * The templates that make up the requirement set for an employment type, **in `sortOrder` with
+     * `name` as the tiebreak**.
      *
      * Read **once**, at hire creation, and copied onto the employee (PRD 5). Nothing downstream
      * may consult this again for an in-flight hire.
+     *
+     * The order is part of the contract rather than an implementation's habit, because it is the
+     * order a hire sees their checklist in and `CreateHireUseCase` copies it verbatim into
+     * `EmployeeRequirement.sortOrderSnapshot`. An implementation returning rows in whatever order
+     * the storage happened to hold them would hand a new hire a shuffled checklist and satisfy
+     * every other clause here (ERT-432).
      */
     suspend fun findActiveForEmploymentType(employmentTypeId: EntityId): List<RequirementTemplate>
 

@@ -1,11 +1,20 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-432 — the requirement-set snapshot, and the `sort_order_snapshot` column it
-owes](backlog/ERT-400-hire-creation.md#ert-432--requirement-set-snapshot-from-the-template-catalogue)**
+**Next ticket: [ERT-433 — the link token, digested, with `expiresAt` computed from
+policy](backlog/ERT-400-hire-creation.md#ert-433--token-issue-digested-with-expiresat-computed-from-policy)**
 — the deployment track's remaining ticket,
 [ERT-1260](backlog/ERT-1200-deployment.md#ert-1260--gcp-foundation-identity-federation-registry-network-database-secrets),
 is the one piece of work in this project that needs something outside the repository: a GCP project
-and an Owner. Take ERT-432 unless that exists.
+and an Owner. Take ERT-433 unless that exists.
+
+> **ERT-433 owes two decisions in writing before it writes code.** **C23** is its to settle:
+> `Notifier.sendInvitation` still *requires* an `AccessPin`, and since 2026-09-16 the invitation must
+> carry none — the parameter is what makes "only the invitation may carry a credential" a
+> compile-time property, so removing it weakens a real guard, and three options are on the table with
+> none free. And **`AppSettingsRepository.linkPolicy()` returns a `DomainResult`, which ERT-433 must
+> propagate rather than recover from**: `LinkPolicy`'s Kotlin defaults are *identical* to the seeded
+> rows, so a silent fallback returns exactly what a correct read returns and no behavioural test can
+> tell them apart. Refusing to issue a link is the right answer to a policy nobody can read.
 
 > **Two sessions landed on 2026-09-17 and this file is their merge.** ERT-431 took the product path
 > forward; ERT-1200 gave the system somewhere to run. They touched disjoint code and the same three
@@ -85,7 +94,7 @@ decision register, and the pointer above. Each session updates that pointer on t
 
 | | |
 |---|---|
-| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **seven Exposed adapters, an outbox notifier and a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data, HR accounts, **hires with their requirement sets**, **upload links resolved by token digest** and **a durable notification outbox** · **six use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
+| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **seven Exposed adapters, an outbox notifier and a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data, HR accounts, **hires with their requirement sets**, **upload links resolved by token digest** and **a durable notification outbox** · **seven use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin, and **hire creation with its snapshotted requirement set**) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
 | Empty | `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
 | Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics` · `POST /api/auth/login` (the only public `/api` route) · `/api/auth/change-password`, `/api/auth/me` · four `HR_ADMIN`-only routes under `/api/users` · three HR reads — `/api/requirement-templates`, `/api/departments`, `/api/employment-types`. Appendix B specifies the rest. |
@@ -367,6 +376,7 @@ Three more things were decided rather than assumed, and two of them bind later t
   not the order HR would choose — that is the missing column speaking, exactly as ERT-350 found with
   `employment_types`. **The third snapshot column belongs to ERT-432**, with the rows it describes,
   and its block now says so. ERT-510 and ERT-740 are what would otherwise ship the wrong order.
+  **Landed 2026-09-17**: `sort_order_snapshot` exists and `requirementsOf` orders by it.
 - **`AnomalyFlag.freezesRetention` is named by four documents and exists in none of the code.**
   `Employee.retentionFrozen` is still `anomalyFlags.isNotEmpty()` — the E3 defect, closed in prose
   and never landed. ERT-734 owns it and has a gate, so it was left alone; ERT-410's flag test uses
@@ -552,6 +562,68 @@ no equivalent watching the tool. All eighteen breaks fail a named test under the
 and the three sharpest — both check orderings and using the argument's id instead of the one `create`
 stored — are each caught by exactly the one test written for them.
 
+
+**ERT-432 made the requirement set a copy, and closed the snapshot-column gap ERT-410 opened.** A
+hire now arrives with its checklist — one row per active template, each carrying the template's name,
+required flag and **sort order** — and `HireCreated` grew the field ERT-431 reserved for it. The
+suite went from 653 tests to 673. ERT-433 is next and owes C23 a written answer.
+
+Five things were decided rather than assumed, and the last two bind later tickets:
+
+- **The sort order is copied, not re-derived, and exactly one test tells the two apart.** Numbering
+  the rows `0, 1, 2` by their position in the catalogue-ordered list produces the **identical order**
+  and different data; every ordering assertion in the suite passes against it. Only the test that
+  asserts the stored integers are `1, 2, 3` fails. A snapshot copies — and copying is also what makes
+  the stored order reproduce `findActiveForEmploymentType`'s `sort_order, name` exactly rather than
+  an approximation of it.
+- **The migration's `default 0` is a compromise with a cost, and the guard against that cost is on
+  the Kotlin side.** `add column ... not null` with no default fails on a table holding rows; a
+  migration that is only correct against an empty table breaks at deploy time the first time that
+  assumption is wrong. But a default is precisely what lets a later writer inherit `0` in silence,
+  putting every row at one value and collapsing the order back to name — the defect the column
+  removes. So `EmployeeRequirement.sortOrderSnapshot` has **no** Kotlin default: a construction site
+  that forgets it does not compile. That is `NotificationKind.storesBody` for the third time.
+- **An employment type with no active templates is a 422 naming `employmentTypeId`, refused before
+  the duplicate is examined.** A hire with an empty checklist is worse than a refused one: zero of
+  zero required documents is *complete*, so the record passes straight through the §8.5 validation
+  loop with nothing uploaded. `Validation` and not `Conflict`, on C1's reasoning reached from a third
+  direction — `Conflict` renders no `details` entry, so a form could not name the picker to fix. Its
+  own code rather than reusing `employment_type_unknown`, on E8's — HR's mistake and an admin's
+  configuration gap have different remedies. **No `AppError` case was added** (C2).
+- **`findActiveForEmploymentType`'s ordering is now part of the port's contract.** Both
+  implementations already sorted by `sortOrder` then `name`; the port promised nothing, and
+  `CreateHireUseCase` copies the order it is handed straight into the snapshot. An implementation
+  returning storage order would hand a new hire a shuffled checklist and satisfy every other clause
+  in the KDoc. A rule that lives only in two files that happen to agree is not a rule.
+- **C27 is new, and it is filed rather than fixed.** The empty-catalogue guard's stated harm is "zero
+  of zero required is complete" — and a catalogue that is entirely *optional* has exactly that
+  property while passing the guard, because the guard asks `isEmpty()`. Not tightened: the defect is
+  in the catalogue, the remedy is the §8.11 admin screen refusing to publish an all-optional
+  assignment, and refusing at creation would block HR for something only an admin can fix.
+  Unreachable today, reachable the moment Q2's real checklist replaces the seed. Pinned with a named
+  test on ERT-431's C25 precedent.
+
+**And the vacuity lesson did not get a seventh instance, which is the first time that is true.**
+Twenty-four deliberate breaks were applied and **every one failed a named test on the first pass** —
+six against the adapter and mapper, eighteen against the use case, the fake and the guards. Five were
+caught by exactly the one test written for them: both guard orderings, the stored `PersonId`, the
+derived sort order, and the retired template.
+
+That is not luck, and it is worth saying what changed: ERT-320's coincidence was **assumed rather
+than rediscovered**. Every ordering test here arranges three rows where sort order, name order, id
+order and insertion order each name a *different* sequence, and the builder that cannot do that says
+so in its own KDoc — `aRequirementSet` produces names, ids, insertion order and sort order that are
+all identical, so an ordering test built on it proves nothing, and it now warns the next reader
+instead of trapping them. The six instances before this one were each found by the mutation pass
+after the fact; this is the first ticket where the arrangement was designed for it up front and the
+pass merely confirmed it.
+
+One smaller thing, recorded because it is a limit rather than an oversight: **`FakeFailure` cannot
+target `saveRequirements` alone.** It fails the next call or every call, and three of this use case's
+calls go to the same fake, so `failEveryCall` stops at `findActiveByEmail`. The catalogue read *can*
+be targeted — it is the only call into its own fake — so the test that exists asserts the stronger
+property anyway: a failing catalogue read leaves no hire at all, because everything that can refuse
+happens before the first write.
 
 ---
 
@@ -831,6 +903,8 @@ tracking are listed.
 | C24 | **`ReasonRequired` renders `field = "reason"`, but two places say `duplicateReason`.** `AppErrorMapper` hardcodes `ApiErrorDetail(code, field = "reason")` and `ErrorMappingTest` pins it; the API contract's `POST /api/employees` row and ERT-450's acceptance criterion both require the `details` entry to name `duplicateReason`. `ApiResponse`'s KDoc adds a third spelling, `duplicate_email_requires_reason`, which is not a code anything emits *(opened 2026-09-17 by ERT-431)* | **Open, owned by ERT-450.** ERT-431 emits the error and cannot see the wire; ERT-450 is the ticket that renders it and will meet this as a failing test. Fixing it is a one-line mapper change plus its pinned test — but which spelling wins is a contract decision, not a mapper decision |
 | C25 | **A typed duplicate reason with no spaces is a user-reachable 500.** ERT-330's audit-metadata guard refuses a value that is 32+ characters of mixed-case base64url, on the stated premise that "a reason is prose" — and prose has spaces, so one space is what saves it. A reason like `ReplacingRecord2026ForJoseDelaCruz` satisfies every clause, and the `require` unwinds out through `ExposedAuditLog.record`. Before ERT-431 no free-text HR value reached that map, so the trap was unreachable *(opened 2026-09-17 by ERT-431)* | **Open, owned by ERT-450.** Deliberately **not** fixed in ERT-431: the guard is ERT-330's security control and weakening a tripwire is a specification change — the C2 failure this very ticket documents. `AuditEntryMapperTest` now **pins today's behaviour** with a named test so the trap is visible rather than discovered in production, and asserts the prose form is still accepted so the pin cannot be mistaken for endorsement |
 | C26 | **Nothing enforces the column widths, so over-long input is a 500 rather than a 422.** `first_name` and `last_name` are `varchar(128)`, `position` `varchar(256)`, `email` `varchar(320)`, and `EmailAddress`'s regex is unbounded — so a 400-character address passes validation and dies at the insert *(opened 2026-09-17 by ERT-431)* | **Open, owned by ERT-450.** Unreachable until a route accepts a body. Not fixed in ERT-431 because a length rule belongs to every string-taking use case, and inventing it in one file leaves five later ones to re-invent it; the email cap belongs on `EmailAddress` itself |
+
+| C27 | **A catalogue that is entirely optional produces the record the empty-catalogue guard exists to prevent.** ERT-432 refuses an employment type with no active templates, because a hire at zero of zero required documents is *complete* and passes straight through the §8.5 validation loop with nothing uploaded. The guard asks `isEmpty()` — and an employment type whose templates are all `isRequired = false` has exactly that property while passing it *(opened 2026-09-17 by ERT-432's review step)* | **Open, owned by the Phase 2 admin-catalogue epic (§8.10, §8.11).** Deliberately not tightened at hire creation: the defect is in the **catalogue**, not in the hire, and the remedy is the admin screen refusing to publish an all-optional assignment — refusing at creation would block HR for something only an admin can fix, one hire at a time, late. Unreachable today: the V2 seed cross-joins all fourteen templates and ten are required. It becomes reachable the moment **Q2**'s real checklist replaces the seed, or the Phase 2 screen ships. `CreateHireUseCaseTest` **pins today's behaviour** with a named test on ERT-431's C25 precedent, so the trap is visible rather than discovered in production |
 
 **Still open, and deliberately so:** the PRD has **no owner**. E3's ratification, and any future
 contradiction between two P0 sections, route to a role nobody holds. Escalated 2026-09-16, due

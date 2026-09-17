@@ -58,7 +58,7 @@ That starts **only** Postgres, on `127.0.0.1:55432` — port 55432 so it does no
 Postgres is already installed on your machine. Then:
 
 ```bash
-set -a; . ./.env.local-pg; set +a; ./kotlin run
+set -a; . ./.env; set +a; ./kotlin run
 ```
 
 Flyway migrates on startup, every time. To start over:

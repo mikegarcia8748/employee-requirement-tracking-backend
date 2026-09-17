@@ -1,10 +1,12 @@
 package com.pgsystem.employee.requirement.tracker.domain.usecase
 
 import com.pgsystem.employee.requirement.tracker.core.error.AppError
+import com.pgsystem.employee.requirement.tracker.core.id.PersonIdGenerator
 import com.pgsystem.employee.requirement.tracker.core.trace.NoOpUseCaseTracer
 import com.pgsystem.employee.requirement.tracker.domain.model.AnomalyFlag
 import com.pgsystem.employee.requirement.tracker.domain.model.AuditAction
 import com.pgsystem.employee.requirement.tracker.domain.model.PacketStatus
+import com.pgsystem.employee.requirement.tracker.domain.model.RequirementStatus
 import com.pgsystem.employee.requirement.tracker.testdata.FixedClock
 import com.pgsystem.employee.requirement.tracker.testdata.FixedEntityIdGenerator
 import com.pgsystem.employee.requirement.tracker.testdata.FixedPersonIdGenerator
@@ -13,6 +15,7 @@ import com.pgsystem.employee.requirement.tracker.testdata.aDepartment
 import com.pgsystem.employee.requirement.tracker.testdata.anEmail
 import com.pgsystem.employee.requirement.tracker.testdata.anEmployee
 import com.pgsystem.employee.requirement.tracker.testdata.anEmploymentType
+import com.pgsystem.employee.requirement.tracker.testdata.aRequirementTemplate
 import com.pgsystem.employee.requirement.tracker.testdata.entityId
 import com.pgsystem.employee.requirement.tracker.testdata.err
 import com.pgsystem.employee.requirement.tracker.testdata.errCode
@@ -20,9 +23,12 @@ import com.pgsystem.employee.requirement.tracker.testdata.errField
 import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeAuditLog
 import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeEmployeeRepository
 import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeReferenceDataRepository
+import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeRequirementTemplateRepository
 import com.pgsystem.employee.requirement.tracker.testdata.ok
 import com.pgsystem.employee.requirement.tracker.testdata.personId
 import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.collections.shouldContainExactly
+import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
@@ -33,10 +39,10 @@ import kotlin.test.assertFailsWith
 /**
  * Hire creation, first sub-task (ERT-431, PRD §8.1).
  *
- * Covers the rules that decide whether a hire may be created at all: the email is well formed, both
- * reference ids exist, and a duplicate against an **active** hire carries a typed justification. The
- * requirement snapshot is ERT-432, the link and its expiry ERT-433, the invitation ERT-434 — so a
- * hire created here has an empty checklist and no link, deliberately.
+ * Covers the rules that decide whether a hire may be created at all — the email is well formed, both
+ * reference ids exist, and a duplicate against an **active** hire carries a typed justification —
+ * and, since ERT-432, the requirement set copied onto the hire from the catalogue. The link and its
+ * expiry are ERT-433 and the invitation ERT-434, so a hire created here still has no link.
  *
  * ### Two id traps this file is arranged around
  *
@@ -66,15 +72,27 @@ class CreateHireUseCaseTest {
         employmentTypes = listOf(anEmploymentType(id = Fixtures.EMPLOYMENT_TYPE_ID)),
     )
 
-    private val useCase = CreateHireUseCase(
-        employees = employees,
-        reference = reference,
-        audit = audit,
-        clock = clock,
-        ids = ids,
-        personIds = personIds,
-        tracer = NoOpUseCaseTracer,
+    /**
+     * The catalogue a hire is snapshotted from (ERT-432).
+     *
+     * **Three templates, arranged so that no accident produces the right answer.** Sort order says
+     * Birth, NBI, Medical; the names say Birth, Medical, NBI; the ids say Medical, Birth, NBI; and
+     * they are seeded in that same id order. So a use case that ignored `sortOrder`, or reversed it,
+     * or leaned on the order the fake happened to hold them in, names a different sequence than the
+     * rule does — which is the arrangement ERT-320, ERT-350, ERT-410 and ERT-420 each shipped
+     * *without*, four times in a row.
+     *
+     * Three rather than two, for the reason ERT-410's flag test needed three: two leave too few
+     * arrangements for a coincidence to be unlikely.
+     */
+    private val templates = FakeRequirementTemplateRepository().givenAssigned(
+        Fixtures.EMPLOYMENT_TYPE_ID,
+        aRequirementTemplate(id = MEDICAL, name = "Medical certificate", sortOrder = 3),
+        aRequirementTemplate(id = BIRTH, name = "Birth certificate", sortOrder = 1),
+        aRequirementTemplate(id = NBI, name = "NBI clearance", sortOrder = 2),
     )
+
+    private val useCase = useCaseWith()
 
     // ── The email ───────────────────────────────────────────────────────────────────────────────
 
@@ -263,7 +281,7 @@ class CreateHireUseCaseTest {
             val colliding = FixedPersonIdGenerator("EXISTING", "REDRAWN1")
             val repository = FakeEmployeeRepository(ids = colliding)
                 .given(anEmployee(id = personId("EXISTING"), email = anEmail("someone.else@example.com")))
-            val subject = CreateHireUseCase(repository, reference, audit, clock, ids, colliding, NoOpUseCaseTracer)
+            val subject = useCaseWith(employees = repository, personIds = colliding)
 
             val created = subject(createHire(email = "maria.santos@example.com")).ok()
 
@@ -405,6 +423,271 @@ class CreateHireUseCaseTest {
         useCase(createHire(middleInitial = "   ")).ok().employee.middleInitial.shouldBeNull()
     }
 
+    // ── The requirement snapshot (ERT-432, PRD §5) ──────────────────────────────────────────────
+
+    @Test
+    fun `requirement snapshot - a hire is created - one requirement per active template`() = runTest {
+        val created = useCase(createHire(email = "maria.santos@example.com")).ok()
+
+        created.requirements.requirements.map { it.templateId } shouldContainExactly
+            listOf(BIRTH, NBI, MEDICAL)
+        created.requirements.requirements.map { it.nameSnapshot } shouldContainExactly CATALOGUE_ORDER
+        created.requirements.requirements.forEach { it.employeeId shouldBe created.employee.id }
+    }
+
+    @Test
+    fun `requirement snapshot - a hire is created - the set is saved as one batch of distinct rows`() =
+        runTest {
+            // One batch rather than one call per requirement: PRD §5 snapshots the set as a unit,
+            // and "saved the set once" is a different claim from "saved three requirements".
+            //
+            // Distinct ids because the obvious shortcut -- drawing one EntityId and reusing it --
+            // produces a set that looks right in every other assertion here and collapses to a
+            // single row the moment it reaches a table keyed by id.
+            val created = useCase(createHire(email = "maria.santos@example.com")).ok()
+
+            employees.savedRequirementBatches shouldHaveSize 1
+            employees.savedRequirementBatches.single() shouldHaveSize 3
+            employees.savedRequirementBatches.single() shouldBe created.requirements.requirements
+            created.requirements.requirements.map { it.id }.toSet() shouldHaveSize 3
+        }
+
+    @Test
+    fun `requirement snapshot - templates carrying a deliberate sort order - copy it rather than deriving one`() =
+        runTest {
+            // THE VALUES, not merely the order. A use case that numbered the rows 0, 1, 2 by their
+            // position in the catalogue list produces the identical ORDER and a different snapshot
+            // -- and would quietly re-derive tomorrow what §5 says must be copied today. Only an
+            // assertion on the stored integers tells the two apart.
+            val created = useCase(createHire(email = "maria.santos@example.com")).ok()
+
+            created.requirements.requirements.map { it.sortOrderSnapshot } shouldContainExactly listOf(1, 2, 3)
+        }
+
+    @Test
+    fun `requirement snapshot - a new hire - starts every requirement pending at zero progress`() = runTest {
+        // §8.1: the hire appears in the list at 0% progress.
+        val created = useCase(createHire(email = "maria.santos@example.com")).ok()
+
+        created.requirements.requirements.forEach {
+            it.status shouldBe RequirementStatus.PENDING
+            it.rejectionCount shouldBe 0
+        }
+        created.requirements.total shouldBe 3
+        created.requirements.submitted shouldBe 0
+        created.requirements.approved shouldBe 0
+        created.requirements.awaitingReview shouldBe 0
+    }
+
+    @Test
+    fun `requirement snapshot - the template is renamed afterwards - the hire keeps the original name`() =
+        runTest {
+            // The test PRD §5 exists for. Without it the snapshot rule is only an intention, and a
+            // future refactor that "simplifies" the copy into a join passes every other test here.
+            val created = useCase(createHire(email = "maria.santos@example.com")).ok()
+
+            templates.given(aRequirementTemplate(id = BIRTH, name = "Birth certificate (PSA)", sortOrder = 1))
+
+            created.requirements.requirements.map { it.nameSnapshot } shouldContainExactly CATALOGUE_ORDER
+            employees.requirementsOf(created.employee.id).requirements
+                .map { it.nameSnapshot } shouldContainExactly CATALOGUE_ORDER
+        }
+
+    @Test
+    fun `requirement snapshot - a template becomes optional afterwards - the hire keeps the original required flag`() =
+        runTest {
+            // §8.11: an admin edit must not change an in-flight hire. Here it would change the
+            // DENOMINATOR -- three required becoming two -- so a hire at 2/3 would jump to 2/2 and
+            // read as complete without anyone uploading anything.
+            val created = useCase(createHire(email = "maria.santos@example.com")).ok()
+
+            templates.given(
+                aRequirementTemplate(id = NBI, name = "NBI clearance", isRequired = false, sortOrder = 2),
+            )
+
+            created.requirements.requirements.forEach { it.isRequiredSnapshot shouldBe true }
+            employees.requirementsOf(created.employee.id).total shouldBe 3
+        }
+
+    @Test
+    fun `requirement snapshot - the catalogue is reordered afterwards - the hire keeps the original order`() =
+        runTest {
+            // The reason `sort_order_snapshot` exists at all (ERT-410, architecture §7). Reaching
+            // the catalogue's live sort_order would let an admin reordering a template today
+            // reshuffle a checklist on a phone belonging to someone hired last month.
+            val created = useCase(createHire(email = "maria.santos@example.com")).ok()
+
+            templates.given(
+                aRequirementTemplate(id = MEDICAL, name = "Medical certificate", sortOrder = 0),
+                aRequirementTemplate(id = BIRTH, name = "Birth certificate", sortOrder = 9),
+            )
+
+            employees.requirementsOf(created.employee.id).requirements
+                .map { it.nameSnapshot } shouldContainExactly CATALOGUE_ORDER
+        }
+
+    @Test
+    fun `requirement snapshot - an optional template - is excluded from the denominator`() = runTest {
+        // §6.5: optional requirements are outside numerator and denominator entirely. The row still
+        // exists -- the hire is asked for the document -- it just does not gate completion.
+        val catalogue = FakeRequirementTemplateRepository().givenAssigned(
+            Fixtures.EMPLOYMENT_TYPE_ID,
+            aRequirementTemplate(id = BIRTH, name = "Birth certificate", sortOrder = 1),
+            aRequirementTemplate(id = NBI, name = "NBI clearance", sortOrder = 2),
+            aRequirementTemplate(id = MEDICAL, name = "Company ID photo", isRequired = false, sortOrder = 3),
+        )
+
+        val created = useCaseWith(templates = catalogue)(createHire(email = "maria.santos@example.com")).ok()
+
+        created.requirements.requirements shouldHaveSize 3
+        created.requirements.requirements.map { it.isRequiredSnapshot } shouldContainExactly
+            listOf(true, true, false)
+        created.requirements.total shouldBe 2
+    }
+
+    @Test
+    fun `requirement snapshot - the catalogue is read - it is read once at creation`() = runTest {
+        // PRD §5: read once and copied. Nothing downstream may consult it again for an in-flight
+        // hire, and a read counter is how that stops being a sentence and becomes a test.
+        val created = useCase(createHire(email = "maria.santos@example.com")).ok()
+
+        employees.requirementsOf(created.employee.id)
+
+        templates.employmentTypeReads shouldBe listOf(Fixtures.EMPLOYMENT_TYPE_ID)
+    }
+
+    @Test
+    fun `requirement snapshot - a generated id that collides - the requirements name the id stored`() =
+        runTest {
+            // create() may redraw, and returns the hire AS STORED. ERT-431 recorded this for the
+            // audit row; the snapshot rows are the second place it bites, and here it is a FOREIGN
+            // KEY -- requirements written against the drawn id point at a hire that does not exist.
+            val colliding = FixedPersonIdGenerator("EXISTING", "REDRAWN1")
+            val repository = FakeEmployeeRepository(ids = colliding)
+                .given(anEmployee(id = personId("EXISTING"), email = anEmail("someone.else@example.com")))
+            val subject = useCaseWith(employees = repository, personIds = colliding)
+
+            val created = subject(createHire(email = "maria.santos@example.com")).ok()
+
+            created.requirements.requirements.map { it.employeeId }.toSet() shouldBe
+                setOf(personId("REDRAWN1"))
+            repository.requirementsOf(personId("REDRAWN1")).requirements shouldHaveSize 3
+            repository.requirementsOf(personId("EXISTING")).requirements.shouldBeEmpty()
+        }
+
+    @Test
+    fun `requirement snapshot - a retired template still assigned to the type - is not snapshotted`() =
+        runTest {
+            // The port reads ACTIVE templates, and nothing in this use case restates that -- so the
+            // realistic break is someone reaching for `findAll` to "see everything", which compiles,
+            // reads as more thorough, and puts a retired document type on a new hire's checklist.
+            // Paired with an inclusion so the test cannot pass by returning nothing.
+            val catalogue = FakeRequirementTemplateRepository().givenAssigned(
+                Fixtures.EMPLOYMENT_TYPE_ID,
+                aRequirementTemplate(id = BIRTH, name = "Birth certificate", sortOrder = 1),
+                aRequirementTemplate(id = NBI, name = "Retired clearance", sortOrder = 2, isActive = false),
+            )
+
+            val created = useCaseWith(templates = catalogue)(createHire(email = "maria.santos@example.com")).ok()
+
+            created.requirements.requirements.map { it.nameSnapshot } shouldContainExactly
+                listOf("Birth certificate")
+        }
+
+    @Test
+    fun `requirement snapshot - a catalogue of only optional templates - creates a hire at zero of zero`() =
+        runTest {
+            // PINS TODAY'S BEHAVIOUR RATHER THAN ENDORSING IT (C27, opened by ERT-432's review step).
+            //
+            // The empty-catalogue guard's stated harm is "zero of zero required documents is
+            // COMPLETE, so the record passes straight through the §8.5 validation loop without
+            // anyone uploading anything" -- and a catalogue that is entirely OPTIONAL has exactly
+            // that property while passing the guard, because the guard asks `isEmpty()`.
+            //
+            // Not tightened here. The defect is in the CATALOGUE, not in hire creation: the remedy
+            // is the §8.11 admin screen refusing to publish an all-optional assignment, which is
+            // Phase 2's, and refusing at creation would block HR for something only an admin can
+            // fix. Unreachable today -- the V2 seed cross-joins all 14 templates and 10 are required
+            // -- and reachable the moment Q2's real checklist lands or the Phase 2 screen ships.
+            //
+            // Asserting it rather than leaving it unstated, on ERT-431's C25 precedent: a trap with
+            // a named test is visible, and a trap nobody wrote down is discovered in production.
+            val catalogue = FakeRequirementTemplateRepository().givenAssigned(
+                Fixtures.EMPLOYMENT_TYPE_ID,
+                aRequirementTemplate(id = BIRTH, name = "Company ID photo", isRequired = false, sortOrder = 1),
+            )
+
+            val created = useCaseWith(templates = catalogue)(createHire(email = "maria.santos@example.com")).ok()
+
+            created.requirements.requirements shouldHaveSize 1
+            created.requirements.total shouldBe 0
+            created.requirements.approved shouldBe 0
+        }
+
+    // ── An employment type nobody has configured ────────────────────────────────────────────────
+
+    @Test
+    fun `hire creation - an employment type with no templates - fails rather than creating an empty checklist`() =
+        runTest {
+            // A hire with an empty checklist is worse than a refused one: it is COMPLETE the moment
+            // it exists -- zero of zero required documents -- so it passes straight through the §8.5
+            // validation loop without anyone uploading anything.
+            //
+            // A Validation naming the field, not a Conflict (D1). Both remedies belong to the field
+            // HR chose: pick another employment type, or have an admin configure this one. C1
+            // settled that Conflict drops the `details` entry a picker needs to say which.
+            reference.givenEmploymentTypes(anEmploymentType(id = UNSTAFFED_TYPE, name = "Project-Based"))
+
+            val result = useCase(createHire(employmentTypeId = UNSTAFFED_TYPE.value))
+
+            result.errCode() shouldBe "employment_type_no_requirements"
+            result.errField() shouldBe "employmentTypeId"
+            nothingHappened()
+        }
+
+    @Test
+    fun `hire creation - an unknown employment type and an unconfigured one - are told apart`() = runTest {
+        // Two failures on one field, and they are not the same remedy: "that id is not in the list"
+        // is HR's mistake, "nothing is configured for it" is an admin's. A single code would send
+        // both to the same place, which is E8's argument for two reference codes reached again one
+        // guard later.
+        reference.givenEmploymentTypes(anEmploymentType(id = UNSTAFFED_TYPE, name = "Project-Based"))
+
+        useCase(createHire(employmentTypeId = entityId("EMT000000099").value)).errCode() shouldBe
+            "employment_type_unknown"
+        useCase(createHire(employmentTypeId = UNSTAFFED_TYPE.value)).errCode() shouldBe
+            "employment_type_no_requirements"
+    }
+
+    @Test
+    fun `hire creation - an unconfigured employment type and a duplicate email - is refused before a reason is demanded`() =
+        runTest {
+            // The ordering rule ERT-431 stated, applied to the guard ERT-432 adds. The duplicate
+            // branch asks a human to type a justification that becomes a permanent audit artefact.
+            // Demanding one on a request that is then going to fail on the catalogue is the worst
+            // available ordering -- and it confirms an address is in use on a request that was never
+            // going to succeed.
+            reference.givenEmploymentTypes(anEmploymentType(id = UNSTAFFED_TYPE, name = "Project-Based"))
+            employees.given(anEmployee(id = personId("EXISTING"), email = anEmail(SHARED_EMAIL)))
+
+            val result = useCase(createHire(email = SHARED_EMAIL, employmentTypeId = UNSTAFFED_TYPE.value))
+
+            result.errCode() shouldBe "employment_type_no_requirements"
+            nothingHappened()
+        }
+
+    @Test
+    fun `hire creation - the catalogue read fails - no hire is written to be left without a checklist`() =
+        runTest {
+            // The catalogue is read BEFORE the hire is written, which is what makes this survivable:
+            // there is no transaction seam in the domain, so a read that failed after `create` would
+            // leave a hire nobody can complete and nothing to roll it back.
+            templates.failure.failEveryCall()
+
+            assertFailsWith<IllegalStateException> { useCase(createHire(email = "maria.santos@example.com")) }
+            nothingHappened()
+        }
+
     // ── There is no transaction here, and there cannot be one ──────────────────────────────────
 
     @Test
@@ -425,8 +708,33 @@ class CreateHireUseCaseTest {
     private fun nothingHappened() {
         employees.created.shouldBeEmpty()
         employees.saved.shouldBeEmpty()
+        // ERT-432: a refusal that still wrote a checklist would leave rows pointing at no hire.
+        employees.savedRequirementBatches.shouldBeEmpty()
         audit.entries.shouldBeEmpty()
     }
+
+    /**
+     * The use case, with one collaborator swapped.
+     *
+     * Named parameters with defaults rather than a positional constructor call, because this class
+     * built its second use case positionally and ERT-432 adding an eighth argument is exactly how
+     * that silently becomes wrong. A helper means a ninth costs one edit here instead of one per
+     * test.
+     */
+    private fun useCaseWith(
+        employees: FakeEmployeeRepository = this.employees,
+        templates: FakeRequirementTemplateRepository = this.templates,
+        personIds: PersonIdGenerator = this.personIds,
+    ) = CreateHireUseCase(
+        employees = employees,
+        reference = reference,
+        templates = templates,
+        audit = audit,
+        clock = clock,
+        ids = ids,
+        personIds = personIds,
+        tracer = NoOpUseCaseTracer,
+    )
 
     private fun createHire(
         firstName: String = "Maria",
@@ -452,5 +760,16 @@ class CreateHireUseCaseTest {
     private companion object {
         const val SHARED_EMAIL = "jose.delacruz@example.com"
         const val REASON = "Rehire after a break in service"
+
+        /** The catalogue's three templates. Id order is deliberately not sort order. */
+        val MEDICAL = entityId("TPL000000001")
+        val BIRTH = entityId("TPL000000002")
+        val NBI = entityId("TPL000000003")
+
+        /** In `employment_types` and in no `template_assignments` row — a real configuration gap. */
+        val UNSTAFFED_TYPE = entityId("EMT000000009")
+
+        /** What the catalogue above snapshots to, in the order it snapshots to. */
+        val CATALOGUE_ORDER = listOf("Birth certificate", "NBI clearance", "Medical certificate")
     }
 }

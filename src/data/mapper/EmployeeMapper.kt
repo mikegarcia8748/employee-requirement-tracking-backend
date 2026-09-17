@@ -105,6 +105,7 @@ internal fun ResultRow.toEmployeeRequirement(): EmployeeRequirement = EmployeeRe
         .orCorrupt("employee_requirements.template_id"),
     nameSnapshot = this[EmployeeRequirements.nameSnapshot],
     isRequiredSnapshot = this[EmployeeRequirements.isRequiredSnapshot],
+    sortOrderSnapshot = this[EmployeeRequirements.sortOrderSnapshot],
     status = this[EmployeeRequirements.status].toRequirementStatus(),
     rejectionCount = this[EmployeeRequirements.rejectionCount],
 )
@@ -115,6 +116,7 @@ internal fun UpdateBuilder<*>.writeTo(requirement: EmployeeRequirement) {
     this[EmployeeRequirements.templateId] = requirement.templateId.value
     this[EmployeeRequirements.nameSnapshot] = requirement.nameSnapshot
     this[EmployeeRequirements.isRequiredSnapshot] = requirement.isRequiredSnapshot
+    this[EmployeeRequirements.sortOrderSnapshot] = requirement.sortOrderSnapshot
     this[EmployeeRequirements.status] = requirement.status.name
     this[EmployeeRequirements.rejectionCount] = requirement.rejectionCount
 }

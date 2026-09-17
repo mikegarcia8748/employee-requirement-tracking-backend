@@ -1,0 +1,43 @@
+-- V7 The third snapshot column (ERT-432). PRD 5, 8.11, and architecture 7.
+--
+-- Written in the style V1 establishes: unquoted lowercase identifiers, no IF NOT EXISTS, no
+-- dialect-specific syntax. 'MigrationTest.migration portability' checks this file too.
+--
+-- employee_requirements has copied the template's NAME and its REQUIRED FLAG since V1, and has
+-- never copied its ORDER. That is not a cosmetic gap. The order a hire sees their checklist in is
+-- as much a property of the snapshot as the names are, and reaching the catalogue's sort_order
+-- without this column means joining requirement_templates -- which is exactly the live read PRD 5
+-- forbids. A template reordered by an admin tomorrow would reshuffle a checklist on a phone today,
+-- mid-onboarding, for a hire created last month.
+--
+-- ERT-410 found this while writing the adapter and could not fix it there: a column belongs with
+-- the rows it describes, and ERT-432 is what writes them. Until now requirementsOf has ordered by
+-- name_snapshot, which is deterministic and snapshot-pure and is NOT the order HR arranged. It now
+-- orders by sort_order_snapshot, with name_snapshot and id as tiebreakers -- mirroring
+-- ExposedRequirementTemplateRepository, whose own ordering this one has to reproduce.
+--
+-- THE DEFAULT IS A COMPROMISE AND IT HAS A COST WORTH STATING.
+--
+-- 'add column ... not null' with no default fails on a table holding rows. This table holds none in
+-- any deployment -- nothing has ever written it outside the tests -- but a migration that is only
+-- correct against an empty table is a migration that breaks the first time that assumption is
+-- wrong, and the failure would be at deploy time in front of a database nobody wants to be editing.
+-- So the column takes 'default 0 not null', the same spelling requirement_templates.sort_order
+-- carries in V1.
+--
+-- What that default costs: a writer who forgets the column inherits 0 in silence, and with every
+-- row at 0 the ORDER BY collapses back to name order -- the very defect this file removes,
+-- reintroduced invisibly. The guard is on the Kotlin side rather than here.
+-- EmployeeRequirement.sortOrderSnapshot has NO default value, so every construction site must
+-- choose one and a new one will not compile until someone does, and EmployeeMapper.writeTo writes
+-- the column on every insert and every update. That is the device NotificationKind.storesBody and
+-- AnomalyFlag.freezesRetention already use.
+--
+-- A catalogue whose templates all sit at 0 therefore snapshots 0 for every row and falls back to
+-- name order. That is honest rather than broken: there is no HR ordering to copy.
+--
+-- 'add column ... default ... not null' is one statement in both H2 and PostgreSQL and is not the
+-- ALTER COLUMN ... TYPE spelling where V4 found them disagreeing. Verified against H2 2.4.240 in
+-- PostgreSQL mode by running the suite's own migration before this file was committed.
+
+alter table employee_requirements add column sort_order_snapshot int default 0 not null;

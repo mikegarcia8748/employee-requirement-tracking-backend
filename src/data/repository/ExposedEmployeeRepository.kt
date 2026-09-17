@@ -45,12 +45,21 @@ import org.jetbrains.exposed.v1.jdbc.update
  * the roadmap as a hazard for tests, and it is a second line of defence here. `forUpdate()` would
  * not help: there is no row to lock.
  *
- * **[requirementsOf] orders by `name_snapshot`, not by the catalogue's `sort_order`.**
- * `employee_requirements` carries no sort-order snapshot, and joining `requirement_templates` to get
- * one would be a live read of the catalogue for a hire already in flight — reordering a template
- * would reorder someone's checklist mid-onboarding, which is the shape PRD 5 forbids. Name order is
- * deterministic and comes entirely from the snapshot. A `sort_order_snapshot` column is the real
- * fix and belongs with ERT-432, which is what writes these rows.
+ * **[requirementsOf] orders by `sort_order_snapshot`, then `name_snapshot`, then `id` (ERT-432).**
+ * Every key is a column of `employee_requirements`, so the order comes entirely from the snapshot:
+ * joining `requirement_templates` to reach the catalogue's live `sort_order` would let a template
+ * reordered tomorrow reshuffle someone's checklist mid-onboarding, which is the shape PRD 5
+ * forbids. It reproduces `ExposedRequirementTemplateRepository`'s own `sort_order, name` ordering,
+ * which is what the snapshot copied.
+ *
+ * The two tiebreakers are not decoration. `sort_order` has a column default of `0`, so ties are
+ * reachable — a catalogue nobody has ordered snapshots `0` for every row — and H2 and PostgreSQL
+ * are free to disagree about the order of tied rows. `id` breaks the last tie because
+ * `name_snapshot` is not unique either.
+ *
+ * Until ERT-432 this ordered by `name_snapshot` alone, because the column did not exist. That was
+ * deterministic and snapshot-pure and was **not** the order HR arranged; ERT-410 recorded it as the
+ * missing column speaking.
  *
  * **[saveRequirements] *is* read-then-insert-or-update**, because an [com.pgsystem.employee.requirement.tracker.core.value.EntityId]
  * draws from 62^12 where a collision is negligible, and because ERT-432 writes the snapshot and
@@ -124,6 +133,7 @@ class ExposedEmployeeRepository(
             EmployeeRequirements.selectAll()
                 .where { EmployeeRequirements.employeeId eq employeeId.value }
                 .orderBy(
+                    EmployeeRequirements.sortOrderSnapshot to SortOrder.ASC,
                     EmployeeRequirements.nameSnapshot to SortOrder.ASC,
                     EmployeeRequirements.id to SortOrder.ASC,
                 )

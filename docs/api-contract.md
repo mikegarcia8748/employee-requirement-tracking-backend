@@ -189,6 +189,15 @@ ERT-300 previously specified `AppError.NotFound` here, which the mapper sends to
 the loose one and is corrected; **ERT-431 implements this**, and it is the only place the rule is
 stated.
 
+**A third code on the same field: `employment_type_no_requirements` (ERT-432).** An employment type
+that exists but has no active requirement templates assigned to it is also a **422 naming
+`employmentTypeId`** — a hire with an empty checklist is *complete* at zero of zero required
+documents and would pass straight through the §8.5 validation loop. It is deliberately not folded
+into `employment_type_unknown`, for the reason that gave the other two separate codes: "that id is
+not in the list" is HR's mistake and "nothing is configured for it" is an admin's (§8.11), and one
+code would send both remedies to the same place. Not a `Conflict` → 409 either, on C1's reasoning:
+`Conflict` renders no `details` entry, so the form could not name the picker to fix.
+
 #### `ReasonRequired` is a 422, not a 409 (C1, settled 2026-09-16)
 
 A duplicate email on an active hire is **not** a `Conflict`. The system does not refuse it — it
@@ -528,6 +537,7 @@ the portal, and a recovery PIN is minted only on demand (§6.6).
 | invalid email format | **422** naming the field |
 | duplicate email on an **active** hire, no reason given | **422** `ReasonRequired`, with a `details` entry naming `duplicateReason` (C1) |
 | unknown department or employment type | **422** `department_unknown` or `employment_type_unknown`, naming the field (E8) |
+| employment type with no requirement templates | **422** `employment_type_no_requirements`, naming `employmentTypeId` (ERT-432) |
 | created but invitation delivery failed | **201** with a delivery-failure indicator on the body |
 
 **The response must not echo the plaintext token.** Returning it to the creating client would put a

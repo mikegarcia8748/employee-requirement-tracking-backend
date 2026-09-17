@@ -173,7 +173,7 @@ the architecture test fails the build on a use case that omits it.
 
 | Use case | Rules | PRD | Phase |
 |---|---|---|---|
-| `CreateHireUseCase` | validate email; duplicate-on-active needs a typed reason; snapshot the requirement set; generate + hash PIN and token; compute `expiresAt` from current policy; send invitation; survive delivery failure | §8.1, §5, §6.4, §6.6 | 1 |
+| `CreateHireUseCase` **— half built (ERT-431, ERT-432)** | validate email; refuse an unknown department or employment type by name; duplicate-on-active needs a typed reason; **snapshot the requirement set, its required flags and its order**; refuse an employment type with no active templates. Still owed: issue the token, compute `expiresAt` from current policy, send the invitation, survive delivery failure (ERT-433, ERT-434) | §8.1, §5, §6.4, §6.6 | 1 |
 | `OpenPortalUseCase` | a valid token opens a session and returns status only; every other token yields one constant failure; log every attempt | §6.6, §8.6 | 1 |
 | `RedeemRecoveryPinUseCase` | identical failure for a wrong PIN, an unrecognised address, a redeemed PIN and an expired one; lockout at 5; auto-suspend at 10 with HR notified; log every attempt | §6.6, §8.6 | 1 |
 | `UploadDocumentUseCase` | reject server-side when the requirement is locked; enforce size, type, rate and storage caps; new version each time; purge beyond retention **unless a flag is open** | §8.7, §7.1 | 1 |
@@ -234,17 +234,25 @@ re-derived at each call site. It is the single authority for the server-side loc
 load-bearing:
 
 **Snapshot columns are copies, not joins.** `EmployeeRequirements.nameSnapshot` /
-`isRequiredSnapshot` and `UploadLinks.expiresAt` are written once. Editing a template or a policy
-later must not change the progress of anyone in flight, nor make a completed hire retroactively
-incomplete (§5, §6.4). A live foreign-key read would quietly break both, and would also make the
-audit log meaningless — you cannot attest to a state that mutates retroactively.
+`isRequiredSnapshot` / `sortOrderSnapshot` and `UploadLinks.expiresAt` are written once. Editing a
+template or a policy later must not change the progress of anyone in flight, nor make a completed
+hire retroactively incomplete (§5, §6.4). A live foreign-key read would quietly break both, and would
+also make the audit log meaningless — you cannot attest to a state that mutates retroactively.
 
-**There is one snapshot column missing, and it is the catalogue's `sort_order` (ERT-410).** The
-checklist's *order* is as much a copy as its names, and nothing holds it: reading it would mean
-joining `requirement_templates`, which is precisely the live read this section forbids — a template
-reordered tomorrow would reshuffle a hire's checklist today. `EmployeeRepository.requirementsOf`
-therefore orders by `nameSnapshot`, which is deterministic and snapshot-pure but is not the order HR
-arranged. **ERT-432 owns adding `sort_order_snapshot`**, with the rows it writes.
+**The third snapshot column landed with ERT-432, and it is the catalogue's `sort_order`.** The
+checklist's *order* is as much a copy as its names, and until ERT-432 nothing held it: reading it
+would have meant joining `requirement_templates`, which is precisely the live read this section
+forbids — a template reordered tomorrow would reshuffle a hire's checklist today.
+`EmployeeRepository.requirementsOf` now orders by `sortOrderSnapshot`, `nameSnapshot`, `id` — every
+key a column of `employee_requirements` — which reproduces the catalogue's own `sort_order, name`
+ordering at the moment the copy was taken. It ordered by `nameSnapshot` alone until then: determinate
+and snapshot-pure, and not the order HR arranged (ERT-410).
+
+The value is **copied, not re-derived from the row's position in the catalogue list**. The two
+produce the identical order and different data, and only an assertion on the stored integers tells
+them apart — which is why one exists. The column carries `default 0` so the migration applies to a
+table that may hold rows; `EmployeeRequirement.sortOrderSnapshot` carries **no** Kotlin default, so
+a writer cannot inherit that `0` in silence and collapse every hire's order back to name.
 
 **There is no `last_accessed_at` column anywhere, on purpose.** PRD v0.3 had one; a single
 overwritten timestamp cannot answer who, from where, or how often, which is the first question asked

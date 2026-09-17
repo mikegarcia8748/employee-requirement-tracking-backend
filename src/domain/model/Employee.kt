@@ -81,11 +81,24 @@ data class Employee(
  * | Sub-task | Field |
  * |---|---|
  * | ERT-431 | `employee` |
- * | ERT-432 | the snapshotted `RequirementSet` |
+ * | ERT-432 | `requirements` — **landed** |
  * | ERT-433 | the `UploadLink` — safe to expose, since it holds a digest and never a plaintext token |
  * | ERT-434 | whether the invitation was delivered |
  */
-data class HireCreated(val employee: Employee)
+data class HireCreated(
+    val employee: Employee,
+    /**
+     * The set copied from the catalogue at this moment, in the order it was copied (ERT-432).
+     *
+     * **The list that was written, not a re-read.** `EmployeeRepository.saveRequirements` returns
+     * nothing, so the alternative is a second round trip through `requirementsOf` — which would
+     * also make the result depend on the adapter's `ORDER BY` rather than on what this use case
+     * decided. The two agree by construction, because the adapter's ordering is a copy of the
+     * catalogue's; **no test distinguishes them**, and this says so rather than claiming a
+     * behavioural difference it cannot demonstrate.
+     */
+    val requirements: RequirementSet,
+)
 
 /**
  * The employee's declaration at submission (PRD 7.2).

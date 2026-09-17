@@ -238,6 +238,7 @@ fun anEmployeeRequirement(
     templateId: EntityId = Fixtures.TEMPLATE_ID,
     nameSnapshot: String = "NBI Clearance",
     isRequiredSnapshot: Boolean = true,
+    sortOrderSnapshot: Int = 0,
     status: RequirementStatus = RequirementStatus.PENDING,
     rejectionCount: Int = 0,
 ): EmployeeRequirement = EmployeeRequirement(
@@ -246,6 +247,7 @@ fun anEmployeeRequirement(
     templateId = templateId,
     nameSnapshot = nameSnapshot,
     isRequiredSnapshot = isRequiredSnapshot,
+    sortOrderSnapshot = sortOrderSnapshot,
     status = status,
     rejectionCount = rejectionCount,
 )
@@ -263,6 +265,22 @@ fun anEmployeeRequirement(
  *
  * `firstId` offsets the generated requirement ids. Two sets built for two employees would otherwise
  * share ids, and a repository keyed by id would silently merge them.
+ *
+ * ### This builder cannot be used to test ordering, and that is worth stating rather than
+ * ### discovering
+ *
+ * Every key it produces runs the same way. The names are `Required document 1`…`n`, the ids are
+ * `REQ000000001`…, insertion order is the same again, and `sortOrderSnapshot` is the index — so
+ * name order, id order, insertion order and sort order are **identical**. A test asserting an
+ * ordering against a set built here passes against no ordering at all, which is the coincidence
+ * ERT-320 found in a seed, ERT-350 in a single seeded row, ERT-410 inside a test written to prevent
+ * it, and ERT-420 in two such tests at once. Ordering tests build their rows by hand with
+ * [anEmployeeRequirement], arranged so every accidental key names a different row than the rule
+ * does.
+ *
+ * The sort order is the index rather than `0` because that is what `CreateHireUseCase` produces
+ * from a catalogue, so a set built here stands in for a real one everywhere except an ordering
+ * assertion.
  */
 fun aRequirementSet(
     required: Int = 3,
@@ -292,6 +310,7 @@ fun aRequirementSet(
             employeeId = employeeId,
             nameSnapshot = "Required document ${index + 1}",
             isRequiredSnapshot = true,
+            sortOrderSnapshot = index,
             status = status,
         )
     } + List(optional) { index ->
@@ -300,6 +319,7 @@ fun aRequirementSet(
             employeeId = employeeId,
             nameSnapshot = "Optional document ${index + 1}",
             isRequiredSnapshot = false,
+            sortOrderSnapshot = statuses.size + index,
             status = RequirementStatus.PENDING,
         )
     }
