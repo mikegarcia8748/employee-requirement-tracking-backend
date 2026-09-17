@@ -44,7 +44,48 @@ data class Employee(
      * innocuous replacements.
      */
     val retentionFrozen: Boolean get() = anomalyFlags.isNotEmpty()
+
+    companion object {
+        /**
+         * The `entity` discriminator for every audit row about a hire.
+         *
+         * A constant for the reason [com.pgsystem.employee.requirement.tracker.domain.model.HrUser.AUDIT_ENTITY]
+         * is one. ERT-431 writes the first employee audit row; before it the string `"employee"` was
+         * a bare literal in three test files, which is how a discriminator ends up spelled two ways
+         * and an exception report silently misses half its rows.
+         */
+        const val AUDIT_ENTITY = "employee"
+    }
 }
+
+/**
+ * What [com.pgsystem.employee.requirement.tracker.domain.usecase.CreateHireUseCase] returns, and the
+ * type ERT-432, ERT-433 and ERT-434 extend.
+ *
+ * **A wrapper rather than a bare [Employee], decided by ERT-431 so the other three sub-tasks do not
+ * re-argue it.** Creating a hire produces four things — the hire, its snapshotted requirement set,
+ * its link, and whether the invitation actually went out — and only the first is a column on
+ * `employees`. The delivery indicator in particular **must not** become one: E4 settled that it is
+ * derived from the latest outbox row, and that "a column would be a second copy of a fact the outbox
+ * already owns, and the two would drift the first time a retry succeeded".
+ *
+ * The alternative — return [Employee] now and widen the signature at ERT-434 — is what ERT-430 split
+ * itself into sub-tasks to avoid, and it would additionally force ERT-450's route to make a second
+ * repository call for the requirement set, which the dependency rule forbids.
+ *
+ * Growth is compile-checked in the right place: adding a field without a default breaks only the one
+ * construction site inside the use case, while every test reading `.employee` keeps compiling. That
+ * is the `NotificationKind.storesBody` device — a new field is a decision someone has to make rather
+ * than one they can inherit in silence.
+ *
+ * | Sub-task | Field |
+ * |---|---|
+ * | ERT-431 | `employee` |
+ * | ERT-432 | the snapshotted `RequirementSet` |
+ * | ERT-433 | the `UploadLink` — safe to expose, since it holds a digest and never a plaintext token |
+ * | ERT-434 | whether the invitation was delivered |
+ */
+data class HireCreated(val employee: Employee)
 
 /**
  * The employee's declaration at submission (PRD 7.2).

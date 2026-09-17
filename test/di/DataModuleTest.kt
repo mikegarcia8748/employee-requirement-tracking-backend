@@ -20,6 +20,7 @@ import com.pgsystem.employee.requirement.tracker.domain.port.SubmissionRepositor
 import com.pgsystem.employee.requirement.tracker.domain.port.RequirementTemplateRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.UploadLinkRepository
 import com.pgsystem.employee.requirement.tracker.domain.usecase.AuthenticateHrUserUseCase
+import com.pgsystem.employee.requirement.tracker.domain.usecase.CreateHireUseCase
 import com.pgsystem.employee.requirement.tracker.domain.usecase.ChangeHrPasswordUseCase
 import com.pgsystem.employee.requirement.tracker.domain.usecase.CreateHrUserUseCase
 import com.pgsystem.employee.requirement.tracker.domain.usecase.EnsureBootstrapHrUserUseCase
@@ -111,7 +112,7 @@ class DataModuleTest {
     }
 
     @Test
-    fun `wiring - the domain module - resolves every HR use case`() = withContainer { koin ->
+    fun `wiring - the domain module - resolves every use case`() = withContainer { koin ->
         // Koin resolves lazily, so a use case with a wrong constructor arity compiles, starts,
         // serves /health, and fails on the first sign-in. Resolving each here moves that to the
         // build -- which matters more for these than for a repository, because five of the six are
@@ -122,6 +123,10 @@ class DataModuleTest {
         koin.get<SetHrUserActiveUseCase>()
         koin.get<ResetHrPasswordUseCase>()
         koin.get<EnsureBootstrapHrUserUseCase>()
+
+        // ERT-431. The name above was `every HR use case` while the six were all HR-account
+        // use cases; this is the first that is not, and one roll-call is better than two.
+        koin.get<CreateHireUseCase>()
     }
 
     @Test

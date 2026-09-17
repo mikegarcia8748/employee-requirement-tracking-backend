@@ -7,6 +7,7 @@ import com.pgsystem.employee.requirement.tracker.testdata.FixedClock
 import com.pgsystem.employee.requirement.tracker.testdata.FixedPersonIdGenerator
 import com.pgsystem.employee.requirement.tracker.testdata.Fixtures
 import com.pgsystem.employee.requirement.tracker.testdata.aCompletedPacket
+import com.pgsystem.employee.requirement.tracker.testdata.aDepartment
 import com.pgsystem.employee.requirement.tracker.testdata.aPortalSession
 import com.pgsystem.employee.requirement.tracker.testdata.aRequirementSet
 import com.pgsystem.employee.requirement.tracker.testdata.aRequirementTemplate
@@ -15,6 +16,7 @@ import com.pgsystem.employee.requirement.tracker.testdata.anActiveLink
 import com.pgsystem.employee.requirement.tracker.testdata.anAuditEntry
 import com.pgsystem.employee.requirement.tracker.testdata.anEmail
 import com.pgsystem.employee.requirement.tracker.testdata.anEmployee
+import com.pgsystem.employee.requirement.tracker.testdata.anEmploymentType
 import com.pgsystem.employee.requirement.tracker.testdata.anEndedSession
 import com.pgsystem.employee.requirement.tracker.testdata.entityId
 import com.pgsystem.employee.requirement.tracker.testdata.personId
@@ -32,7 +34,7 @@ import com.pgsystem.employee.requirement.tracker.testdata.errCode
 import com.pgsystem.employee.requirement.tracker.testdata.ok
 
 /**
- * The remaining seven fakes, one or two assertions each, on the semantics that could drift from
+ * The remaining eight fakes, one or two assertions each, on the semantics that could drift from
  * their real adapters.
  *
  * Not exhaustive coverage of every method — a fake with a wrong `findById` fails loudly the first
@@ -254,6 +256,51 @@ class FakesTest {
         repository.findActiveForEmploymentType(Fixtures.EMPLOYMENT_TYPE_ID)
 
         repository.employmentTypeReads shouldBe listOf(Fixtures.EMPLOYMENT_TYPE_ID)
+    }
+
+    // ── FakeReferenceDataRepository ─────────────────────────────────────────────────────────────
+
+    @Test
+    fun `fake reference data - a department id - does not exist as an employment type`() = runTest {
+        // The whole reason the port carries two existence checks rather than one: both ids are
+        // 12-character EntityIds and structurally indistinguishable, so a fake holding one combined
+        // collection would answer `true` for a department id handed to the employment-type check --
+        // PRD 8.2's defect, reached through the validator meant to prevent it. Asserted here so the
+        // use-case test that proves the two checks are separate cannot be vacuous.
+        val repository = FakeReferenceDataRepository(
+            departments = listOf(aDepartment(id = entityId("DPT000000001"))),
+            employmentTypes = listOf(anEmploymentType(id = entityId("EMT000000001"))),
+        )
+
+        repository.departmentExists(entityId("DPT000000001")) shouldBe true
+        repository.employmentTypeExists(entityId("DPT000000001")) shouldBe false
+        repository.departmentExists(entityId("EMT000000001")) shouldBe false
+    }
+
+    @Test
+    fun `fake reference data - departments seeded out of order - come back in name order`() = runTest {
+        // Three, in an order that is neither sorted nor its reverse. Two would leave too few
+        // arrangements for a coincidence to be unlikely -- ERT-410 and ERT-420 each shipped an
+        // ordering test that passed against no ordering at all for exactly that reason.
+        val repository = FakeReferenceDataRepository().givenDepartments(
+            aDepartment(id = entityId("DPT000000001"), name = "Logistics"),
+            aDepartment(id = entityId("DPT000000002"), name = "Finance"),
+            aDepartment(id = entityId("DPT000000003"), name = "Store Operations"),
+        )
+
+        repository.findDepartments().map { it.name } shouldBe
+            listOf("Finance", "Logistics", "Store Operations")
+    }
+
+    @Test
+    fun `fake reference data - an empty catalogue - reports that nothing exists`() = runTest {
+        // An empty list is data, not a failure, as the port says -- and a seeded id must still be
+        // refused, so a test seeding nothing cannot pass by accident.
+        val repository = FakeReferenceDataRepository()
+
+        repository.findDepartments().shouldBeEmpty()
+        repository.findEmploymentTypes().shouldBeEmpty()
+        repository.departmentExists(Fixtures.DEPARTMENT_ID) shouldBe false
     }
 
     // ── FakePortalSessionRepository ─────────────────────────────────────────────────────────────
@@ -529,6 +576,7 @@ class FakesTest {
 
         FakeEmployeeRepository(owners = owners)
         FakeRequirementTemplateRepository()
+        FakeReferenceDataRepository()
         FakeUploadLinkRepository()
         FakeSubmissionRepository(owners = owners)
         FakePortalSessionRepository()
