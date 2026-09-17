@@ -423,7 +423,7 @@ The gate the code documents is the gate the code applies.
 | **Parent** | ERT-1200 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | §13 |
 | **Architecture** | §14 |
@@ -452,15 +452,20 @@ metric on `jsonPayload.level="ERROR"`, which is where alerting configuration bel
 One log event is one Cloud Logging entry, and the correlation id is a field rather than a substring.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given the container, then log output is one JSON object per event
-- [ ] `[derived]` Given an exception, then its stack trace is one entry, not one entry per frame
-- [ ] `[derived]` Given a request, then `requestId` is a structured field
-- [ ] `[derived]` Given `./kotlin run` and `./kotlin test`, then output is unchanged from today
-- [ ] `[derived]` Given the JSON configuration, then it carries the same logger levels as the
+- [x] `[derived]` Given the container, then log output is one JSON object per event
+- [x] `[derived]` Given an exception, then its stack trace is one entry, not one entry per frame
+- [x] `[derived]` Given a request, then `requestId` is a structured field
+- [x] `[derived]` Given `./kotlin run` and `./kotlin test`, then output is unchanged from today
+- [x] `[derived]` Given the JSON configuration, then it carries the same logger levels as the
       text one — a second file is a second thing to keep in step, and that must be stated
 
 **Files**
-- create `resources/logback-gcp.xml`
+- create [`resources/logback-gcp.xml`](../../resources/logback-gcp.xml)
+
+**Note for ERT-1220.** The file is under `resources/`, so it is packaged **inside** the jar at
+`BOOT-INF/classes/logback-gcp.xml`. The container selects it with
+`-Dlogback.configurationFile=logback-gcp.xml` — a classpath-relative name, verified working — and the
+image does **not** need to copy the file in separately.
 
 **Out of scope**
 - `X-Cloud-Trace-Context` correlation, which would nest a request's log lines under its request
