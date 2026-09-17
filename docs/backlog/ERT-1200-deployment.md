@@ -115,7 +115,7 @@ The bytecode target is a reviewed decision in `module.yaml`, not a side effect o
 | **Parent** | ERT-1200 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting |
-| **Status** | Not started |
+| **Status** | In progress |
 | **Depends on** | ERT-1210, ERT-1240 |
 | **PRD** | — |
 | **Architecture** | §14 |
@@ -170,7 +170,7 @@ One command produces an image that boots with no external service, as a non-root
 | **Parent** | ERT-1200 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting |
-| **Status** | Not started |
+| **Status** | In progress |
 | **Depends on** | ERT-1220, ERT-1120 |
 | **PRD** | — |
 | **Architecture** | §14 |
@@ -693,7 +693,7 @@ The team decides how long migrations may take before a migration forces the ques
 | **Parent** | ERT-1200 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting — **Phase 1 exit checklist** |
-| **Status** | Not started |
+| **Status** | In progress |
 | **Depends on** | ERT-1270 |
 | **PRD** | §12, §13 |
 | **Architecture** | §14 |

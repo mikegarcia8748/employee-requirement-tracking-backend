@@ -359,7 +359,7 @@ An uploaded file is scanned before it can be served, and the gate stops being a 
 | **Parent** | ERT-1100 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting — **Phase 1 exit checklist** |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | — |
 | **Architecture** | §10 |
@@ -382,16 +382,69 @@ Every push runs the build and the full suite, and a failing guard blocks the mer
 discovered later.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given a push, then `./kotlin build` and `./kotlin test` run
-- [ ] `[derived]` Given a failing test, then the check fails visibly on the pull request
-- [ ] `[derived]` Given the workflow, then it pins the toolchain version rather than tracking latest
-- [ ] `[derived]` Given a run, then the test count is reported, so a suite that silently stops
+- [x] `[derived]` Given a push, then `./kotlin build` and `./kotlin test` run
+- [x] `[derived]` Given a failing test, then the check fails visibly on the pull request
+- [x] `[derived]` Given the workflow, then it pins the toolchain version rather than tracking latest
+- [x] `[derived]` Given a run, then the test count is reported, so a suite that silently stops
       discovering tests is visible — the Kotest-discovery trap in architecture §10 is exactly this
       failure
+- [x] `[derived]` Given a compiled class whose major version is not 65, then the build fails —
+      ERT-1210 pinned `settings.jvm.release`, and a pin without a guard is a comment
+- [x] `[derived]` Given a pull request, then the container image builds and boots against in-memory
+      H2, so a change that breaks the image is caught before it reaches a deploy workflow
+- [x] `[derived]` Given a commit, then a secret scanner runs — `.gitignore` re-includes files named
+      `.env.*` (ERT-1120, ERT-1230), and git's last-matching-pattern rule makes that list fragile
 
 **Files**
 - create `.github/workflows/build.yml`
 - modify [`README.md`](../../README.md) — the status badge, with ERT-1140
 
 **Out of scope**
-- Deployment pipelines. ERT-1120 first; there is no target environment yet.
+- Deployment pipelines. ERT-1120 first; there is no target environment yet. **ERT-1200 is that
+  pipeline**, and its deploy workflows sit beside this file rather than inside it.
+- Pinning third-party actions to commit SHAs. ERT-1165.
+
+---
+
+## ERT-1165 — Pin every third-party GitHub Action to a commit SHA
+
+| | |
+|---|---|
+| **Parent** | ERT-1100 |
+| **Type** | Ticket |
+| **Phase** | Cross-cutting — **Phase 1 exit checklist** |
+| **Status** | Not started |
+| **Depends on** | ERT-1160 |
+| **PRD** | §12 |
+| **Architecture** | §14 |
+
+**Description**
+
+The three workflows reference actions by tag — `actions/checkout@v4`, `google-github-actions/auth@v2`,
+`gitleaks/gitleaks-action@v2`. A tag is mutable. Whoever controls one of those repositories, or
+anyone who compromises it, can change what `@v4` points at and run arbitrary code **inside a job that
+holds an OIDC token able to impersonate a deployment service account**.
+
+That is not hypothetical for this repository specifically. `deploy-uat.yml` can push to Artifact
+Registry and deploy a Cloud Run revision; `deploy-prod.yml` can move production traffic. The blast
+radius of a compromised action here is the production service.
+
+**This project already knows the answer** — the `kotlin` wrapper pins both a version *and* a
+sha256, and refuses to run on a mismatch. A workflow floating on `@v4` is a weaker link than the
+toolchain it is guarding, which is the whole argument.
+
+**Goal**
+
+Every third-party action resolves to bytes that cannot change under us.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given any `uses:` line naming a third-party action, then it references a full
+      40-character commit SHA with the human-readable tag in a trailing comment
+- [ ] `[derived]` Given a pinned action, then a renovation tool or a documented procedure exists for
+      moving the pin deliberately — a pin nobody can update is abandoned, not secure
+- [ ] `[derived]` Given the deploy workflows, then their `permissions:` blocks grant the narrowest
+      set each job needs
+
+**Files**
+- modify `.github/workflows/build.yml`, `.github/workflows/deploy-uat.yml`,
+  `.github/workflows/deploy-prod.yml`

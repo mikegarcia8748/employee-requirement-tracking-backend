@@ -1,0 +1,141 @@
+# Build and test on every push (ERT-1160).
+#
+# This project leans on guards that FAIL THE BUILD -- ArchitectureTest enforces
+# the dependency rule, the write-mostly portal DTO rule, the use-case tracing
+# rule and (since ERT-1245) the HR authorisation gate; MigrationTest catches
+# schema drift; and several tests exist purely as tripwires that report VACUOUS
+# rather than passing. Every one of those ran only when somebody remembered.
+#
+# Third-party actions are referenced by tag rather than by commit SHA. That is a
+# real weakness -- this repository sha-pins its own Kotlin toolchain, so a
+# floating @v4 is a weaker link than the thing it guards -- and it is tracked as
+# ERT-1165 rather than left as a comment nobody owns.
+
+name: build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks scans history, not just the working tree.
+          fetch-depth: 0
+
+      # No setup-java. The ./kotlin wrapper provisions its own Temurin JDK, and a
+      # runner-installed JDK would be ignored -- or worse, silently used for a
+      # different compilation target.
+      #
+      # This cache is the entire reason PR feedback is fast. The key hashes the
+      # wrapper (which pins the toolchain version AND its sha256), the version
+      # catalogue and the module -- the three files that change what gets
+      # downloaded. Everything else churns without affecting it.
+      - name: Restore the Kotlin toolchain and dependency cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/JetBrains/Kotlin
+          key: kotlin-${{ runner.os }}-${{ hashFiles('kotlin', 'libs.versions.toml', 'module.yaml') }}
+          restore-keys: kotlin-${{ runner.os }}-
+
+      - name: Build
+        run: ./kotlin build
+
+      - name: Test
+        run: ./kotlin test
+
+      # ERT-1160's fourth acceptance criterion, made real. A Kotest-discovery
+      # failure does not fail -- it reports ZERO TESTS and passes, which is the
+      # exact trap architecture 10 documents. A floor is the only thing that
+      # catches a suite that has silently stopped discovering.
+      - name: Publish the test report and enforce a discovery floor
+        if: always()
+        uses: mikepenz/action-junit-report@v5
+        with:
+          report_paths: 'build/**/TEST-*.xml'
+          require_tests: true
+          fail_on_failure: true
+          detailed_summary: true
+
+      # ERT-1210 pinned settings.jvm.release so the bytecode target stops
+      # tracking whatever JDK the toolchain provisions. A pin without a guard is
+      # a comment: this is the guard.
+      - name: Assert the compiled target is Java 21
+        run: |
+          set -euo pipefail
+          cls=$(find build -name 'MainKt.class' -path '*kotlin-output*' | head -n1)
+          test -n "$cls" || { echo "no compiled MainKt.class found"; exit 1; }
+          major=$(javap -verbose "$cls" | awk '/major version/{print $3}')
+          echo "class-file major version: $major"
+          if [ "$major" != "65" ]; then
+            echo "expected 65 (Java 21) from settings.jvm.release; got $major"
+            echo "either module.yaml's pin moved, or it stopped being honoured"
+            exit 1
+          fi
+
+      # .gitignore re-includes files named .env.* (ERT-1120, ERT-1230), and
+      # git's last-matching-pattern rule makes that list fragile as it grows. A
+      # scanner is what makes committing those files safe rather than merely
+      # convenient.
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  image:
+    # Proves the container still builds and still boots, without pushing
+    # anything. Runs on every PR rather than behind a `paths` filter: a filtered
+    # required check reports "skipped", which blocks a merge queue.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # BuildKit `type=cache` mounts are NOT exported by cache-to: type=gha and
+      # do not survive a fresh runner -- only image LAYERS are cached here. That
+      # is why the job above builds natively with actions/cache instead: the two
+      # mechanisms cover disjoint ground and neither alone is enough.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ert:pr
+          platforms: linux/amd64
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The highest-value step in this file. With APP_ENV=dev and no
+      # DATABASE_URL the container uses in-memory H2 and runs the full Flyway
+      # chain, so one curl proves the jar, the JVM flags, the non-root user, the
+      # writable working directory, Flyway and the Netty bind -- with no external
+      # service and no credentials.
+      - name: Smoke test the image on H2
+        run: |
+          set -euo pipefail
+          docker run -d --name smoke -p 18080:8080 -e APP_ENV=dev ert:pr
+          ok=
+          for _ in $(seq 1 90); do
+            if curl -fsS http://localhost:18080/health; then ok=1; break; fi
+            sleep 1
+          done
+          echo
+          docker logs smoke
+          docker rm -f smoke >/dev/null
+          test -n "$ok" || { echo "container never answered /health"; exit 1; }

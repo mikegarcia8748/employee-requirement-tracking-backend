@@ -1,11 +1,38 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-430 / ERT-431 — `CreateHireUseCase`, starting with email validation and
-duplicate-on-active](backlog/ERT-400-hire-creation.md#ert-431--email-validation-and-duplicate-on-active-with-typed-reason)**
+**Next ticket: [ERT-1260 — the GCP foundation runbook, then ERT-1270's first UAT
+deploy](backlog/ERT-1200-deployment.md#ert-1260--gcp-foundation-identity-federation-registry-network-database-secrets)**
+— or [ERT-430 / ERT-431](backlog/ERT-400-hire-creation.md#ert-431--email-validation-and-duplicate-on-active-with-typed-reason)
+if the GCP project does not exist yet. ERT-1260 is the only remaining ticket that needs something
+outside this repository.
 
-> **ERT-420 and ERT-440 landed together: links resolve by token digest, and every notification has a
-> durable row.** The suite went from 549 tests to 592. **ERT-430 is fully unblocked** — every port it
-> names now has an adapter — and so are ERT-1010 and ERT-1020.
+> **ERT-1200 opened and largely landed: the system has a container, a local Postgres, CI, and a
+> CI/CD path to two Cloud Run services.** The suite went from 592 tests to 623. Everything except
+> ERT-1260 — the one-time GCP setup, which needs a project and an Owner — is committed and verified
+> locally.
+>
+> **Read this before writing any configuration reader: `APP_ENV` unset now means PRODUCTION**
+> (ERT-1120). Five controls used to hang off a variable that failed open. `./kotlin run` on a fresh
+> checkout therefore needs `set -a; . ./.env.dev; set +a` first, and the suite gets `APP_ENV=dev`
+> from `settings.jvm.test.extraEnvironment` — a real environment variable, not a test-only backdoor
+> into a security control. `DATABASE_URL` now fails closed the same way (ERT-1241); it was the only
+> config path that did not, and its failure mode was a *green* deploy writing to a database that
+> evaporates.
+>
+> **The multi-instance question is answered: MULTI-INSTANCE, and the pin was rejected rather than
+> not chosen.** `--max-instances 1` is a per-revision ceiling, not a mutex. **ERT-660 and ERT-1020
+> must read the answer recorded on ERT-1120 before they are written** — an in-memory limiter is
+> coarse shaping with an effective limit of `configured × instances`, and a per-process timer runs
+> every job on every instance. ERT-1010's poller is already safe; that is stated so nobody "fixes"
+> it.
+>
+> **ERT-1245 found three HR routes that skipped the password-change gate**, contradicting a stated
+> invariant. Fixed, and `ArchitectureTest` now fails the build on any handler under `route/hr/` that
+> does not open with one. The comment that claimed the gate was "applied once, around every HR
+> route" is how it spread from one file to the next.
+>
+> **ERT-430 is fully unblocked** — every port it names now has an adapter — and so are ERT-1010 and
+> ERT-1020.
 >
 > **Read the C23 row on the escalation table before writing ERT-433.** `Notifier.sendInvitation` still
 > requires an `AccessPin` and the invitation must carry none; ERT-433 is the ticket that has to decide
@@ -609,8 +636,12 @@ checked. Phase 1 is not done until every row is closed or consciously waived in 
 | Item | Owner | Ticket |
 |---|---|---|
 | Malware scanning delivered — the `isClean` gate stops being a stub | Engineering / Security | **ERT-1150** (Q22) |
-| `APP_ENV` fails closed, and the deployment's instance assumption is recorded | Engineering | **ERT-1120** |
-| CI runs the build and the suite on every push | Engineering | **ERT-1160** |
+| `APP_ENV` fails closed, and the deployment's instance assumption is recorded | Engineering | **ERT-1120 — Done 2026-09-17; multi-instance** |
+| CI runs the build and the suite on every push | Engineering | **ERT-1160 — Done 2026-09-17** |
+| A deployable container image exists and boots with no external service | Engineering | **ERT-1220 — Done 2026-09-17** |
+| The GCP project, identity federation, registry, network, database and secrets exist | Engineering | **ERT-1260** — the one remaining item that needs something outside this repository |
+| Third-party GitHub Actions pinned to commit SHAs | Engineering | **ERT-1165** — a tag is mutable, and these jobs hold a token that can deploy production |
+| The deployment security and bottleneck audits are dispositioned | Engineering / Security | **ERT-1290** |
 | Sending domain chosen, with SPF/DKIM/DMARC aligned | IT | Q12's second half |
 | Consent notice wording signed off, so the attestation text stops being a placeholder | Legal / compliance | Q5 → ERT-912 |
 | Object-storage project and bucket provisioned, private and encrypted at rest | Engineering | Q20 → ERT-710 |
@@ -695,7 +726,8 @@ Now a real epic with real tickets: [ERT-1100](backlog/ERT-1100-operability-harde
 |---|---|---|
 | HR authentication | Replace the placeholder JWT scheme with the real model; local `users`, two roles, sign-in | **Done — ERT-190, 2026-09-16** |
 | Security hardening | Malware scanning before a file becomes previewable; pepper rotation; retention sweep with the freeze honoured | **ERT-1150** (Q22), **ERT-1130**; retention needs Q7 and Q18 |
-| Operability | `APP_ENV` fails closed, startup summary, deployment configuration, CI | **ERT-1120**, **ERT-1160** |
+| Operability | `APP_ENV` fails closed, startup summary, deployment configuration, CI | **ERT-1120 — Done**, **ERT-1160 — Done** |
+| Environments and deployment | Container image, local compose, CI/CD to two Cloud Run services, the runbook, the audits | [**ERT-1200**](backlog/ERT-1200-deployment.md) — ERT-1260 is the only ticket left, and it needs a GCP project |
 | Documentation hygiene | The root README is still stock Ktor generator boilerplate and advertises deleted features; the unused R2DBC dependencies | **ERT-1140** |
 
 ---

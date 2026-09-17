@@ -1,0 +1,151 @@
+# Production promotes the digest UAT ran (ERT-1280).
+#
+# NOT a tag trigger, and that is the point of the ticket. A rebuild from the same
+# commit is a DIFFERENT IMAGE no matter how careful the Dockerfile is: a different
+# base-image digest, differently resolved transitive dependencies, different
+# timestamps. The entire value of a UAT gate is that production runs the BYTES
+# UAT ran, and a rebuild quietly throws that away.
+
+name: deploy-prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: 'Digest to promote (sha256:...). Leave EMPTY to promote whatever UAT is serving now.'
+        required: false
+        type: string
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # The GitHub Environment is what holds the approval -- and because the prod
+    # deployer service account is bound to the OIDC subject
+    # `repo:OWNER/REPO:environment:production` (ERT-1260), EDITING THIS WORKFLOW
+    # CANNOT BYPASS IT. The IAM binding is the real gate; this block is the UI
+    # for it. A job that dropped this `environment:` would simply fail to
+    # authenticate.
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/github/providers/github
+          service_account: gh-deploy-prod@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - id: resolve
+        name: Resolve the image to promote
+        run: |
+          set -euo pipefail
+          IN='${{ inputs.image_digest }}'
+          if [ -n "$IN" ]; then
+            IMAGE="${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/ert/app@${IN}"
+          else
+            # Read the image off the revision currently receiving UAT traffic, so
+            # "promote what UAT tested" is literally true rather than an
+            # assumption about which workflow ran last.
+            IMAGE=$(gcloud run services describe ert-uat \
+              --region="${{ vars.GCP_REGION }}" \
+              --format='value(spec.template.spec.containers[0].image)')
+          fi
+          case "$IMAGE" in
+            *"@sha256:"*) ;;
+            *) echo "Refusing: resolved image is not digest-pinned: $IMAGE"; exit 1 ;;
+          esac
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "Promoting $IMAGE"
+
+      # The canary. Two things it buys, both of which matter more than they look:
+      #
+      #  1. Flyway runs on EXACTLY ONE INSTANCE, under a tag URL no user has,
+      #     before any traffic moves. Migrations are in-process and synchronous
+      #     (ERT-1285 is the ticket for changing that), so this is what keeps a
+      #     scale-out from having several instances contend on the advisory lock
+      #     while their startup probes tick.
+      #  2. A boot failure -- a bad secret, an unreachable database, a migration
+      #     that will not apply -- is caught while 100% of traffic is still on
+      #     the old revision.
+      - id: candidate
+        name: Deploy the candidate with no traffic
+        run: |
+          set -euo pipefail
+          gcloud run deploy ert-prod \
+            --region="${{ vars.GCP_REGION }}" \
+            --image="${{ steps.resolve.outputs.image }}" \
+            --service-account="ert-prod-run@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --platform=managed \
+            --ingress=all \
+            --allow-unauthenticated \
+            --min-instances=1 \
+            --max-instances=4 \
+            --concurrency=80 \
+            --cpu=1 --memory=1Gi \
+            --cpu-boost \
+            --no-cpu-throttling \
+            --timeout=120 \
+            --network=ert-vpc --subnet=ert-run --vpc-egress=private-ranges-only \
+            --env-vars-file=deploy/prod.env.yaml \
+            --set-secrets=JWT_SECRET=ert-prod-jwt-secret:latest,TOKEN_PEPPER=ert-prod-token-pepper:latest,DATABASE_PASSWORD=ert-prod-db-password:latest \
+            --revision-suffix="$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}" \
+            --no-traffic --tag=candidate
+          CAND=$(gcloud run services describe ert-prod --region="${{ vars.GCP_REGION }}" \
+                   --format='value(status.traffic.filter("tag:candidate").extract("url"))' | tr -d '[]')
+          echo "url=$CAND" >> "$GITHUB_OUTPUT"
+          echo "candidate at $CAND"
+
+      # By the time this passes, Flyway has already run on the candidate.
+      - name: Smoke the candidate
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            if curl -fsS "${{ steps.candidate.outputs.url }}/health"; then echo; exit 0; fi
+            sleep 2
+          done
+          echo "candidate never answered /health; traffic has NOT been shifted"
+          exit 1
+
+      - id: deploy
+        name: Shift all traffic to the candidate
+        run: |
+          set -euo pipefail
+          gcloud run services update-traffic ert-prod \
+            --region="${{ vars.GCP_REGION }}" --to-latest --remove-tags=candidate
+          URL=$(gcloud run services describe ert-prod --region="${{ vars.GCP_REGION }}" --format='value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Production promoted"
+            echo
+            echo "- image: \`${{ steps.resolve.outputs.image }}\`"
+            echo "- url: ${{ steps.deploy.outputs.url }}"
+            echo
+            echo "#### Rollback"
+            echo '```bash'
+            echo "gcloud run revisions list --service=ert-prod --region=${{ vars.GCP_REGION }}"
+            echo "gcloud run services update-traffic ert-prod --region=${{ vars.GCP_REGION }} \\"
+            echo "  --to-revisions=<previous-revision>=100"
+            echo '```'
+            echo
+            echo "**Traffic rolls back in seconds. The migration does not.** Flyway has no undo, so"
+            echo "every migration must be backward-compatible with the revision before it: add columns"
+            echo "nullable, never rename or drop in the same release that starts using the new shape,"
+            echo "expand then contract. See docs/architecture.md §14."
+          } >> "$GITHUB_STEP_SUMMARY"

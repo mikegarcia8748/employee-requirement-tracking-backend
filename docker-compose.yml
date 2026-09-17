@@ -1,0 +1,70 @@
+# Local development (ERT-1230).
+#
+# `docker compose up -d` starts ONLY Postgres. That is the common case and the
+# default on purpose: a developer runs `./kotlin run` on the host against a real
+# database and keeps the fast edit-compile loop. Running the application in a
+# container too is opt-in, for reproducing exactly what CI builds:
+#
+#     docker compose --profile app up --build
+#
+# Why bother with Postgres at all when H2 works with no setup: Postgres is the
+# production database and H2 is what everybody actually runs, so without this
+# nobody exercises the real one until UAT does. MigrationTest checks portability,
+# but H2-in-PostgreSQL-mode is not a perfect oracle and was never meant to be.
+
+services:
+  postgres:
+    # Matches the Cloud SQL POSTGRES_17 instance, so dev, UAT and production all
+    # share a major version. That matters because the schema-drift test runs
+    # against H2, which cannot catch a Postgres-version-specific difference.
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ert
+      POSTGRES_USER: ert
+      # Local only, and it never leaves this file. Real environments take this
+      # from Secret Manager (ERT-1260).
+      POSTGRES_PASSWORD: ert_local_dev_only
+    ports:
+      # 55432, not 5432: do not fight whatever Postgres is already installed on
+      # the machine. The port is published on loopback only.
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # -U ert -d ert, not a bare `pg_isready`. The postgres entrypoint runs a
+      # TEMPORARY server while initdb executes, and a bare check passes against
+      # it -- releasing the app to connect to a database that is about to be torn
+      # down and rebuilt. Naming the role and database means the check can only
+      # succeed after initialisation has finished.
+      test: ["CMD-SHELL", "pg_isready -U ert -d ert -q"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  app:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # The application has NO DEGRADED MODE -- it does not start at all if the
+    # database is unreachable, by design (PRD 11). `service_healthy` is what
+    # stops that being mistaken for a broken image on first run, and the bounded
+    # restart is recovery rather than a bandage.
+    restart: on-failure:3
+    env_file:
+      - .env.docker
+    environment:
+      # `postgres` is the compose network alias, and 5432 is the container port
+      # -- not the 55432 published to the host.
+      DATABASE_URL: jdbc:postgresql://postgres:5432/ert
+      DATABASE_USER: ert
+      DATABASE_PASSWORD: ert_local_dev_only
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  pgdata:
