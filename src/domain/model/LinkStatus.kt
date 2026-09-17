@@ -8,7 +8,7 @@ package com.pgsystem.employee.requirement.tracker.domain.model
  * rejection must not revoke the link, since correction is exactly what the employee needs to do.
  */
 enum class LinkStatus(val opensPortal: Boolean) {
-    /** Created with the hire. The working checklist, behind the PIN. */
+    /** Created with the hire. The working checklist, which the link alone reaches (PRD 6.6). */
     ACTIVE(opensPortal = true),
 
     /** Expiry lapsed (PRD 6.4). Recoverable — the employee can request a fresh link. */

@@ -9,14 +9,16 @@ import com.pgsystem.employee.requirement.tracker.data.repository.ExposedEmployee
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedHrUserRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedRequirementTemplateRepository
+import com.pgsystem.employee.requirement.tracker.data.repository.ExposedUploadLinkRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.AppSettingsRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.AccessTokenIssuer
 import com.pgsystem.employee.requirement.tracker.domain.port.AuditLog
 import com.pgsystem.employee.requirement.tracker.domain.port.EmployeeRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.HrUserRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.ReferenceDataRepository
-import com.pgsystem.employee.requirement.tracker.domain.port.UploadLinkRepository
+import com.pgsystem.employee.requirement.tracker.domain.port.SubmissionRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.RequirementTemplateRepository
+import com.pgsystem.employee.requirement.tracker.domain.port.UploadLinkRepository
 import com.pgsystem.employee.requirement.tracker.domain.usecase.AuthenticateHrUserUseCase
 import com.pgsystem.employee.requirement.tracker.domain.usecase.ChangeHrPasswordUseCase
 import com.pgsystem.employee.requirement.tracker.domain.usecase.CreateHrUserUseCase
@@ -30,7 +32,8 @@ import kotlin.test.Test
 import kotlin.test.assertFailsWith
 
 /**
- * The container actually builds what the ports name (ERT-310, ERT-320, ERT-330, ERT-350, ERT-190).
+ * The container actually builds what the ports name (ERT-310, ERT-320, ERT-330, ERT-350, ERT-190,
+ * ERT-410, ERT-420).
  *
  * Koin resolves lazily, so a binding with a wrong constructor arity compiles, starts, serves
  * `/health`, and fails on the first request that needs it. Resolving each port here moves that
@@ -87,6 +90,12 @@ class DataModuleTest {
         }
 
     @Test
+    fun `wiring - the data module - resolves UploadLinkRepository to the Exposed adapter`() =
+        withContainer { koin ->
+            koin.get<UploadLinkRepository>().shouldBeInstanceOf<ExposedUploadLinkRepository>()
+        }
+
+    @Test
     fun `wiring - the data module - resolves AccessTokenIssuer to the JWT adapter`() =
         withContainer { koin ->
             koin.get<AccessTokenIssuer>().shouldBeInstanceOf<JwtIssuer>()
@@ -125,14 +134,14 @@ class DataModuleTest {
 
     @Test
     fun `wiring - a port with no binding yet - still fails at resolution`() = withContainer { koin ->
-        // WHEN THIS FAILS: ERT-420 landed and bound UploadLinkRepository. Swap this for another
-        // unbound port and move UploadLinkRepository up into the tests above -- do not delete it.
+        // WHEN THIS FAILS: ERT-720 landed and bound SubmissionRepository. Swap this for another
+        // unbound port and move SubmissionRepository up into the tests above -- do not delete it.
         // Without a port that genuinely cannot resolve, the tests above would pass just as happily
         // against a container that resolved anything at all.
         //
-        // ERT-410 tripped the previous one, which named EmployeeRepository; that port now has a
+        // ERT-420 tripped the previous one, which named UploadLinkRepository; that port now has a
         // positive test above, which is the swap this comment asks each ticket to make.
-        assertFailsWith<Exception> { koin.get<UploadLinkRepository>() }
+        assertFailsWith<Exception> { koin.get<SubmissionRepository>() }
 
         // And the reason must be the missing binding, not a broken container.
         koin.getOrNull<AuditLog>() shouldBe koin.get<AuditLog>()

@@ -4,19 +4,25 @@ import com.pgsystem.employee.requirement.tracker.data.db.DatabaseConfig
 import com.pgsystem.employee.requirement.tracker.data.auth.JwtConfig
 import com.pgsystem.employee.requirement.tracker.data.auth.JwtIssuer
 import com.pgsystem.employee.requirement.tracker.data.db.DatabaseFactory
+import com.pgsystem.employee.requirement.tracker.data.notify.NotificationMessages
+import com.pgsystem.employee.requirement.tracker.data.notify.OutboxNotifier
+import com.pgsystem.employee.requirement.tracker.data.notify.PortalBaseUrl
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedAppSettingsRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedAuditLog
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedEmployeeRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedHrUserRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.data.repository.ExposedRequirementTemplateRepository
+import com.pgsystem.employee.requirement.tracker.data.repository.ExposedUploadLinkRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.AppSettingsRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.AccessTokenIssuer
 import com.pgsystem.employee.requirement.tracker.domain.port.AuditLog
 import com.pgsystem.employee.requirement.tracker.domain.port.EmployeeRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.HrUserRepository
+import com.pgsystem.employee.requirement.tracker.domain.port.Notifier
 import com.pgsystem.employee.requirement.tracker.domain.port.ReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.RequirementTemplateRepository
+import com.pgsystem.employee.requirement.tracker.domain.port.UploadLinkRepository
 import com.pgsystem.employee.requirement.tracker.plugin.isDevMode
 import org.koin.dsl.module
 
@@ -47,6 +53,7 @@ val dataModule = module {
     single<ReferenceDataRepository> { ExposedReferenceDataRepository(get()) }
     single<HrUserRepository> { ExposedHrUserRepository(get()) }
     single<EmployeeRepository> { ExposedEmployeeRepository(get(), get()) }
+    single<UploadLinkRepository> { ExposedUploadLinkRepository(get()) }
 
     /**
      * One [JwtConfig] for both halves of the scheme (ERT-190).
@@ -71,11 +78,29 @@ val dataModule = module {
 
     single<AccessTokenIssuer> { JwtIssuer(get()) }
 
-    // UploadLinkRepository          -> ExposedUploadLinkRepository
+    /**
+     * The invitation's origin, and the third binding whose construction can fail on configuration
+     * (ERT-440).
+     *
+     * It joins `TokenDigest` and `JwtConfig` on `AppModule`'s eager-resolution line for the same
+     * reason both are there: outside dev a missing `PORTAL_BASE_URL` must abort startup rather than
+     * become a broken link in a hire's inbox — and unlike a 401 or a 500, that failure is not
+     * recoverable by fixing the variable. The token is not stored, so an invitation already sent
+     * cannot be re-rendered; correcting it means reissuing the credential to everyone invited since
+     * the deploy, through the bulk-send path §8.2 deliberately makes hard.
+     */
+    single<PortalBaseUrl> {
+        PortalBaseUrl.fromEnvironment(isDevMode()).also { configured ->
+            configured.warnings.forEach { warning -> notifierWarnings += warning }
+        }.url
+    }
+
+    single { NotificationMessages(get()) }
+    single<Notifier> { OutboxNotifier(get(), get(), get(), get()) }
+
     // SubmissionRepository          -> ExposedSubmissionRepository
     // PortalSessionRepository       -> ExposedPortalSessionRepository
     // PortalAccessTrail             -> ExposedPortalAccessTrail
-    // Notifier                      -> SmtpNotifier
     // DocumentStorage               -> ObjectStorageAdapter
 }
 
@@ -88,3 +113,12 @@ val dataModule = module {
  * call. Written once during graph construction and read once at boot, both on the startup thread.
  */
 internal val jwtWarnings = mutableListOf<String>()
+
+/**
+ * Configuration warnings raised while building [PortalBaseUrl], drained by `AppModule` at startup.
+ *
+ * Separate from [jwtWarnings] rather than sharing one list: two bindings draining one mutable list
+ * means whichever resolves second sees the other's lines, and a test that resolves only one of them
+ * would report warnings nothing raised. See [jwtWarnings] for why the hand-off exists at all.
+ */
+internal val notifierWarnings = mutableListOf<String>()

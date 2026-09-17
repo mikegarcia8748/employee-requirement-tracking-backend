@@ -2,6 +2,7 @@ package com.pgsystem.employee.requirement.tracker.di
 
 import com.pgsystem.employee.requirement.tracker.core.crypto.TokenDigest
 import com.pgsystem.employee.requirement.tracker.data.auth.JwtConfig
+import com.pgsystem.employee.requirement.tracker.data.notify.PortalBaseUrl
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.application.log
@@ -25,6 +26,12 @@ import org.koin.logger.slf4jLogger
  * before the connector binds, not become a 500 later. Any other binding whose construction can fail
  * on configuration belongs on this line too — which is why [JwtConfig] joined it in ERT-190: outside
  * dev a missing `JWT_SECRET` must abort startup, not become a 401 on the first sign-in attempt.
+ *
+ * [PortalBaseUrl] joined it in ERT-440, and its case is the sharpest of the three. The other two
+ * fail *recoverably*: fix the variable, restart, and the next request works. An invitation rendered
+ * without an origin has already left, and the token it carried is not stored — so correcting the
+ * variable does not correct the link, and the remedy is reissuing the credential to every hire
+ * invited since the deploy.
  */
 val appModules = listOf(coreModule, dataModule, domainModule)
 
@@ -36,10 +43,13 @@ fun Application.configureKoin() {
 
     getKoin().get<TokenDigest>()
     getKoin().get<JwtConfig>()
+    getKoin().get<PortalBaseUrl>()
 
-    // Drained after resolution, never before: the list is filled while the binding above is built.
+    // Drained after resolution, never before: each list is filled while its binding is built.
     jwtWarnings.forEach { log.warn(it) }
     jwtWarnings.clear()
+    notifierWarnings.forEach { log.warn(it) }
+    notifierWarnings.clear()
 }
 
 /** Used by tests that need the graph without an embedded server. */

@@ -189,7 +189,7 @@ the active-email lookup honours its scope.
 | **Parent** | ERT-400 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-160, ERT-240 |
 | **PRD** | §6.3, §6.4, §12 |
 | **Architecture** | §4, §12 invariant 4 |
@@ -218,15 +218,84 @@ A link is resolvable by presented token without the plaintext ever being stored 
   hand anyone my documents.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given a link, when looked up by the hash of its token, then it is returned
-- [ ] `[derived]` Given the adapter, then no method accepts a plaintext token
-- [ ] `[derived]` Given the same plaintext token presented twice, then both lookups resolve to the
+- [x] `[derived]` Given a link, when looked up by the hash of its token, then it is returned
+- [x] `[derived]` Given the adapter, then no method accepts a plaintext token
+- [x] `[derived]` Given the same plaintext token presented twice, then both lookups resolve to the
       same row — the token digest is deterministic
-- [ ] `[derived]` Given a stored link, then neither the plaintext token nor any plaintext PIN is
+- [x] `[derived]` Given a stored link, then neither the plaintext token nor any plaintext PIN is
       recoverable from any column
-- [ ] `[derived]` Given `LinkScope.Only`, then it round-trips with its template ids intact
-- [ ] `[derived]` Given an employee with a revoked link and a new active one, then
+- [x] `[derived]` Given `LinkScope.Only`, then it round-trips with its template ids intact
+- [x] `[derived]` Given an employee with a revoked link and a new active one, then
       `findActiveForEmployee` returns only the active one
+
+> **`upload_links.pin_hash` had to become nullable, and the ticket was not blocked by it — the
+> *next* one was.** V1 wrote it `NOT NULL` under the access model that preceded 2026-09-16, where the
+> URL opened nothing without the PIN and both were issued with the hire. The link alone now opens the
+> portal and the PIN is an HR-issued recovery credential minted on demand by ERT-650, so **ERT-433
+> issues a link that has none** — which the old column forbids.
+>
+> The adapter would have round-tripped a non-null `pinHash` perfectly well, which is exactly why this
+> is recorded rather than assumed: the cost of deferring was not a failing test here but a *second*
+> write of this ticket's mapper, builder, fake and repository tests one ticket later. The alternative
+> — a bcrypt hash of a six-digit value nobody was told and nobody can redeem — is worse than null in
+> the way that matters: it is a credential-shaped digest for a credential that does not exist,
+> indistinguishable in the column from a live one, so "has this hire been given a recovery PIN?"
+> stops being answerable from the data.
+>
+> `V5__recovery_pin_nullable.sql` is `alter column pin_hash drop not null` and nothing else. V4 had
+> to drop and re-add its four actor columns because `ALTER COLUMN ... TYPE` is where H2 and
+> PostgreSQL disagree; **nullability is not**, verified against H2 2.4.240 in PostgreSQL mode before
+> the file was written. The two columns the recovery PIN still needs — when it expires and whether it
+> has been used (§6.6: single-use, and expires) — are **not** here. They belong with ERT-650, which
+> mints and redeems the PIN and therefore knows what to write in them, on the ERT-432 principle that
+> a column belongs with the rows it describes.
+>
+> **ERT-440's outbox migration moves to V6.**
+
+> **`LinkScope` had no serializer, and the ticket read as though it did.** The column has carried a
+> literal `'ALL'` default since V1 with no writer and no reader, so "Given `LinkScope.Only`, then it
+> round-trips" was undesigned work rather than a mapping. The encoding is now `ALL`, or `ONLY:` and
+> the template ids, comma-separated and **sorted**.
+>
+> Three things about it are deliberate. `All` encodes to the column's **own default**, so a row
+> written by a migration, an import or a psql prompt decodes as the scope it obviously means instead
+> of as corruption. The ids are sorted for the reason `EmployeeMapper` sorts anomaly flags by
+> ordinal: a `Set` has no order, so an unsorted join writes the same scope two different ways on two
+> saves. And capacity is **39 ids** — `varchar(512)` holds `ONLY:` plus that many — which is recorded
+> in the mapper rather than fixed by widening the column, because Appendix A's catalogue has 14.
+
+> **`findActiveForEmployee` takes no clock, and that is C15's question answered rather than C15
+> unfixed.** C15 gave `PortalSessionRepository.findActiveForLink` a `now` parameter because a session
+> records only `started_at`, `expires_at` and `ended_at`, so "active" there could only mean "not
+> explicitly ended". **A link carries a stored `LinkStatus`.** ERT-1020 states the rule this depends
+> on: expiry is evaluated lazily at access time by ERT-644 against the stored dates, and the sweep
+> exists only to send the warning and keep the status tidy for the HR list — so the portal is never
+> blocked on a background job having run. Filtering on the stored status is the whole answer here,
+> and a clock would put a second definition of expiry in the layer that must hold no business rules.
+>
+> It returns **`ACTIVE` only, not every status that opens the portal.** `COMPLETED` also has
+> `opensPortal = true` (§6.3) and is the plausible mistake — but a completed packet's read-only
+> confirmation is not a link `resend-link` should reuse. `FakeUploadLinkRepository` already drew that
+> line; the adapter matches it, because a use case that passes against fakes and behaves differently
+> against SQL is the failure the fakes exist to prevent.
+
+> **Confirmed by breaking it, eight times — and two of the breaks survived the first pass.** Each
+> was applied to the finished adapter and the suite re-run, in the manner ERT-410 established:
+> dropping the `ACTIVE` filter, widening it to every `opensPortal` status, dropping the employee
+> predicate, reversing the `ORDER BY`, dropping the `ORDER BY` entirely, dropping the blank filter
+> from the scope decoder, dropping the sort from the scope encoder, and making `save` always insert.
+>
+> **Two of them passed a green suite, in a test class whose own comment claimed to have learned this
+> lesson.** The ordering test first gave the newest link the *lowest* id, so dropping the `ORDER BY`
+> still passed — H2 with no ordering returns the primary-key scan, and "lowest id" and "newest" were
+> the same row. And the scope test first used **two** ids given as `[2, 1]`, so replacing `sorted()`
+> with `reversed()` produced the sorted order anyway: ERT-410's exact coincidence, reproduced one
+> epic later by someone who had just read about it. Both now arrange a case where every accident
+> names a different row than the rule does, and all eight breaks fail a named test.
+>
+> The lesson ERT-410 recorded needs one more turn: **intending to write the anti-coincidence test is
+> not the same as writing it, and writing it is not the same as checking that it works.** The
+> mutation pass is the only step that can tell the three apart.
 
 **Tests**
 | Level | Test |
@@ -234,17 +303,37 @@ A link is resolvable by presented token without the plaintext ever being stored 
 | Repository | `link lookup - the hash of a presented token - resolves the link` |
 | Repository | `link lookup - the same token presented twice - resolves to the same row` |
 | Repository | `link persistence - a stored link - exposes no plaintext token or pin` |
-| Repository | `link scope - Only with two template ids - round-trips intact` |
+| Repository | `link persistence - a new link - stores no recovery pin` |
+| Repository | `link scope - Only with three template ids - round-trips intact and in one stable order` |
+| Repository | `link scope - Only with no template ids - round-trips as an empty set rather than one blank id` |
 | Repository | `active link lookup - a revoked link and an active one - returns only the active one` |
+| Repository | `active link lookup - a completed link - is not returned` |
+| Repository | `active link lookup - three active links - returns the most recently issued` |
 
 **Files**
-- create `src/data/repository/ExposedUploadLinkRepository.kt`
-- create `src/data/mapper/UploadLinkMapper.kt`
+- create [`src/data/repository/ExposedUploadLinkRepository.kt`](../../src/data/repository/ExposedUploadLinkRepository.kt)
+- create [`src/data/mapper/UploadLinkMapper.kt`](../../src/data/mapper/UploadLinkMapper.kt)
+- create [`resources/db/migration/V5__recovery_pin_nullable.sql`](../../resources/db/migration/V5__recovery_pin_nullable.sql) — per the note above
+- modify [`src/domain/model/UploadLink.kt`](../../src/domain/model/UploadLink.kt) — `pinHash` nullable, and the KDoc that still described the pre-reversal model
+- modify [`src/domain/model/LinkStatus.kt`](../../src/domain/model/LinkStatus.kt) — `ACTIVE` said "behind the PIN"
+- modify [`src/data/db/table/Tables.kt`](../../src/data/db/table/Tables.kt) — the drift test forces this and the migration to move together
 - modify [`src/di/DataModule.kt`](../../src/di/DataModule.kt) — bind it
-- create `test/data/repository/ExposedUploadLinkRepositoryTest.kt`
+- create [`test/data/repository/ExposedUploadLinkRepositoryTest.kt`](../../test/data/repository/ExposedUploadLinkRepositoryTest.kt)
+- modify [`test/testdata/Builders.kt`](../../test/testdata/Builders.kt) — `anUploadLink(pinHash = null)` by default
+- modify [`test/di/DataModuleTest.kt`](../../test/di/DataModuleTest.kt) — the unbound-port tripwire named
+  this ticket and moves to `SubmissionRepository`
+- modify [`test/data/db/MigrationTest.kt`](../../test/data/db/MigrationTest.kt) — the portability sweep counts its own files
+
+> **The `ONLY:` decoder is the ERT-410 blank-element trap, one file over.**
+> `"ONLY:".removePrefix("ONLY:")` is the empty string, and `"".split(",")` yields one **blank**
+> element rather than none — the same shape that would have reported an anomaly flag on every hire in
+> the system and silently disabled the §7.1 purge. Here the blank reaches `EntityId.of` instead, so
+> without the filter `Only(emptySet())` is unstorable and the failure names the id format rather than
+> the encoding behind it. It has its own named test.
 
 **Out of scope**
 - Expiry evaluation and lockout logic. Those are use-case rules, in ERT-640 and ERT-1020.
+- The recovery PIN's expiry and single-use columns. ERT-650 writes those rows.
 
 ---
 
@@ -437,6 +526,18 @@ HR-issued recovery credential minted on demand by ERT-650 — not at creation. `
 generated at creation could not serve its new purpose anyway: it would arrive in the same email whose
 non-arrival it exists to remedy.
 
+> **C23, opened by ERT-440 and owned by this sub-task: `Notifier.sendInvitation` still *requires* an
+> `AccessPin`.** The paragraph above says the invitation carries none, and this epic's own
+> description says the parameter is what makes "only the invitation may carry a credential" a
+> compile-time property. Both cannot hold: ERT-433 has to pass *something*.
+>
+> ERT-440 implemented the method honestly — it stores no body and renders nothing from the `pin` —
+> and deliberately left the shape alone, because changing a port is a specification change. Three
+> options, none free: make the parameter nullable and lose the guarantee; mint a PIN nobody is told,
+> which is exactly the credential-shaped-digest problem V5 removed from `upload_links`; or **split
+> the port** so `sendInvitation` takes no PIN and a separate `sendRecoveryPin` does — the only one
+> that keeps the guard, and the one ERT-650 will want anyway. Decide it here, in writing.
+
 `expiresAt` is computed from the policy read at this moment and **stored**, exactly like the
 requirement snapshot. Changing `link.absolute_expiry_days` tomorrow must not move this link (§6.4).
 The idle clock is the second of two clocks — when `idleExpiryDays` is 0 it is disabled and
@@ -502,7 +603,7 @@ nothing useful. The `Notifier` shape enforces this; this sub-task must not work 
 **Tests**
 | Level | Test |
 |---|---|
-| Use case | `invitation - a hire is created - sends one invitation carrying the link and the pin` |
+| Use case | `invitation - a hire is created - sends one invitation carrying the link and no pin` |
 | Use case | `invitation - delivery fails - the hire and its link still exist` |
 | Use case | `invitation - delivery fails - the result reports the failure so HR can retry` |
 | Use case | `hire creation - a successful creation - records an audit entry naming the actor` |
@@ -516,7 +617,7 @@ nothing useful. The `Notifier` shape enforces this; this sub-task must not work 
 | **Parent** | ERT-400 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-120 |
 | **PRD** | §8.9 |
 | **Architecture** | §4 |
@@ -563,31 +664,99 @@ with no live credential left sitting in the table.
   a redesign.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given each of the seven `Notifier` methods, when called, then a row is written with
+- [x] `[derived]` Given each of the seven `Notifier` methods, when called, then a row is written with
       recipient, kind, payload and a pending status
-- [ ] `[derived]` Given an invitation outbox row **at any point in its life**, then it contains no
+- [x] `[derived]` Given an invitation outbox row **at any point in its life**, then it contains no
       plaintext token and no PIN — not before sending, not after, not in a failed row's last error
-- [ ] `[derived]` Given `PORTAL_BASE_URL` is unset outside dev, then startup fails rather than
+- [x] `[derived]` Given `PORTAL_BASE_URL` is unset outside dev, then startup fails rather than
       rendering a link with no origin
-- [ ] `[derived]` Given a row, then it can be marked sent or failed, and a failed row can be retried
-- [ ] `[derived]` Given the adapter, then it returns `DeliveryResult.Sent` on a successful write and
+- [x] `[derived]` Given a row, then it can be marked sent or failed, and a failed row can be retried
+- [x] `[derived]` Given the adapter, then it returns `DeliveryResult.Sent` on a successful write and
       `Failed` when the write fails
-- [ ] `[derived]` Given the outbox table, then it is added by a migration, not by `SchemaUtils`
+- [x] `[derived]` Given the outbox table, then it is added by a migration, not by `SchemaUtils`
+
+> **`storesBody` is a constructor parameter on `NotificationKind`, not a `kind != INVITATION` check.**
+> The rule "only the invitation's body is dropped" has to survive an eighth kind being added, and a
+> comparison buried in the adapter would let one inherit `true` in silence. Spelling it as a
+> parameter means the new kind **will not compile** until someone decides which side of the line it
+> is on — the device `AnomalyFlag.freezesRetention` and `LinkStatus.opensPortal` already use, and the
+> one invariant 8 asks for by name.
+
+> **A failed invitation cannot be retried, and `retry` refuses it loudly.** That is the cost of not
+> storing the body, stated from the other end: the token is not persisted anywhere, so there is
+> nothing to rebuild the message from. Reissuing the credential is ERT-1030's `resend-link`. Failing
+> here rather than silently re-queueing is what stops ERT-1010's drain from retrying an invitation
+> forever against an empty body — a loop that would never terminate and never send anything.
+
+> **`.env.example` already documented `PORTAL_BASE_URL`; the code that reads it did not exist.** The
+> ticket's file list said "modify `.env.example`", and that half was done before this session. What
+> was missing was `PortalBaseUrl.fromEnvironment(isDevMode())` and its place on `AppModule`'s
+> eager-resolution line beside `TokenDigest` and `JwtConfig`.
+>
+> **Its case for failing closed is the sharpest of the three, and the KDoc says why.** The other two
+> fail *recoverably*: fix the variable, restart, and the next request works. An invitation rendered
+> without an origin has already left, and the token it carried is not stored — so correcting the
+> variable does not correct the link. The remedy is reissuing the credential to every hire invited
+> since the deploy, through the bulk-send path §8.2 makes hard on purpose.
+
+> **Two of the seven methods take no address, and the column is nullable rather than holding a
+> sentinel.** `sendPacketReadyForReview` and `notifyHrOfSuspension` go to HR, whose mailbox is
+> ERT-1010's configuration rather than this ticket's. A string like `'HR'` in `recipient` would be a
+> lie in a column other code reads; `kind` already names the audience, and null means "resolve it at
+> send time". `employee_id`, by contrast, is **not** nullable — which is what lets §8.1's
+> delivery-failure indicator be *derived* from the latest row for a hire (E4) instead of needing a
+> column on `employees` that something has to remember to update.
+
+> **Confirmed by breaking it, sixteen times — and one break survived.** Storing the invitation's
+> body, dropping every body, flipping `INVITATION.storesBody`, throwing instead of returning
+> `Failed`, overwriting the attempt count, retrying an invitation, clearing the count on retry,
+> dropping the queue's `ORDER BY`, returning sent rows from the queue, putting the hire's address on
+> an HR-bound row, allowing an unset `PORTAL_BASE_URL` outside dev, treating an empty one as
+> configured, restating the link in the expiry warning, and passing silently on an update that
+> matched nothing — all fail a named test.
+>
+> **The one that did not was "store the exception message verbatim".** The test asserted the failure
+> reason does not contain the token, and it passed against the broken adapter — because the only
+> write failure a test can construct is a foreign-key violation, whose message happens not to quote
+> the body. It was testing H2's error text, not the adapter. It now asserts a **whitelist** — the
+> reason matches `^[A-Za-z]+$`, a bare exception type — which is a rule about what may appear rather
+> than a list of what may not, and therefore holds for the failure the test cannot construct. **A
+> blacklist assertion is only as good as the failure you can reach**, which is ERT-420's vacuity
+> lesson wearing different clothes.
 
 **Tests**
 | Level | Test |
 |---|---|
 | Repository | `outbox notifier - an invitation is sent - writes a pending row for the recipient` |
+| Repository | `outbox notifier - each of the seven notifier methods - writes one row of its own kind` |
 | Repository | `outbox notifier - an invitation at any point in its life - stores no token and no pin` |
+| Repository | `outbox notifier - an invitation - stores its subject but never its body` |
+| Repository | `outbox notifier - the six kinds carrying no credential - store their bodies` |
 | Repository | `outbox notifier - a failed invitation - records the error without echoing the link` |
+| Repository | `outbox notifier - a failed write of an invitation - reports only the exception type, not its message` |
+| Repository | `outbox notifier - the write itself fails - returns Failed rather than throwing` |
 | Repository | `outbox notifier - a failed row - can be retried` |
+| Repository | `outbox notifier - a failed invitation - cannot be retried because its body was never stored` |
+| Repository | `outbox notifier - the pending queue - holds only unsent rows, oldest first` |
+| Plugin | `portal base url - unset outside dev - refuses to start` |
+| Plugin | `portal base url - an empty string outside dev - is treated as unset rather than as configured` |
 
 **Files**
-- create `resources/db/migration/V5__notification_outbox.sql` — V4 is taken by ERT-190's `users`
-- modify [`.env.example`](../../.env.example) — `PORTAL_BASE_URL`
-- create `src/data/notify/OutboxNotifier.kt`
+- create [`resources/db/migration/V6__notification_outbox.sql`](../../resources/db/migration/V6__notification_outbox.sql) — V4 is taken by ERT-190's `users`, **V5 by ERT-420's nullable `pin_hash`**
+- ~~modify [`.env.example`](../../.env.example) — `PORTAL_BASE_URL`~~ — already there; see the note above
+- create [`src/data/notify/OutboxNotifier.kt`](../../src/data/notify/OutboxNotifier.kt)
+- create [`src/data/notify/NotificationKind.kt`](../../src/data/notify/NotificationKind.kt) — `storesBody`, per the note above
+- create [`src/data/notify/NotificationMessages.kt`](../../src/data/notify/NotificationMessages.kt) — the seven bodies; only the invitation restates the link
+- create [`src/data/notify/PortalBaseUrl.kt`](../../src/data/notify/PortalBaseUrl.kt)
+- modify [`src/data/db/table/Tables.kt`](../../src/data/db/table/Tables.kt) — `NotificationOutbox`, added to `allTables`
 - modify [`src/di/DataModule.kt`](../../src/di/DataModule.kt) — bind it
-- create `test/data/notify/OutboxNotifierTest.kt`
+- modify [`src/di/AppModule.kt`](../../src/di/AppModule.kt) — `PortalBaseUrl` on the eager-resolution line
+- create [`test/data/notify/OutboxNotifierTest.kt`](../../test/data/notify/OutboxNotifierTest.kt)
+- create [`test/data/notify/PortalBaseUrlTest.kt`](../../test/data/notify/PortalBaseUrlTest.kt)
+- modify [`test/data/db/MigrationTest.kt`](../../test/data/db/MigrationTest.kt) — three count guards move, and
+  `notification_outbox.employee_id` joins the person-column list. **The width sweep failed on it
+  first**, which is the guard working: an `EntityIdTable` whose foreign key points at `employees`
+  carries an 8-wide column, so a new person-keyed column is a decision the list records.
 
 **Out of scope**
 - Actually sending mail, and the expiry-warning scheduler. ERT-1010 and ERT-1020.

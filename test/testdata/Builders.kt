@@ -52,9 +52,11 @@ import java.time.Instant
  * would let a use case pass its test by reading the field the fixture happened to get right — which
  * is the failure mode PRD 6.1-6.3 tables exist to prevent.
  *
- * Credential fields (`tokenHash`, `pinHash`) default to recognisable placeholders rather than real
- * digests. A test that actually verifies a PIN builds its own with `BcryptHasher(cost = 4)`; a test
- * that only needs a link to exist should not pay for bcrypt.
+ * `tokenHash` defaults to a recognisable placeholder rather than a real digest, and `pinHash`
+ * defaults to **null** — the state a link is issued in since the 2026-09-16 reversal, where the PIN
+ * became a recovery credential HR mints on demand rather than a second factor issued with the link.
+ * A test that actually verifies a PIN builds its own with `BcryptHasher(cost = 4)`; a test that only
+ * needs a link to exist should not pay for bcrypt.
  */
 
 // ── Identifiers and values ──────────────────────────────────────────────────────────────────────
@@ -314,7 +316,13 @@ fun anUploadLink(
     id: EntityId = Fixtures.LINK_ID,
     employeeId: PersonId = Fixtures.EMPLOYEE_ID,
     tokenHash: String = "token-hash-0000000001",
-    pinHash: String = "pin-hash-0000000001",
+    /**
+     * Null by default, because that is the state a link is issued in (ERT-433).
+     *
+     * The recovery PIN is minted on demand by HR for an invitation that never arrived (PRD 6.6,
+     * reversed 2026-09-16), so most links never have one. A test about recovery supplies its own.
+     */
+    pinHash: String? = null,
     scope: LinkScope = LinkScope.All,
     status: LinkStatus = LinkStatus.ACTIVE,
     issuedAt: Instant = FixedClock.DEFAULT,

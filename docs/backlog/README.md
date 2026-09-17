@@ -60,13 +60,13 @@ Phase 1 · depends on ERT-300
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
 | [ERT-410](ERT-400-hire-creation.md#ert-410--employeerepository-adapter-and-rowdomain-mapper) | `EmployeeRepository` adapter and row↔domain mapper | Ticket | ERT-190, ERT-240 | Done |
-| [ERT-420](ERT-400-hire-creation.md#ert-420--uploadlinkrepository-adapter-resolved-by-token-hash) | `UploadLinkRepository` adapter, resolved by token hash | Ticket | ERT-160, ERT-240 | Not started |
+| [ERT-420](ERT-400-hire-creation.md#ert-420--uploadlinkrepository-adapter-resolved-by-token-hash) | `UploadLinkRepository` adapter, resolved by token hash | Ticket | ERT-160, ERT-240 | Done |
 | [ERT-430](ERT-400-hire-creation.md#ert-430--createhireusecase) | `CreateHireUseCase` | Ticket | ERT-190, ERT-210, ERT-230, ERT-310, ERT-320, ERT-350, ERT-410, ERT-420, ERT-440 | Not started |
 | [ERT-431](ERT-400-hire-creation.md#ert-431--email-validation-and-duplicate-on-active-with-typed-reason) | ↳ Email validation and duplicate-on-active with typed reason | Sub-task | ERT-210, ERT-230 | Not started |
 | [ERT-432](ERT-400-hire-creation.md#ert-432--requirement-set-snapshot-from-the-template-catalogue) | ↳ Requirement-set snapshot from the template catalogue | Sub-task | ERT-431 | Not started |
 | [ERT-433](ERT-400-hire-creation.md#ert-433--token-issue-digested-with-expiresat-computed-from-policy) | ↳ Token issue, digested, with `expiresAt` computed from policy | Sub-task | ERT-432 | Not started |
 | [ERT-434](ERT-400-hire-creation.md#ert-434--invitation-dispatch-and-surviving-delivery-failure) | ↳ Invitation dispatch and surviving delivery failure | Sub-task | ERT-433, ERT-440 | Not started |
-| [ERT-440](ERT-400-hire-creation.md#ert-440--notifier-dev-adapter-outbox-table-no-smtp) | `Notifier` dev adapter: outbox table, no SMTP | Ticket | ERT-120 | Not started |
+| [ERT-440](ERT-400-hire-creation.md#ert-440--notifier-dev-adapter-outbox-table-no-smtp) | `Notifier` dev adapter: outbox table, no SMTP | Ticket | ERT-120 | Done |
 | [ERT-450](ERT-400-hire-creation.md#ert-450--post-apiemployees-and-its-dtos) | `POST /api/employees` and its DTOs | Ticket | ERT-140, ERT-190, ERT-430 | Not started |
 
 ## [ERT-500](ERT-500-hr-read-side.md) — HR read side

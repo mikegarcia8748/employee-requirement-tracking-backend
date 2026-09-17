@@ -119,13 +119,13 @@ its own dispatcher and the use case never sees one.
 | `EmployeeRepository` | hires, their requirement sets; **`create` and `save` are separate** | `ExposedEmployeeRepository` — **bound** |
 | `RequirementTemplateRepository` | the catalogue; read **once** at creation | `ExposedRequirementTemplateRepository` — **bound** |
 | `ReferenceDataRepository` | departments and employment types; **existence**, not entities | `ExposedReferenceDataRepository` — **bound** |
-| `UploadLinkRepository` | links, resolved **by token hash** | *(pending)* |
+| `UploadLinkRepository` | links, resolved **by token hash** | `ExposedUploadLinkRepository` — **bound** |
 | `SubmissionRepository` | versions, retention purge, storage totals | *(pending)* |
 | `PortalSessionRepository` | active sessions; HR termination | *(pending)* |
 | `AppSettingsRepository` | the §6.4 policy, read at runtime | `ExposedAppSettingsRepository` — **bound** |
 | `AuditLog` | HR-side actions | `ExposedAuditLog` — **bound** |
 | `PortalAccessTrail` | append-only portal attempts, distinct IPs, failure counts | *(pending)* |
-| `Notifier` | the seven notification kinds | ERT-440 outbox, then ERT-1010 SMTP *(pending)* |
+| `Notifier` | the seven notification kinds | `OutboxNotifier` — **bound**; ERT-1010 drains it over SMTP |
 | `DocumentStorage` | object storage; signed URLs **HR-side only** | filesystem for dev, GCS in production (Q20) *(pending)* |
 | `HrUserRepository` | HR accounts, roles, password hashes | `ExposedHrUserRepository` — **bound** |
 | `AccessTokenIssuer` | the bearer credential a signed-in HR user presents | `JwtIssuer` — **bound** |
