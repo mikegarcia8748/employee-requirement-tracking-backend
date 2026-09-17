@@ -172,7 +172,7 @@ Cross-cutting · depends on ERT-1120, ERT-1160
 | [ERT-1220](ERT-1200-deployment.md#ert-1220--the-production-container-image) | The production container image | Ticket | ERT-1210, ERT-1240 | Not started |
 | [ERT-1230](ERT-1200-deployment.md#ert-1230--local-development-compose-and-the-three-ways-to-run) | Local development: compose, and the three ways to run | Ticket | ERT-1220, ERT-1120 | Not started |
 | [ERT-1240](ERT-1200-deployment.md#ert-1240--runtime-hardening-for-a-container-pool-shutdown-boot-time-codegen) | Runtime hardening for a container: pool, shutdown, boot-time codegen | Ticket | — | Not started |
-| [ERT-1241](ERT-1200-deployment.md#ert-1241--database_url-fails-closed-outside-dev) | `DATABASE_URL` fails closed outside dev | Ticket | ERT-1120 | Not started |
+| [ERT-1241](ERT-1200-deployment.md#ert-1241--database_url-fails-closed-outside-dev) | `DATABASE_URL` fails closed outside dev | Ticket | ERT-1120 | Done |
 | [ERT-1245](ERT-1200-deployment.md#ert-1245--the-password-change-gate-three-hr-routes-skip) | The password-change gate three HR routes skip | Ticket | ERT-190 | Not started |
 | [ERT-1250](ERT-1200-deployment.md#ert-1250--json-logging-for-cloud-logging) | JSON logging for Cloud Logging | Ticket | — | Not started |
 | [ERT-1260](ERT-1200-deployment.md#ert-1260--gcp-foundation-identity-federation-registry-network-database-secrets) | GCP foundation: identity federation, registry, network, database, secrets | Ticket | — | Not started |

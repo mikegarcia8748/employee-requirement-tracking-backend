@@ -49,6 +49,11 @@ fun Application.configureDatabase() {
         factory.close()
     }
 
+    // Drained before connecting, so a warning about a pool value is on screen above whatever that
+    // value then causes. Refusals -- an absent DATABASE_URL outside dev -- have already thrown
+    // during resolution above; these are the recoverable ones.
+    config.warnings.forEach { log.warn(it) }
+
     factory.connect()
     migrate(config)
     log.info("Database connected and migrated before any route is mounted.")

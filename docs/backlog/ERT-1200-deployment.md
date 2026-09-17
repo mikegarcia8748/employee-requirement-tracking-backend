@@ -295,7 +295,7 @@ and no filesystem writes on the production path.
 | **Parent** | ERT-1200 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting — **Phase 1 exit checklist** |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-1120 |
 | **PRD** | §12 |
 | **Architecture** | §12 invariant 10, §14 |
@@ -321,12 +321,12 @@ config reader that was written before that contract existed and never revisited.
 Every secret-or-destination configuration value fails the same way: loudly, at startup, outside dev.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given `APP_ENV` is not `dev` and `DATABASE_URL` is unset, then startup refuses
-- [ ] `[derived]` Given `APP_ENV=dev` and `DATABASE_URL` unset, then the H2 fallback applies as today
-- [ ] `[derived]` Given a blank `DATABASE_URL`, then it is treated as unset — matching every other
+- [x] `[derived]` Given `APP_ENV` is not `dev` and `DATABASE_URL` is unset, then startup refuses
+- [x] `[derived]` Given `APP_ENV=dev` and `DATABASE_URL` unset, then the H2 fallback applies as today
+- [x] `[derived]` Given a blank `DATABASE_URL`, then it is treated as unset — matching every other
       reader, which use `takeUnless(String::isBlank)` precisely because sourcing an env file exports
       empty strings
-- [ ] `[derived]` Given the refusal message, then it names the variable and no value
+- [x] `[derived]` Given the refusal message, then it names the variable and no value
 
 **Tests**
 | Level | Test |
