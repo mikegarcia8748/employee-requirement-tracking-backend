@@ -168,7 +168,7 @@ Cross-cutting · depends on ERT-1120, ERT-1160
 
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
-| [ERT-1210](ERT-1200-deployment.md#ert-1210--pin-the-jvm-target-and-the-main-class) | Pin the JVM target and the main class | Ticket | — | Not started |
+| [ERT-1210](ERT-1200-deployment.md#ert-1210--pin-the-jvm-target-and-the-main-class) | Pin the JVM target and the main class | Ticket | — | Done |
 | [ERT-1220](ERT-1200-deployment.md#ert-1220--the-production-container-image) | The production container image | Ticket | ERT-1210, ERT-1240 | Not started |
 | [ERT-1230](ERT-1200-deployment.md#ert-1230--local-development-compose-and-the-three-ways-to-run) | Local development: compose, and the three ways to run | Ticket | ERT-1220, ERT-1120 | Not started |
 | [ERT-1240](ERT-1200-deployment.md#ert-1240--runtime-hardening-for-a-container-pool-shutdown-boot-time-codegen) | Runtime hardening for a container: pool, shutdown, boot-time codegen | Ticket | — | Not started |

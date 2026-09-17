@@ -39,6 +39,9 @@ test-dependencies:
   - $libs.mockk
 
 settings:
+  jvm:
+    release: 21
+    mainClass: com.pgsystem.employee.requirement.tracker.MainKt
   ktor:
     enabled: true
     version: 3.5.2

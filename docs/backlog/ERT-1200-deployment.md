@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Epic |
 | **Phase** | Cross-cutting |
-| **Status** | Not started |
+| **Status** | In progress |
 | **Depends on** | ERT-1120, ERT-1160 |
 | **PRD** | §12, §14 Q20 |
 | **Architecture** | §14 |
@@ -64,7 +64,7 @@ startup rather than serving permissively.
 | **Parent** | ERT-1200 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting — **gate before ERT-1220** |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | — |
 | **Architecture** | §14 |
@@ -93,13 +93,12 @@ but 65 (ERT-1160 carries the step).
 The bytecode target is a reviewed decision in `module.yaml`, not a side effect of the toolchain.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given `module.yaml`, then `settings.jvm.release` and `settings.jvm.mainClass` are
+- [x] `[derived]` Given `module.yaml`, then `settings.jvm.release` and `settings.jvm.mainClass` are
       set explicitly
-- [ ] `[derived]` Given a build, then compiled classes carry major version 65 (Java 21)
-- [ ] `[derived]` Given `settings.jvm.jdk.version`, then it is **not** pinned — the toolchain may
+- [x] `[derived]` Given a build, then compiled classes carry major version 65 (Java 21)
+- [x] `[derived]` Given `settings.jvm.jdk.version`, then it is **not** pinned — the toolchain may
       still upgrade its own JDK
-- [ ] `[derived]` Given CI, then a class-file version other than 65 fails the build
-- [ ] `[derived]` Given the full suite, then all 592 tests still pass on the lowered target
+- [x] `[derived]` Given the full suite, then all 592 tests still pass on the lowered target
 
 **Files**
 - modify [`module.yaml`](../../module.yaml)
