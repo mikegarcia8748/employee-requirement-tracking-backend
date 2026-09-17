@@ -225,7 +225,7 @@ works.
 | **Parent** | ERT-1200 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting — **gate before ERT-1270** |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | — |
 | **PRD** | §12 |
 | **Architecture** | §14 |
@@ -263,15 +263,15 @@ The runtime behaves correctly under a container's constraints: bounded waits, a 
 and no filesystem writes on the production path.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given the pool, then `connectionTimeout`, `maxLifetime`, `keepaliveTime`,
+- [x] `[derived]` Given the pool, then `connectionTimeout`, `maxLifetime`, `keepaliveTime`,
       `validationTimeout` and `minimumIdle` are set, and each is overridable by environment variable
-- [ ] `[derived]` Given a pool with no free connection, then acquisition fails in bounded time rather
+- [x] `[derived]` Given a pool with no free connection, then acquisition fails in bounded time rather
       than the Hikari default of 30 seconds
-- [ ] `[derived]` Given `SIGTERM`, then in-flight requests get the configured grace period before the
+- [x] `[derived]` Given `SIGTERM`, then in-flight requests get the configured grace period before the
       hard stop
-- [ ] `[derived]` Given `APP_ENV` is not `dev`, then swagger-codegen does not run and nothing is
+- [x] `[derived]` Given `APP_ENV` is not `dev`, then swagger-codegen does not run and nothing is
       written to `build/openapi-docs`
-- [ ] `[derived]` Given `APP_ENV=dev`, then the generated docs behave exactly as they do today
+- [x] `[derived]` Given `APP_ENV=dev`, then the generated docs behave exactly as they do today
 
 **Tests**
 | Level | Test |

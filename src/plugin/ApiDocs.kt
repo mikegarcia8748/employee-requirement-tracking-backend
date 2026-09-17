@@ -41,25 +41,43 @@ import io.ktor.server.routing.routing
  * a wrong PIN and an unknown token return identical failures, and `request-new-link` returns a
  * constant response whether or not the address exists (PRD 6.6, Appendix B). Documented that way, a
  * future engineer cannot mistake them for bugs and "fix" them into an enumeration oracle.
+ *
+ * **`/openapi` is dev-only since ERT-1240, and that is a deliberate reduction.** `openAPI()` *is*
+ * swagger-codegen — mounting it runs the generator at every boot and writes static HTML to a
+ * relative path. On Cloud Run that is a filesystem write from a non-root user, on the cold-start
+ * path, into an in-memory tmpfs charged against the container's memory limit. What it buys in
+ * exchange is HTML that Ktor itself warns is incomplete: this spec is OpenAPI 3.1 and swagger-codegen
+ * officially supports 3.0.x, so every boot logs *"may fail or produce incomplete docs… prefer
+ * swaggerUI"*. Taking that advice outside dev costs the pre-rendered mirror and keeps the two things
+ * anyone actually uses — the interactive UI and the machine-readable spec — both still behind HR
+ * authentication. `docs/api-contract.md` records the narrowed surface.
+ *
+ * **[devMode] is a parameter rather than a call to `isDevMode()`**, for the reason `configureRouting`
+ * takes `HR_AUTH` and `configureSecurity` takes its `JwtConfig`: a JVM test cannot unset an
+ * environment variable in its own process, so a plugin that reads its own inputs has an
+ * outside-dev branch nothing can reach. That is what kept this one untested until now.
  */
-fun Application.configureApiDocs() {
-    val devMode = isDevMode()
-
+fun Application.configureApiDocs(devMode: Boolean = isDevMode()) {
     routing {
         if (devMode) {
             openAPI(path = "openapi") { apiReference() }
             swaggerUI(path = "swagger") { apiSpec() }
         } else {
             authenticate(HR_AUTH) {
-                openAPI(path = "openapi") { apiReference() }
                 swaggerUI(path = "swagger") { apiSpec() }
             }
         }
     }
 
     log.info(
-        "API docs: reference at /openapi, UI at /swagger, spec at /swagger/documentation.yaml " +
-            "(generated from routes); authentication ${if (devMode) "disabled (dev)" else "required"}."
+        if (devMode) {
+            "API docs: reference at /openapi, UI at /swagger, spec at /swagger/documentation.yaml " +
+                "(generated from routes); authentication disabled (dev)."
+        } else {
+            "API docs: UI at /swagger, spec at /swagger/documentation.yaml (generated from routes); " +
+                "HR authentication required. /openapi is not mounted — the static generator is " +
+                "dev-only (ERT-1240)."
+        }
     )
 }
 
@@ -69,6 +87,10 @@ fun Application.configureApiDocs() {
  * That path defaults to `docs/` — this project's PRD and security-audit folder, which the plugin
  * will otherwise fill with `index.html` and `.swagger-codegen/` on every boot. Redirected under
  * `build/` so generated output stays with build artefacts and out of version control.
+ *
+ * It is a **relative** path, resolved against the working directory, which is the other half of why
+ * this is only reached in dev: in a container the working directory belongs to a non-root user and
+ * lives on a tmpfs.
  */
 private fun OpenAPIConfig.apiReference() {
     apiSpec()

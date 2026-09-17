@@ -6,6 +6,7 @@ import com.pgsystem.employee.requirement.tracker.plugin.configureApiDocs
 import com.pgsystem.employee.requirement.tracker.plugin.configureDatabase
 import com.pgsystem.employee.requirement.tracker.plugin.configureHrBootstrap
 import com.pgsystem.employee.requirement.tracker.plugin.configureHttp
+import com.pgsystem.employee.requirement.tracker.plugin.isDevMode
 import com.pgsystem.employee.requirement.tracker.plugin.logStartupConfiguration
 import com.pgsystem.employee.requirement.tracker.plugin.configureMonitoring
 import com.pgsystem.employee.requirement.tracker.plugin.HR_AUTH
@@ -53,6 +54,6 @@ fun Application.rootModule() {
     configureSecurity(get<JwtConfig>())
     configureHrBootstrap(get(), get())
     configureMonitoring()
-    configureApiDocs()
+    configureApiDocs(isDevMode())
     configureRouting(HR_AUTH)
 }
