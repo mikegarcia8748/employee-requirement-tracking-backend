@@ -99,6 +99,36 @@ class AuditEntryMapperTest {
     }
 
     @Test
+    fun `audit metadata - a long reason with no spaces - is refused today, which ERT-431 made reachable`() {
+        // NOT an endorsement — this pins a trap so it is visible rather than discovered in
+        // production. `isCredentialShaped` assumes "a reason is prose", and prose has spaces: one
+        // space fails the `all {}` and the value is accepted. A reason with NO spaces that happens
+        // to be 32+ characters with mixed case and a digit satisfies every clause, and the `require`
+        // throws out through `ExposedAuditLog.record` as a 500.
+        //
+        // Before ERT-431 no free-text HR value reached this map, so the trap was unreachable.
+        // `CreateHireUseCase` now writes the typed duplicate reason here, and an officer pasting a
+        // ticket reference rather than a sentence is all it takes.
+        //
+        // Deliberately not fixed here: this is ERT-330's security control, and weakening a tripwire
+        // is a specification change — which is the C2 lesson ERT-431 itself carries. Escalated as
+        // C25, owned by ERT-450, which is where a length and shape rule for body text belongs.
+        val spaceless = "ReplacingRecord2026ForJoseDelaCruz"
+
+        // The property, not a magic number: it is over the 32-character threshold and carries no
+        // character that would take it out of the allowed set.
+        (spaceless.length >= 32) shouldBe true
+        spaceless.none { it.isWhitespace() } shouldBe true
+
+        assertFailsWith<IllegalArgumentException> { mapOf("reason" to spaceless).toMetadataJson() }
+
+        // The same reason as prose is accepted, which is what makes the trap narrow rather than
+        // theoretical — and what makes it easy to miss.
+        val prose = "Replacing record 2026 for Jose Dela Cruz"
+        mapOf("reason" to prose).toMetadataJson().toMetadata() shouldBe mapOf("reason" to prose)
+    }
+
+    @Test
     fun `audit metadata - a six digit value under a key that is not credential-shaped - is accepted and the limit is deliberate`() {
         // An AccessPin is exactly six digits, so a bare six-digit rule is tempting. It is refused
         // here on purpose: `size_bytes` of 204800 is also six digits, and ERT-810's

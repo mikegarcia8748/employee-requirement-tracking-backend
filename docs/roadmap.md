@@ -1,15 +1,52 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-1260 — the GCP foundation runbook, then ERT-1270's first UAT
-deploy](backlog/ERT-1200-deployment.md#ert-1260--gcp-foundation-identity-federation-registry-network-database-secrets)**
-— or [ERT-430 / ERT-431](backlog/ERT-400-hire-creation.md#ert-431--email-validation-and-duplicate-on-active-with-typed-reason)
-if the GCP project does not exist yet. ERT-1260 is the only remaining ticket that needs something
-outside this repository.
+**Next ticket: [ERT-432 — the requirement-set snapshot, and the `sort_order_snapshot` column it
+owes](backlog/ERT-400-hire-creation.md#ert-432--requirement-set-snapshot-from-the-template-catalogue)**
+— the deployment track's remaining ticket,
+[ERT-1260](backlog/ERT-1200-deployment.md#ert-1260--gcp-foundation-identity-federation-registry-network-database-secrets),
+is the one piece of work in this project that needs something outside the repository: a GCP project
+and an Owner. Take ERT-432 unless that exists.
 
-> **ERT-1200 opened and largely landed: the system has a container, a local Postgres, CI, and a
-> CI/CD path to two Cloud Run services.** The suite went from 592 tests to 623. Everything except
-> ERT-1260 — the one-time GCP setup, which needs a project and an Owner — is committed and verified
-> locally.
+> **Two sessions landed on 2026-09-17 and this file is their merge.** ERT-431 took the product path
+> forward; ERT-1200 gave the system somewhere to run. They touched disjoint code and the same three
+> paragraphs of this file.
+>
+> **The suite is 653 tests, measured after the merge rather than added up.** Each branch reported its
+> own total against the same 592-test base — ERT-431 said 622, ERT-1200 said 623 — and neither number
+> survives a merge. The two sets turned out to be disjoint; that was worth checking rather than
+> assuming.
+>
+> ### ERT-431 — the first business use case
+>
+> `CreateHireUseCase` validates the email, refuses an unknown department or employment type by name,
+> and makes a duplicate on an active hire carry a typed reason. `domain/usecase/` now holds seven
+> classes, and the eleventh port finally has a fake (C9) — closing an item C9 recorded as nobody's
+> job.
+>
+> **Read the `HireCreated` note in ERT-431's block before writing ERT-432.** The result type is a
+> wrapper, decided once so the remaining three sub-tasks extend it rather than re-argue it: ERT-432
+> adds the `RequirementSet`, ERT-433 the `UploadLink`, ERT-434 the delivery indicator.
+>
+> **`SHARED_EMAIL` now has a producer, which makes E3 live rather than theoretical.** ERT-431 is the
+> first code that ever sets the flag, and `Employee.retentionFrozen` freezes on it — which the API
+> contract says it must not. Deferred to ERT-734 on ERT-410's precedent, and the test deliberately
+> asserts **nothing** about `retentionFrozen` in either direction so neither the defect nor its fix is
+> entrenched.
+>
+> **C23 is untouched and still ERT-433's to decide in writing.** ERT-431 issues no link and sends no
+> invitation, so it never had to call `Notifier.sendInvitation`.
+>
+> **Three new escalation rows: C24, C25 and C26.** C25 is the one to read — it is a user-reachable
+> 500 that ERT-431 made reachable and did not cause.
+>
+> **The mutation harness was itself vacuous on its first run**, which is the lesson worth carrying
+> past this ticket. See the ERT-431 block.
+>
+> ### ERT-1200 — the system has somewhere to run
+>
+> A container image, a local Postgres, CI, and a CI/CD path to two Cloud Run services. Everything
+> except ERT-1260 is committed and verified. [`docs/deployment.md`](deployment.md) is the step-by-step
+> runbook ERT-1100 deferred until a target environment existed.
 >
 > **Read this before writing any configuration reader: `APP_ENV` unset now means PRODUCTION**
 > (ERT-1120). Five controls used to hang off a variable that failed open. `./kotlin run` on a fresh
@@ -31,43 +68,13 @@ outside this repository.
 > does not open with one. The comment that claimed the gate was "applied once, around every HR
 > route" is how it spread from one file to the next.
 >
-> **ERT-430 is fully unblocked** — every port it names now has an adapter — and so are ERT-1010 and
-> ERT-1020.
->
-> **Read the C23 row on the escalation table before writing ERT-433.** `Notifier.sendInvitation` still
-> requires an `AccessPin` and the invitation must carry none; ERT-433 is the ticket that has to decide
-> what to pass, and ERT-440 deliberately did not resolve it.
->
-> **`upload_links.pin_hash` is nullable from V5, and the outbox is V6.** ERT-420 was deliverable
-> without the migration; ERT-433 was not.
->
-> **Three tests across the two tickets were vacuous on the first pass**, two of them in a class whose
-> own comment claimed to have learned that lesson from ERT-410. The mutation pass found all three.
-> Read those sections before writing an ordering, an encoding, or a "does not contain" assertion.
-> Nothing on the board is `Blocked`.
->
-> **ERT-410 before them: the first business adapter, and the first ticket to change a port.** Hires and
-> their snapshotted requirement sets round-trip through real SQL — eighteen fields, the anomaly-flag
-> set and the attestation triple. **`EmployeeRepository` gained `create` beside `save`, and the
-> ticket could not have been delivered without it.**
->
-> **ERT-190 closed Phase 0** before it: HR accounts, two roles, sign-in, the real JWT scheme, the
-> bootstrap admin, and the four actor foreign keys. **`domain/usecase/` is no longer empty** — six use
-> cases — so `ArchitectureTest`'s tracing tripwire fired as designed and was flipped from `Vacuous` to
-> `Checked`. **A test can mint a token this application accepts** (`testdata/HrTokens.kt`), which
-> closed the gap ERT-340 recorded in its own test class.
->
-> **Q12** — an SMTP relay on internal mail — unblocks **ERT-1010**.
->
-> **The portal access model changed: the link alone now opens the portal**, and the 6-digit PIN
-> becomes an HR-issued out-of-band recovery credential for invitations that never arrive. That
-> rewrites PRD §6.6, three of the nine invariants, and most of ERT-600. SEC-01 returns to Critical
-> and is accepted in writing in PRD §12, dated. **Read that acceptance before taking any ERT-600
-> ticket.**
->
-> **ERT-1110 is a hard gate before ERT-630** and is in its `Depends on` row rather than in a
-> sentence. ERT-410, ERT-420, ERT-440, ERT-610, ERT-660 and ERT-710 remain ready; ERT-720 unblocks
-> when ERT-410 lands, ERT-430 once ERT-320/350/410/420/440 are in.
+> **Two audits shipped**, the first against code and infrastructure rather than the specification:
+> [security](2026-09-17-security-audit.md) and [bottleneck](2026-09-17-bottleneck-audit.md). The one
+> finding that is both a denial of service and a guessing oracle is **SEC-19 / PERF-01** — sign-in
+> measured at 3.95 req/s at concurrency 1, because invariant 10 requires a bcrypt verification on
+> every losing path. That is correct and must not be weakened; ERT-1170 bounds how many attempts
+> reach it, and depends on ERT-1185 because the code's own justification for having no rate limit is
+> an audit row nobody reads.
 
 The full board is [docs/backlog/README.md](backlog/README.md). This file holds sequencing, the
 decision register, and the pointer above. Each session updates that pointer on the way out.
@@ -494,6 +501,58 @@ constrain the shape of what *does* escape, because the dangerous case is by defi
 thought to construct. ERT-810's signed URLs and ERT-1110's log redaction are the next two places this
 applies.
 
+**ERT-431 opened `domain/usecase/` to the business, and it is the first use case that is not about an
+HR account.** Hire creation now validates its email, refuses an unknown department or employment type
+by name, and makes proceeding past a duplicate carry a typed reason. The suite went from 592 tests to
+622. It bound no adapter: ERT-440 left the epic with every port this use case names already wired,
+which is what "fully unblocked" meant.
+
+Four things were decided rather than assumed, and the first two bind the next three sub-tasks:
+
+- **The result is `HireCreated`, not `Employee`.** ERT-430 says 431 establishes the type the other
+  three extend, and `Employee` cannot be it: ERT-434's criterion is that *the result* reports a
+  delivery failure, which against a bare hire leaves only a delivery column on `employees` — the
+  second copy **E4 explicitly forbids** — or a signature change at ERT-434, which is the rework the
+  sub-task split exists to avoid. ERT-450 also needs the requirement set in its 201 body, and that is
+  reached through `requirementsOf`, so a bare `Employee` would push the route into a second
+  repository call. It lives in `domain/model/` on the `HrSession` precedent: commands sit beside
+  their use case, results sit in the model.
+- **The reference ids are checked *before* the duplicate, and the order is a rule.** The duplicate
+  branch asks a human to type a justification that becomes a permanent audit artefact; asking for one
+  on a request that is then going to fail on a bad department is the worst available ordering, and it
+  confirms an address is in use on a request that was never going to succeed. Both orderings have a
+  named test, so a later reordering is a visible deliberate break rather than a silent one.
+- **The two reference checks are spelled out twice rather than extracted.** A shared
+  `requireReference(raw, field, code, exists = ...)` reads better and would let a caller pass
+  `reference::departmentExists` for both ids — the exact defect `ReferenceDataRepository` split into
+  two methods to make unrepresentable. The duplication is the control. A malformed id folds into the
+  same `*_unknown` failure rather than earning a second code, because from HR's side it has the same
+  single remedy; the consequence is that the "does not exist" tests must use **well-formed but
+  absent** ids or they never reach the check they are named for.
+- **Required fields were nobody's, and the review step took them.** `first_name`, `last_name` and
+  `position` are `not null` with no check constraint, so `""` stored cleanly and a hire could render
+  as a blank row. ERT-432/433/434 own the snapshot, the token and the invitation; ERT-450 makes no
+  decisions; the next candidate owner was Phase 2. `CreateHrUserUseCase` already runs this rule on
+  this kind of field, so omitting it in the sibling use case was an inconsistency rather than a
+  boundary.
+
+**And the vacuity lesson got a sixth instance, one layer up from all five before it.** ERT-320 found
+it in a seed, ERT-350 in a single seeded row, ERT-410 inside a test written to prevent it, ERT-420 in
+two such tests in a class whose comment cited the first three, ERT-440 in a "does not contain"
+assertion. ERT-431 found it **in the instrument**. Eighteen deliberate breaks were applied and one
+reported `SURVIVED` — and it had not survived anything: it was a compile error, and the harness
+decided "did it build?" by grepping for `error:`, which Amper never prints, because it writes `ERROR:`
+inside a box-drawn frame. An empty list of failing tests was read as "nothing caught this" when it
+actually meant "nothing ran".
+
+The harness now requires the string `tests successful` before it will call an empty failure list a
+survival. The generalisation: **a mutation pass proves nothing unless the harness can tell a green
+suite from a suite that never started** — and every check written here to catch a vacuous *test* had
+no equivalent watching the tool. All eighteen breaks fail a named test under the corrected harness,
+and the three sharpest — both check orderings and using the argument's id instead of the one `create`
+stored — are each caught by exactly the one test written for them.
+
+
 ---
 
 ## Phases
@@ -729,9 +788,9 @@ Now a real epic with real tickets: [ERT-1100](backlog/ERT-1100-operability-harde
 |---|---|---|
 | HR authentication | Replace the placeholder JWT scheme with the real model; local `users`, two roles, sign-in | **Done — ERT-190, 2026-09-16** |
 | Security hardening | Malware scanning before a file becomes previewable; pepper rotation; retention sweep with the freeze honoured | **ERT-1150** (Q22), **ERT-1130**; retention needs Q7 and Q18 |
-| Audit follow-up | Sign-in rate limiting, alerting on the audit trail, security headers, supply-chain scanning, SHA-pinned actions | **ERT-1170**, **ERT-1185**, **ERT-1175**, **ERT-1180**, **ERT-1165** — from [the 2026-09-17 audits](2026-09-17-security-audit.md) |
 | Operability | `APP_ENV` fails closed, startup summary, deployment configuration, CI | **ERT-1120 — Done**, **ERT-1160 — Done** |
 | Environments and deployment | Container image, local compose, CI/CD to two Cloud Run services, the runbook, the audits | [**ERT-1200**](backlog/ERT-1200-deployment.md) — ERT-1260 is the only ticket left, and it needs a GCP project |
+| Audit follow-up | Sign-in rate limiting, alerting on the audit trail, security headers, supply-chain scanning, SHA-pinned actions | **ERT-1170**, **ERT-1185**, **ERT-1175**, **ERT-1180**, **ERT-1165** — from [the 2026-09-17 audits](2026-09-17-security-audit.md) |
 | Documentation hygiene | The root README is still stock Ktor generator boilerplate and advertises deleted features; the unused R2DBC dependencies | **ERT-1140** |
 
 ---
@@ -747,7 +806,7 @@ tracking are listed.
 |---|---|---|
 | E1 | §7.2 asked for thumbnails on the review screen; §8.6 forbids the portal returning a preview | **Closed.** §8.6 wins; PRD v0.5 amended §7.2. The API contract keeps a note so a reader of an older §7.2 does not re-file it |
 | E2 | The upload MIME allowlist was never stated | **Closed as Q21.** JPEG, PNG, HEIC, HEIF, PDF — sniffed, configurable. PRD §12, ERT-732 |
-| E3 | A duplicate-email override silently froze retention, because `retentionFrozen` derived from `anomalyFlags.isNotEmpty()` | **Closed.** Freezes on the four evidentiary flags only; `SHARED_EMAIL` and `SEPARATION_OF_DUTIES` do not. PRD §7.1, ERT-734, invariant 8. **PRD owner to ratify** |
+| E3 | A duplicate-email override silently froze retention, because `retentionFrozen` derived from `anomalyFlags.isNotEmpty()` | **Closed in prose, still unlanded in code.** Freezes on the four evidentiary flags only; `SHARED_EMAIL` and `SEPARATION_OF_DUTIES` do not. PRD §7.1, ERT-734, invariant 8. **PRD owner to ratify.** **ERT-431 gave `SHARED_EMAIL` its first producer (2026-09-17)**, so ERT-734 now has a real record to exercise — and a hire created past a duplicate has its retention frozen today, contrary to the contract |
 | E4 | §8.1 required an invite-delivery-failure indicator; §11 modelled no column | **Closed.** Derived from the latest outbox row, with the audit log as history — better than the audit-log-only guess, which predated ERT-440's outbox being settled |
 | E5 | Malware scanning was a P0 control with no library, no owner and no question number | **Converted to Q22 + ERT-1150.** ClamAV via `clamd`, Engineering / Security, Phase 1 exit. Still a named exit risk, but now one with a gate |
 | E6 | No object-storage target chosen, and the PRD asked no question about it | **Closed as Q20.** GCP Cloud Storage; filesystem for dev. The port's shape now matches presign-with-a-TTL |
@@ -768,6 +827,10 @@ tracking are listed.
 | C21 | §12 said "sliding expiry from last activity"; §6.4 says two clocks with the earlier winning. A reader implementing §12 literally would build only the idle clock | **Closed.** §12 now names both clocks |
 | C22 | `StatusPages` logs the request URI unredacted at two call sites — a known invariant-4 violation with no ticket | **Closed as ERT-1110**, gating ERT-630 through a `Depends on` row |
 | C23 | **`Notifier.sendInvitation` requires an `AccessPin`, and since 2026-09-16 the invitation must carry none.** ERT-400's own epic text asserts both in consecutive paragraphs: "it carries no PIN", and "only `sendInvitation` accepts an `AccessPin` … do not add an `AccessPin` parameter to any other method". The parameter is what makes "only the invitation may carry a credential" a compile-time property, so removing it weakens a real guard — but ERT-433 cannot call the method without minting a PIN the new model says must not exist at creation *(opened 2026-09-16 by ERT-440)* | **Open, owned by ERT-433.** ERT-440 implements the method honestly — it stores no body and renders nothing from the `pin` — and deliberately did not resolve it: changing a port's shape is a specification change. Three options, none free: make the parameter nullable and lose the compile-time guarantee; keep it and have ERT-433 mint a PIN nobody is told, which is the credential-shaped-digest problem V5 just removed from `upload_links`; or split the port so the *invitation* method takes no PIN and a separate `sendRecoveryPin` does, which is the only one that keeps the guard — and which ERT-650 will want anyway |
+
+| C24 | **`ReasonRequired` renders `field = "reason"`, but two places say `duplicateReason`.** `AppErrorMapper` hardcodes `ApiErrorDetail(code, field = "reason")` and `ErrorMappingTest` pins it; the API contract's `POST /api/employees` row and ERT-450's acceptance criterion both require the `details` entry to name `duplicateReason`. `ApiResponse`'s KDoc adds a third spelling, `duplicate_email_requires_reason`, which is not a code anything emits *(opened 2026-09-17 by ERT-431)* | **Open, owned by ERT-450.** ERT-431 emits the error and cannot see the wire; ERT-450 is the ticket that renders it and will meet this as a failing test. Fixing it is a one-line mapper change plus its pinned test — but which spelling wins is a contract decision, not a mapper decision |
+| C25 | **A typed duplicate reason with no spaces is a user-reachable 500.** ERT-330's audit-metadata guard refuses a value that is 32+ characters of mixed-case base64url, on the stated premise that "a reason is prose" — and prose has spaces, so one space is what saves it. A reason like `ReplacingRecord2026ForJoseDelaCruz` satisfies every clause, and the `require` unwinds out through `ExposedAuditLog.record`. Before ERT-431 no free-text HR value reached that map, so the trap was unreachable *(opened 2026-09-17 by ERT-431)* | **Open, owned by ERT-450.** Deliberately **not** fixed in ERT-431: the guard is ERT-330's security control and weakening a tripwire is a specification change — the C2 failure this very ticket documents. `AuditEntryMapperTest` now **pins today's behaviour** with a named test so the trap is visible rather than discovered in production, and asserts the prose form is still accepted so the pin cannot be mistaken for endorsement |
+| C26 | **Nothing enforces the column widths, so over-long input is a 500 rather than a 422.** `first_name` and `last_name` are `varchar(128)`, `position` `varchar(256)`, `email` `varchar(320)`, and `EmailAddress`'s regex is unbounded — so a 400-character address passes validation and dies at the insert *(opened 2026-09-17 by ERT-431)* | **Open, owned by ERT-450.** Unreachable until a route accepts a body. Not fixed in ERT-431 because a length rule belongs to every string-taking use case, and inventing it in one file leaves five later ones to re-invent it; the email cap belongs on `EmailAddress` itself |
 
 **Still open, and deliberately so:** the PRD has **no owner**. E3's ratification, and any future
 contradiction between two P0 sections, route to a role nobody holds. Escalated 2026-09-16, due

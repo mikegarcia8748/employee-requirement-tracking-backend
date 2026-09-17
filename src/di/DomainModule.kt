@@ -1,6 +1,7 @@
 package com.pgsystem.employee.requirement.tracker.di
 
 import com.pgsystem.employee.requirement.tracker.domain.usecase.AuthenticateHrUserUseCase
+import com.pgsystem.employee.requirement.tracker.domain.usecase.CreateHireUseCase
 import com.pgsystem.employee.requirement.tracker.domain.usecase.ChangeHrPasswordUseCase
 import com.pgsystem.employee.requirement.tracker.domain.usecase.CreateHrUserUseCase
 import com.pgsystem.employee.requirement.tracker.domain.usecase.EnsureBootstrapHrUserUseCase
@@ -35,4 +36,9 @@ val domainModule = module {
     factory { SetHrUserActiveUseCase(get(), get(), get(), get(), get()) }
     factory { ResetHrPasswordUseCase(get(), get(), get(), get(), get(), get()) }
     factory { EnsureBootstrapHrUserUseCase(get(), get(), get(), get(), get(), get(), get()) }
+
+    // The first business use case (ERT-431). Every port it names was already bound in
+    // `dataModule` by the time it landed, so this ticket adds no adapter -- which is what
+    // ERT-440 meant by leaving the epic with nothing unbound.
+    factory { CreateHireUseCase(get(), get(), get(), get(), get(), get(), get()) }
 }
