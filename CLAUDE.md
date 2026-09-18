@@ -10,6 +10,14 @@ and attests, and HR validates. See [docs/employee-requirements-tracker-prd_1.md]
 2. Open that ticket's epic file in [docs/backlog/](docs/backlog/). Work only that ticket.
 3. Before you finish, set the ticket's **Status** — in its own block **and** on the board — and update
    the "Next ticket" line in the roadmap. Sub-tasks carry a Status row too.
+4. **A ticket that adds, removes or changes an `/api` endpoint updates its module's contract in
+   [apicontracts/](apicontracts/README.md) in the same commit** — request, success, fail and error
+   samples **captured from a running server**, plus a client flow if the endpoint joins a sequence.
+   A module with no contract yet gets a new `<MODULE>_API_CONTRACT.md`; the shared envelope, error
+   codes and CORS live once in [apicontracts/README.md](apicontracts/README.md) rather than in each
+   file. `ApiContractsTest` fails the build on a mounted route with no section, so this is checked
+   rather than remembered; what it cannot check is whether a sample was observed or invented, which
+   is yours.
 
 ## Build
 

@@ -3,7 +3,7 @@
 Every unit of work, one row each. Open [docs/roadmap.md](../roadmap.md) for sequencing, the decision
 register, the escalation list, and the pointer to what is next.
 
-**12 epics · 73 tickets · 17 sub-tasks.**
+**12 epics · 78 tickets · 17 sub-tasks.**
 Phase 0 and Phase 1 are specified to ticket depth. Phases 2–4 are epic-level entries in the roadmap,
 expanded when their predecessor closes. ERT-1100 and ERT-1200 are cross-cutting and their tickets
 carry gates rather than a phase.
@@ -11,6 +11,20 @@ carry gates rather than a phase.
 Status values: `Not started` · `In progress` · `Done` · `Blocked`. A session updates the status of the
 ticket it takes **in two places** — here and in the ticket's own block. Sub-tasks carry a Status row
 too, because a session working one opens the epic file and never opens this page.
+
+**A ticket that adds, removes or changes an `/api` endpoint updates its module's contract in
+[apicontracts/](../../apicontracts/README.md) in the same commit** — request, success, fail and error
+samples captured from a running server, and a client flow if the endpoint joins a sequence
+(ERT-1145). Unlike the two-places rule above, this one is checked: `ApiContractsTest` fails the build
+on a mounted route with no section. It is repeated here because a session working a ticket opens this
+page and may not open `CLAUDE.md`.
+
+> **The count above was wrong by four, and it was found by a script rather than by accident (C44,
+> 2026-09-18).** It read `73 tickets` against 77 rows before ERT-1145 added the 78th — so four tickets
+> had been added without it moving, across at least ERT-1165, ERT-1175, ERT-1185, ERT-1195, ERT-1241,
+> ERT-1245 and ERT-1285. Corrected to the counted figure. It is the same defect as C34 one level up:
+> a number that must be maintained by hand, next to the rows that contradict it, with nothing
+> checking either.
 
 > **The two places drifted, and it was found by accident (C34, 2026-09-18).** ERT-433 was committed
 > to `main`, its own block read `Completed` — which is not one of the four values above — and this
@@ -170,6 +184,7 @@ Cross-cutting · depends on —
 | [ERT-1120](ERT-1100-operability-hardening.md#ert-1120--app_env-fails-closed-and-one-deployment-configuration-check) | `APP_ENV` fails closed, and one deployment-configuration check | Ticket | ERT-195 | Done |
 | [ERT-1130](ERT-1100-operability-hardening.md#ert-1130--token-pepper-rotation-and-credential-re-issue) | Token pepper rotation and credential re-issue | Ticket | ERT-1030 | Not started |
 | [ERT-1140](ERT-1100-operability-hardening.md#ert-1140--documentation-hygiene-root-readme-and-the-unused-r2dbc-dependencies) | Documentation hygiene: root README and the unused R2DBC dependencies | Ticket | — | Not started |
+| [ERT-1145](ERT-1100-operability-hardening.md#ert-1145--api-contracts-for-the-front-end-one-per-module-with-a-guard) | API contracts for the front-end, one per module, with a guard | Ticket | ERT-146 | Done |
 | [ERT-1150](ERT-1100-operability-hardening.md#ert-1150--malware-scanning-behind-the-isclean-gate) | Malware scanning behind the `isClean` gate | Ticket | ERT-710, ERT-810 | **Blocked on Q22** |
 | [ERT-1160](ERT-1100-operability-hardening.md#ert-1160--ci-build-and-test-on-every-push) | CI: build and test on every push | Ticket | — | Done |
 | [ERT-1165](ERT-1100-operability-hardening.md#ert-1165--pin-every-third-party-github-action-to-a-commit-sha) | Pin every third-party GitHub Action to a commit SHA | Ticket | ERT-1160 | Not started |

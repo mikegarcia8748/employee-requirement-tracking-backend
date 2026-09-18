@@ -15,7 +15,16 @@ import java.io.File
  * [codeOf] strips comments, which is not fussiness — a KDoc explaining that `update(` is banned
  * contains the literal `update(`, and a guard that read it would fail on its own documentation.
  */
-fun sourceOf(relativePath: String): String = File(sourceRoot, relativePath).readText()
+fun sourceOf(relativePath: String): String = projectFile(relativePath).readText()
+
+/**
+ * A path relative to the project root, resolved the same way [sourceOf] resolves one.
+ *
+ * `ApiContractsTest` needs the **directory** rather than a known file — it sweeps every contract in
+ * `apicontracts/`, because the set grows with each module and a guard listing them by name would be
+ * the hand-kept copy it exists to make unnecessary.
+ */
+fun projectFile(relativePath: String): File = File(sourceRoot, relativePath)
 
 fun codeOf(relativePath: String): String = sourceOf(relativePath).withoutComments()
 

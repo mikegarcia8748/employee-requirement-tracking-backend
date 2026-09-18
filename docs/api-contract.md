@@ -17,6 +17,7 @@ schema file would drift within a sprint, and a spec that lies is worse than none
 | Question | Authority |
 |---|---|
 | What is the exact wire shape, right now? | the generated spec at `/swagger/documentation.yaml` |
+| How do I call it — payloads, failure bodies, call order? | [apicontracts/](../apicontracts/README.md), one contract per module (ERT-1145) |
 | What should this endpoint do, and why? | this document |
 | What is the product requirement? | the [PRD](employee-requirements-tracker-prd_1.md) |
 | When is it being built? | [roadmap.md](roadmap.md) and [backlog/](backlog/) |
@@ -80,6 +81,11 @@ A client decodes all of it with one generic `BaseResponse<T>`. Absent fields are
 rendered as `null`** (`explicitNulls = false`), so the denied body is exactly
 `{"result":"fail","error":{"code":"not_found","message":"Not found."}}` — one constant, with nothing
 in it that could differ between two causes.
+
+**Worked examples of every built endpoint's envelope live in
+[apicontracts/](../apicontracts/README.md)**, captured from a running server rather than composed —
+one contract per module, written as the module lands. This section is the reasoning; those are what a
+client is written against.
 
 | Field | |
 |---|---|
