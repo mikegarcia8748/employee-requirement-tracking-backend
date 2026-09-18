@@ -45,6 +45,36 @@ enum class LinkPolicySetting(val key: String, val field: String, val read: (Link
     PIN_FAILURES_BEFORE_SUSPEND("portal.pin_failures_before_suspend", "pinFailuresBeforeSuspend", LinkPolicy::pinFailuresBeforeSuspend),
 }
 
+/**
+ * The two audit metadata keys a change to this setting produces.
+ *
+ * The only place `.old` and `.new` are written. Both `ExposedAppSettingsRepository.auditEntryFor`,
+ * which generates them, and `AuditEntryMapper`'s exemption, which has to recognise them, read this
+ * — so the two cannot drift into disagreeing about a suffix. A second copy of that spelling is the
+ * failure ERT-250 exists to prevent, reached inside one epic.
+ */
+fun LinkPolicySetting.auditMetadataKeys(): Pair<String, String> = "$key.old" to "$key.new"
+
+/**
+ * The settings whose own key contains a fragment from `AuditEntryMapper`'s credential denylist, and
+ * whose derived metadata keys are therefore exempt from it (SEC-38, 2026-09-18).
+ *
+ * **Declared one by one rather than derived from [LinkPolicySetting.entries], and that is the whole
+ * control.** A derived exemption would exempt a tenth setting the moment somebody added it, and the
+ * test written to catch that — `audit metadata - every link policy setting key - survives the
+ * credential guard` — would pass vacuously forever. This project has recorded five instances of a
+ * guard that proved nothing; writing a sixth into the fix for one of them would be its own joke.
+ * Adding a member here is the deliberate act the guard exists to force.
+ *
+ * Typed rather than string literals, so renaming a constant is a compile error and the key string
+ * travels with it. `AppSettingMapperTest` pins that every member genuinely collides, so an entry
+ * that stops needing the exemption is not left behind as a hole nobody closed.
+ */
+val CREDENTIAL_FRAGMENT_EXEMPT_SETTINGS: Set<LinkPolicySetting> = setOf(
+    LinkPolicySetting.PIN_ATTEMPTS_BEFORE_LOCKOUT,
+    LinkPolicySetting.PIN_FAILURES_BEFORE_SUSPEND,
+)
+
 /** One `app_settings` row, wholly untrusted: every field is the raw string the column holds. */
 data class StoredSetting(
     val key: String,
@@ -217,12 +247,26 @@ private fun outOfRange(setting: LinkPolicySetting, value: Int, range: IntRange):
 // ── Cross-field rules ───────────────────────────────────────────────────────────────────────────
 
 /**
- * The two invariants `V3__app_settings.sql` hands to this adapter by name.
+ * The five cross-field invariants, none of which a per-row `min_value` / `max_value` can express.
  *
- * Neither can be expressed as a per-row `min_value` / `max_value`, because each constrains one
- * setting *relative to another* and both values can be legal on their own. Stage two: these run only
+ * Each constrains one setting *relative to another*, and in every case both values are legal on
+ * their own — which is the whole reason they cannot live in the table. Stage two: they run only
  * once every row has parsed, since complaining that the warning is too late, about a policy that
  * cannot be read or saved anyway, is noise on top of the real fault.
+ *
+ * **Two were handed here by name; three were not, and that is SEC-39 (2026-09-18).**
+ * `V3__app_settings.sql`'s header names the warning and the suspend threshold and says plainly that
+ * neither can be a bound. The three ceiling rules below were never handed over: V3 asserts the
+ * first of them forty lines further down as an achieved *property of a cap* —
+ * *"capped so one rejection cannot outrun the absolute ceiling"* — and a static `1..90` cannot
+ * carry that against a ceiling settable to 7. `extend_on_rejection_days` is the one lever that
+ * extends a **live** link, so it could push one to 97 days, 13× the ceiling the same file calls
+ * hard, with no value leaving its own range. §6.4's stated fear is exactly that a well-meant edit
+ * turns a token into a permanent credential.
+ *
+ * They run on the **read** path as well as the write, so a combination already sitting in the table
+ * — from a hand edit, which is how reference data gets in — fails loudly rather than issuing
+ * over-long links.
  */
 private fun LinkPolicy.crossFieldErrors(): List<AppError.Validation> = buildList {
     if (warnBeforeExpiryDays >= absoluteExpiryDays) {
@@ -240,6 +284,33 @@ private fun LinkPolicy.crossFieldErrors(): List<AppError.Validation> = buildList
                 LinkPolicySetting.PIN_FAILURES_BEFORE_SUSPEND, "suspend_below_lockout",
                 "Auto-suspend must not fire before lockout: $pinFailuresBeforeSuspend failures before " +
                     "suspend is below $pinAttemptsBeforeLockout attempts before lockout.",
+            )
+        )
+    }
+    if (extendOnRejectionDays > absoluteExpiryDays) {
+        add(
+            validation(
+                LinkPolicySetting.EXTEND_ON_REJECTION_DAYS, "extend_beyond_absolute",
+                "One rejection must not push a link past the absolute ceiling: extend " +
+                    "$extendOnRejectionDays is greater than absolute $absoluteExpiryDays.",
+            )
+        )
+    }
+    if (completedGraceDays > absoluteExpiryDays) {
+        add(
+            validation(
+                LinkPolicySetting.COMPLETED_GRACE_DAYS, "grace_beyond_absolute",
+                "The completed-packet grace period must not outlive the absolute ceiling: grace " +
+                    "$completedGraceDays is greater than absolute $absoluteExpiryDays.",
+            )
+        )
+    }
+    if (idleExpiryDays > absoluteExpiryDays) {
+        add(
+            validation(
+                LinkPolicySetting.IDLE_EXPIRY_DAYS, "idle_beyond_absolute",
+                "An idle clock above the absolute ceiling could never bind: idle $idleExpiryDays " +
+                    "is greater than absolute $absoluteExpiryDays.",
             )
         )
     }

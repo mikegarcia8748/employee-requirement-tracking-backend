@@ -18,6 +18,7 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.reflect.full.declaredMemberFunctions
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -266,6 +267,35 @@ class OutboxNotifierTest : RepositoryTestBase() {
 
             val reason = (result as DeliveryResult.Failed).reason
             Regex("^[A-Za-z]+$").matches(reason) shouldBe true
+        }
+
+    @Test
+    fun `outbox notifier - a cancellation during the write - propagates rather than reporting a delivery failure`() =
+        runTest {
+            // SEC-37. `queue` used to wrap everything in `runCatching`, which catches Throwable --
+            // so a cancelled request became DeliveryResult.Failed("CancellationException") and the
+            // caller carried on as though a delivery had merely failed: ERT-434 would record a
+            // failure and offer HR a retry for a request nobody is waiting for, while structured
+            // concurrency lost a cancellation it was entitled to. On Cloud Run a client disconnect
+            // or an instance drain is the realistic producer.
+            //
+            // NARROWING THE CATCH TO `Exception` DOES NOT FIX THIS, which is the trap: on the JVM
+            // CancellationException extends IllegalStateException, so it IS an Exception. Only the
+            // explicit re-throw works, and this test is the only thing that tells the two apart.
+            //
+            // Arranged with a clock that throws rather than by racing a real cancellation: the
+            // clock read is the first statement inside the guarded block, so this exercises the
+            // catch deterministically instead of depending on where the scheduler happens to be.
+            val cancelling = OutboxNotifier(
+                factory = factory,
+                ids = ids,
+                clock = { throw CancellationException("the request was cancelled") },
+                messages = NotificationMessages(PortalBaseUrl("https://portal.example.com")),
+            )
+
+            assertFailsWith<CancellationException> { cancelling.sendInvitation(anEmail(), hire, TOKEN) }
+
+            countOf("notification_outbox") shouldBe 0
         }
 
     // ── The drain surface ───────────────────────────────────────────────────────────────────────

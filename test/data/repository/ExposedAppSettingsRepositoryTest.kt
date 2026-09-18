@@ -176,6 +176,24 @@ class ExposedAppSettingsRepositoryTest : RepositoryTestBase() {
         construction.containsMatchIn("storedSettings().toLinkPolicy()") shouldBe false
     }
 
+    @Test
+    fun `link policy read - the adapter source - spells the audit metadata suffixes nowhere`() {
+        // SEC-38's fix turns on `AuditEntryMapper` exempting exactly the keys this adapter
+        // generates, which only holds while both read one spelling of `.old` and `.new`. A second,
+        // independently written copy here is one rename away from an exemption that matches
+        // nothing -- and the symptom would be two settings silently unsaveable again.
+        val code = codeOf(ADAPTER)
+
+        listOf("\".old\"", "\".new\"").filter { it in code }.shouldBeEmpty()
+    }
+
+    @Test
+    fun `link policy read - the suffix sweep above - is looking at an adapter that still derives them`() {
+        // The anti-vacuity partner the file's other sweeps carry: the sweep passes just as happily
+        // against an adapter that writes no audit metadata at all.
+        codeOf(ADAPTER) shouldContain "auditMetadataKeys()"
+    }
+
     // ── Writing ─────────────────────────────────────────────────────────────────────────────────
 
     @Test

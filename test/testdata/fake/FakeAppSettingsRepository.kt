@@ -16,6 +16,22 @@ import com.pgsystem.employee.requirement.tracker.domain.port.AppSettingsReposito
  * ERT-310's adapter. A fake that also enforced it would accept a bounds bug in the adapter without
  * complaint, because every test would have been passing values the fake had already filtered.
  *
+ * **The audit row is a second divergence, and unlike the bounds one it was never argued (HAR-19,
+ * 2026-09-18).** `ExposedAppSettingsRepository.updateLinkPolicy` writes the changed rows **and**
+ * one audit row, in the same transaction; this fake writes only the policy. The port returns
+ * `Unit`, so the audit row is not observable through it and no contract test can compare the two —
+ * `ExposedAppSettingsRepositoryTest` reads it out of the database directly instead.
+ *
+ * That gap is what hid **SEC-38** through fifteen `updateLinkPolicy` exercises: two of the nine
+ * §6.4 keys contain `pin`, the audit metadata key derived from them was refused by the credential
+ * guard, and a contract test changing either would have passed here and thrown on the adapter —
+ * precisely the disagreement ERT-250 exists to surface. `settings contract - a change to every
+ * settings key in turn` now covers all nine, and it is red on the adapter without SEC-38's fix.
+ *
+ * Recorded here so the next reader can tell this fake's argued divergences from its accidental
+ * ones. Closing it would mean giving the port a way to observe the trail, which is a change to the
+ * port rather than to the fake.
+ *
  * [reads] exists for the quietest risk on the roadmap: if `expiresAt` comes from `LinkPolicy`'s
  * Kotlin defaults rather than from this port, §8.10 is violated from the first row and **nothing
  * detects it**, because the numbers are identical. Asserting that the policy was actually read is

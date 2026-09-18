@@ -512,6 +512,23 @@ class FakesTest {
         log.entries shouldHaveSize 2
     }
 
+    @Test
+    fun `fake audit log - a targeted action failure - takes that write and lets the others through`() = runTest {
+        // ERT-434 needed "the third audit write throws", which neither FakeFailure mode can say:
+        // failEveryCall throws on the first one, so a use case never reaches the row under test.
+        val log = FakeAuditLog()
+        log.failOn(AuditAction.INVITATION_DELIVERY_FAILED)
+
+        log.record(anAuditEntry(action = AuditAction.HIRE_CREATED))
+
+        assertFailsWith<IllegalStateException> {
+            log.record(anAuditEntry(action = AuditAction.INVITATION_DELIVERY_FAILED))
+        }
+
+        log.recorded(AuditAction.HIRE_CREATED) shouldBe true
+        log.recorded(AuditAction.INVITATION_DELIVERY_FAILED) shouldBe false
+    }
+
     // ── FakeDocumentStorage ─────────────────────────────────────────────────────────────────────
 
     @Test

@@ -94,10 +94,12 @@ class ExposedAuditLogTest : RepositoryTestBase() {
     }
 
     @Test
-    fun `audit log - the action sweep above - covers all twenty-five actions`() {
+    fun `audit log - the action sweep above - covers all twenty-six actions`() {
         // Without this the sweep passes just as happily against an enum someone emptied.
-        // 25 since ERT-190 added the eight HR-account actions.
-        AuditAction.entries.size shouldBe 25
+        // 25 since ERT-190 added the eight HR-account actions; 26 since ERT-434 added
+        // INVITATION_DELIVERY_FAILED, which HAR-02 needs because a failed outbox INSERT writes no
+        // row for the delivery-failure indicator to be derived from.
+        AuditAction.entries.size shouldBe 26
     }
 
     @Test

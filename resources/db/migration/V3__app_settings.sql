@@ -12,11 +12,20 @@
 -- is missing and never overwrites a value an admin has since changed. Flyway already guarantees
 -- once-only execution; this is the second layer.
 --
--- Two invariants here are cross-field and CANNOT be expressed in per-row min_value/max_value:
+-- FIVE invariants here are cross-field and CANNOT be expressed in per-row min_value/max_value:
 --   * link.warn_before_expiry_days must be less than link.absolute_expiry_days
 --   * portal.pin_failures_before_suspend must be at least portal.pin_attempts_before_lockout
--- Clamping warn's maximum to 7 would make its default equal its maximum, which is silly. Both
--- belong in the AppSettingsRepository validator (ERT-310).
+--   * link.extend_on_rejection_days must not exceed link.absolute_expiry_days
+--   * link.completed_grace_days must not exceed link.absolute_expiry_days
+--   * link.idle_expiry_days must not exceed link.absolute_expiry_days
+-- Clamping warn's maximum to 7 would make its default equal its maximum, which is silly. All five
+-- belong in the AppSettingsRepository validator (ERT-310), and all five are implemented there in
+-- AppSettingMapper.crossFieldErrors -- which runs on the READ path as well as the write, so a bad
+-- combination already in this table fails loudly instead of issuing an over-long link.
+--
+-- The last three were added by SEC-39 on 2026-09-18. Only the first two were ever handed over: the
+-- third was asserted forty lines below as an achieved property of a CAP, which a static bound
+-- cannot carry against a ceiling settable down to 7.
 --
 -- Formatting rule: no semicolon inside any string literal. SeedDataTest replays this file by
 -- splitting it on semicolons.
@@ -27,13 +36,18 @@ select 'link.absolute_expiry_days', '90', 'INT', '7', '180'
 where not exists (select 1 from app_settings where "key" = 'link.absolute_expiry_days');
 
 -- Minimum is 0, not 1: 6.4 requires 0 to disable the idle clock and rely on the ceiling alone.
--- Maximum matches the absolute ceiling, above which the idle clock could never bind.
+-- Maximum matches the absolute ceiling's own maximum, above which the idle clock could never bind.
+-- That is a bound against 180, not against whatever the ceiling is set to; the cross-field rule in
+-- AppSettingMapper.crossFieldErrors is what holds it against the configured value (SEC-39).
 insert into app_settings ("key", "value", value_type, min_value, max_value)
 select 'link.idle_expiry_days', '30', 'INT', '0', '180'
 where not exists (select 1 from app_settings where "key" = 'link.idle_expiry_days');
 
--- Must move the window by at least a day to be worth anything; capped so one rejection cannot
--- outrun the absolute ceiling.
+-- Must move the window by at least a day to be worth anything. The 90 is a sanity bound and NOTHING
+-- MORE: "one rejection cannot outrun the absolute ceiling" is a cross-field rule, and this cap
+-- cannot express it -- at absolute 7 this value could push a live link to 97 days. That rule lives
+-- in AppSettingMapper.crossFieldErrors with the other four (SEC-39, 2026-09-18). An earlier version
+-- of this comment claimed the cap enforced it, which is how the rule went unwritten for an epic.
 insert into app_settings ("key", "value", value_type, min_value, max_value)
 select 'link.extend_on_rejection_days', '30', 'INT', '1', '90'
 where not exists (select 1 from app_settings where "key" = 'link.extend_on_rejection_days');

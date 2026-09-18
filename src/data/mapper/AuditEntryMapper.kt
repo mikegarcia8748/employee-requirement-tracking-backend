@@ -81,10 +81,12 @@ fun String.toMetadata(): Map<String, String> =
  */
 private fun Map<String, String>.refuseCredentials() {
     forEach { (key, value) ->
-        val lowered = key.lowercase()
-        val named = CREDENTIAL_KEY_FRAGMENTS.firstOrNull { it in lowered }
-        require(named == null) {
-            "Audit metadata key '$key' names a credential ('$named'). PRD 12: a credential is never logged."
+        if (key !in EXEMPT_METADATA_KEYS) {
+            val lowered = key.lowercase()
+            val named = CREDENTIAL_KEY_FRAGMENTS.firstOrNull { it in lowered }
+            require(named == null) {
+                "Audit metadata key '$key' names a credential ('$named'). PRD 12: a credential is never logged."
+            }
         }
         require(!value.isCredentialShaped()) {
             "Audit metadata value under '$key' is credential-shaped (${value.length} characters of " +
@@ -92,6 +94,37 @@ private fun Map<String, String>.refuseCredentials() {
         }
     }
 }
+
+/**
+ * The handful of metadata keys the application generates for itself that collide with the denylist
+ * (SEC-38, 2026-09-18).
+ *
+ * `updateLinkPolicy` names each changed setting in the trail as `<key>.old` / `<key>.new`, and two
+ * of the nine §6.4 keys are `portal.pin_attempts_before_lockout` and
+ * `portal.pin_failures_before_suspend`. The guard refused both for precisely the reason it was
+ * built, and the two settings were permanently unsaveable: an `IllegalArgumentException` out of a
+ * method whose declared contract is `DomainResult<Unit>`.
+ *
+ * **Three things bound the exemption, and each is the difference between a fix and a hole.**
+ *
+ * It is an *exact match* against a closed set, not a pattern. A regex over `link.*` or `portal.*`
+ * would be a wider hole than the one it patches, and `portal.pin_attempts_before_lockout` without a
+ * suffix is still refused — nothing generates that key, so nothing needs it.
+ *
+ * It skips the *key* check only. [isCredentialShaped] still runs on the value of every entry,
+ * including these, so an exempt key cannot become a channel for a credential-shaped value.
+ *
+ * And the settings it covers are [CREDENTIAL_FRAGMENT_EXEMPT_SETTINGS] — **declared** one by one
+ * beside the enum rather than derived from it, so a tenth colliding setting fails the build instead
+ * of exempting itself. That file carries the argument.
+ *
+ * **C25 is untouched.** That is the same guard's *value*-side false positive — a typed duplicate
+ * reason with no spaces reading as credential-shaped — and it stays pinned exactly as it was. The
+ * two are not the same call: C25's trap is reachable-but-rare and belongs to text a user typed;
+ * this one was unconditional on two of nine inputs and belongs to a key this codebase chose.
+ */
+private val EXEMPT_METADATA_KEYS: Set<String> =
+    CREDENTIAL_FRAGMENT_EXEMPT_SETTINGS.flatMap { it.auditMetadataKeys().toList() }.toSet()
 
 private fun String.isCredentialShaped(): Boolean =
     length >= CREDENTIAL_VALUE_LENGTH &&

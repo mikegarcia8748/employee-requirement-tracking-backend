@@ -344,7 +344,7 @@ A link is resolvable by presented token without the plaintext ever being stored 
 | **Parent** | ERT-400 |
 | **Type** | Ticket — **split into ERT-431…434** |
 | **Phase** | 1 |
-| **Status** | In progress — ERT-431 and ERT-432 done |
+| **Status** | Done — all four sub-tasks landed |
 | **Depends on** | ERT-190, ERT-210, ERT-230, ERT-310, ERT-320, ERT-350, ERT-410, ERT-420, ERT-440 |
 | **PRD** | §8.1, §5, §6.4, §6.6 |
 | **Architecture** | §5, §8 |
@@ -805,6 +805,14 @@ non-arrival it exists to remedy.
 >
 > **Decision on Link Policy:** As `AppSettingsRepository.linkPolicy()` returns a `DomainResult`, the use case must propagate this failure rather than falling back to defaults. Refusing to issue a link is the correct response to a policy nobody can read.
 
+> **The link was issued and never audited, and nothing recorded that (found 2026-09-18, discharged
+> by ERT-434).** `AuditAction.LINK_ISSUED` has existed since ERT-330; a grep for it finds the enum
+> declaration and one test fixture, and no production code at all. This sub-task issued the link and
+> wrote no row, and none of its criteria asked for one — so the gap was invisible in exactly the way
+> the roadmap's own recurring lesson describes. ERT-434 writes the row, because it was already
+> editing the method. `LINK_EXTENDED`, `LINK_REVOKED` and `LINK_SUSPENDED` remain unwritten and
+> belong to ERT-1020 and ERT-1030.
+
 `expiresAt` is computed from the policy read at this moment and **stored**, exactly like the
 requirement snapshot. Changing `link.absolute_expiry_days` tomorrow must not move this link (§6.4).
 The idle clock is the second of two clocks — when `idleExpiryDays` is 0 it is disabled and
@@ -841,7 +849,7 @@ The idle clock is the second of two clocks — when `idleExpiryDays` is 0 it is 
 |---|---|
 | **Parent** | ERT-430 |
 | **Type** | Sub-task |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-433, ERT-440 |
 | **PRD** | §8.1, §8.9, §6.6 |
 
@@ -879,18 +887,30 @@ at the portal without restating the link, so a forwarded rejection notice or exp
 nothing useful. The `Notifier` shape enforces this; this sub-task must not work around it.
 
 **Acceptance criteria**
-- [ ] Given a hire is created, then the invite email is sent within 1 minute (§8.1)
-- [ ] Given email delivery fails, then HR sees a failure indicator on the record and a retry action
-      (§8.1)
-- [ ] `[derived]` Given delivery fails, then the hire, its requirement set and its link still exist
+- [x] Given a hire is created, then the invitation is **queued in the same call** — reworded, see
+      the note below. The original said "sent within 1 minute (§8.1)", which nothing in this system
+      can satisfy or measure: `OutboxNotifier` transmits nothing and `DeliveryResult.Sent` means
+      *durably queued*. The one-minute clause is **handed to ERT-1010**, which lands the transport
+- [x] Given email delivery fails, then HR sees a failure indicator on the record and a retry action
+      (§8.1) — the indicator is `HireCreated.delivery` for the 201 body and an
+      `INVITATION_DELIVERY_FAILED` audit row for the record; the retry for an invitation is
+      ERT-1030's `resend-link`, **never** `OutboxNotifier.retry`, which refuses one loudly
+- [x] `[derived]` Given delivery fails, then the hire, its requirement set and its link still exist
       and are unchanged
-- [ ] Given any email at all, then it never contains an access PIN, and only the invitation carries a
-      link (§8.9, §6.6) —
-      structurally guaranteed by the `Notifier` signature
-- [ ] `[derived]` Given a successful creation, then an audit entry records the creating actor and
-      timestamp
-- [ ] Given the **queue insert itself** fails, then the failure indicator still reaches HR — there is
+- [x] Given any email **reachable from hire creation**, then it never contains an access PIN, and
+      only the invitation carries a link (§8.9, §6.6) — structurally guaranteed by the `Notifier`
+      signature, since C23 split `sendInvitation` so it takes no `AccessPin`. **Narrowed
+      deliberately: the general claim is false today and SEC-41 says so** — `sendRecoveryPin`
+      renders a PIN into a body. That is ERT-650's to fix and it gates that ticket; this sub-task
+      must not tick a guarantee a review disproved a day earlier
+- [x] `[derived]` Given a successful creation, then an audit entry records the creating actor and
+      timestamp — **already delivered by ERT-431**, `hire creation - a valid command - stores the
+      hire through create and audits it`, which asserts actor, entity, entity id and timestamp. Its
+      row in the Tests table is struck rather than duplicated (C38's disposition precedent)
+- [x] Given the **queue insert itself** fails, then the failure indicator still reaches HR — there is
       no outbox row to derive it from **(HAR-02, added 2026-09-18)**
+- [x] **SEC-37** Given a cancelled request, then the cancellation propagates rather than being
+      reported as a delivery failure
 
 > **The failure indicator has a hole, and this is the ticket that has to answer it (HAR-02,
 > [2026-09-18](../2026-09-18-ert-100-200-review.md)).** `NotificationOutbox`'s KDoc says the §8.1
@@ -900,10 +920,17 @@ nothing useful. The `Notifier` shape enforces this; this sub-task must not work 
 > from it cannot see the failure at all. The `Failed` value reaching this use case is the only
 > evidence that exists, so whatever carries it to HR has to come from here rather than from the table.
 >
-> Two options, and both are this ticket's to weigh: persist the failure on the **employee** record
-> (a column, or an audit row with a known action, which §8.1's retry action can then read), or have
-> `OutboxNotifier` write a `FAILED` row through a second, narrower path that cannot itself be the
-> thing that failed. The first is simpler and does not pretend the queue holds something it does not.
+> Two options, and both were this ticket's to weigh: persist the failure as an **audit row with a
+> known action**, which §8.1's retry action can then read, or have `OutboxNotifier` write a `FAILED`
+> row through a second, narrower path that cannot itself be the thing that failed. The first is
+> simpler and does not pretend the queue holds something it does not.
+>
+> *(An earlier version of this note also offered "a column" on `employees`. **E4 forbids exactly
+> that** — "a column would be a second copy of a fact the outbox already owns, and the two would
+> drift the first time a retry succeeded" — so the note was handing the next reader a choice the
+> project had already closed. Removed 2026-09-18.)*
+>
+> **Settled: the audit row.** See the closing note below.
 >
 > Related and already settled elsewhere: **ERT-250 removes `FakeNotifier`'s throwing failure mode**,
 > which models a path `OutboxNotifier` structurally cannot produce. Write this sub-task's tests
@@ -916,7 +943,98 @@ nothing useful. The `Notifier` shape enforces this; this sub-task must not work 
 | Use case | `invitation - delivery fails - the hire and its link still exist` |
 | Use case | `invitation - delivery fails - the result reports the failure so HR can retry` |
 | Use case | `invitation - the outbox insert itself fails - HR still sees the failure` |
-| Use case | `hire creation - a successful creation - records an audit entry naming the actor` |
+| ~~Use case~~ | ~~`hire creation - a successful creation - records an audit entry naming the actor`~~ — **struck**: ERT-431's `hire creation - a valid command - stores the hire through create and audits it` already asserts actor, entity, entity id and timestamp. A near-duplicate is not coverage |
+
+Added by the review step and by the two findings this sub-task carried:
+
+| Level | Test |
+|---|---|
+| Use case | `invitation - a hire is created - the invitation is sent after the link is stored` |
+| Use case | `invitation - delivery fails - the invitation is still recorded as attempted` |
+| Use case | `invitation - delivery fails - the audit reason names the failure and not the token` |
+| Use case | `invitation - a hire is created - records the link issue in the audit trail` (`LINK_ISSUED`) |
+| Use case | `invitation - the failure audit write also fails - the failure surfaces rather than a silently unrecorded delivery failure` |
+| Repository | `outbox notifier - a cancellation during the write - propagates rather than reporting a delivery failure` (SEC-37) |
+| Fake | `fake audit log - a targeted action failure - takes that write and lets the others through` |
+
+**Files**
+- modify [`src/domain/model/AuditEntry.kt`](../../src/domain/model/AuditEntry.kt) — `INVITATION_DELIVERY_FAILED`, the 26th action. **No migration**: `audit_logs.action` is `varchar(64)` with no check constraint
+- modify [`src/domain/model/Employee.kt`](../../src/domain/model/Employee.kt) — `HireCreated.delivery`, no default
+- modify [`src/domain/usecase/CreateHireUseCase.kt`](../../src/domain/usecase/CreateHireUseCase.kt) — capture the result, the two audit rows
+- modify [`src/data/notify/OutboxNotifier.kt`](../../src/data/notify/OutboxNotifier.kt) — SEC-37
+- modify [`src/data/db/table/Tables.kt`](../../src/data/db/table/Tables.kt) — `NotificationOutbox`'s KDoc, which states the derivation HAR-02 holes
+- modify [`test/testdata/fake/FakeAuditLog.kt`](../../test/testdata/fake/FakeAuditLog.kt) — `failOn(action)`, per the note below
+- modify `test/domain/usecase/CreateHireUseCaseTest.kt`, `test/data/notify/OutboxNotifierTest.kt`, `test/data/repository/ExposedAuditLogTest.kt` (twenty-five → twenty-six), `test/testdata/fake/FakesTest.kt`, `test/testdata/fake/FakeNotifier.kt`
+
+> **HAR-02 settled: an audit row, not a second write path (2026-09-18).** The evidence of a failed
+> invitation is the `DeliveryResult.Failed` value itself, so it is recorded from the use case —
+> `AuditAction.INVITATION_DELIVERY_FAILED`, carrying the address and the failure reason — and
+> surfaced synchronously on `HireCreated.delivery` for ERT-450's 201 body.
+>
+> A separate action rather than metadata on `HIRE_CREATED`, on the precedent the enum already sets
+> twice: "which hires did the invitation never reach" is a filter on `action`, not a substring scan
+> of unindexed JSON. The rejected alternative — `OutboxNotifier` writing a `FAILED` row through a
+> narrower path — needs a **new port method** (`Notifier` is what DI binds, so `OutboxNotifier`'s
+> extras are unreachable), and it would still be a write that can fail. It also trips
+> `outbox notifier - the notifier port - has exactly the eight kinds this adapter stores`, which is
+> a guard worth keeping.
+>
+> **The outbox and the audit row are not two copies of one fact.** The table records what was
+> *queued*; the row records what *failed*. E4's "derived from the latest outbox row" holds for every
+> case except the one where there is no row, and that case is the whole of HAR-02.
+
+> **The failure audit write is allowed to throw, and the exposure is stated rather than
+> special-cased.** On that branch an audit failure destroys the only record of the delivery failure
+> *and* returns a 500 for a hire that exists. Catching it here would be a new divergence from the
+> two audit rows written a few lines above, and ERT-431's `the audit write fails - the failure
+> surfaces rather than a silently unaudited hire` is the standing rule. An `Ok` that hid it is
+> strictly worse: every caller reads `Ok` as "the invitation is on its way". A real fix needs the
+> transaction the domain cannot have.
+
+> **`FakeAuditLog` grew `failOn(action)`, and the reason is a mutation that survived.** The test for
+> the paragraph above first used `audit.failure.failEveryCall()` — which throws on the **first**
+> audit write, so the use case never reaches the delivery-failure row and a `runCatching` around it
+> **passed the suite**. `FakeFailure` offers "next call" and "every call", and neither can say "the
+> third write throws". The targeted mode models a path the adapter genuinely has, since `audit_logs`
+> inserts one row per call. **Sixth instance of the house lesson, and the first where the gap was in
+> the fake rather than in the test.**
+
+> **SEC-37: narrowing the catch to `Exception` does not fix it, and the review's note says it does.**
+> The finding offers two remedies — "re-throw `CancellationException` before the `getOrElse`, **or**
+> catch `Exception` rather than `Throwable`". On the JVM `kotlin.coroutines.cancellation.CancellationException`
+> is `java.util.concurrent.CancellationException`, which extends `IllegalStateException` and is
+> therefore an `Exception`: the second remedy alone changes nothing. Verified by mutation — catching
+> `Exception` without the re-throw was applied and **killed** by the new test. Both are in place: the
+> re-throw is the fix, and the narrowing is still worth having because `runCatching` also turned an
+> `OutOfMemoryError` into a delivery failure.
+>
+> Arranged with a `Clock` that throws rather than by racing a real cancellation. The clock read is
+> the first statement inside the guarded block, so the catch is exercised deterministically instead
+> of depending on where the scheduler happens to be.
+
+> **`AuditAction.LINK_ISSUED` had no producer, and this ticket closed it.** It has existed in the
+> enum since ERT-330 and was written by no code in `src/` — ERT-433 issued the link and never
+> audited it, and no criterion asked it to. Taken here because this is the ticket that already opens
+> the same method to add the failure row. `LINK_EXTENDED`, `LINK_REVOKED` and `LINK_SUSPENDED` are
+> still unwritten and belong to ERT-1020 and ERT-1030, which is the honest boundary: this is the one
+> of the four whose event happens inside a method this sub-task was already editing.
+
+> **Confirmed by breaking it, eleven times — and one survived the first pass.** Deleting the
+> `sendInvitation` call; drawing a second token for the message; hardcoding `Sent` into the result;
+> auditing the failure unconditionally; returning `Err` on a failed delivery; dropping the
+> `LINK_ISSUED` row; sending the invitation before the link is stored; swallowing the failure audit
+> write; restoring `runCatching`; catching `Exception` without the re-throw; and re-throwing
+> everything.
+>
+> **The survivor was the swallowed audit write**, for the fake reason above. Two others were each
+> caught by exactly the one test written for them: *drawing a second token* dies only on
+> `tokenDigest.digest(invitation.linkToken) shouldBe uploadLinks.saved.single().tokenHash` — nothing
+> else in the suite asks whether the token that was emailed is the token that was stored, and
+> without it the invitation's link opens nothing. And *auditing the failure unconditionally* dies on
+> ERT-431's exact-list assertion in `a unique email - carries no anomaly flag and records no
+> override` — a test written yesterday for an unrelated rule, still catching things because it was
+> written as an exact list rather than a `shouldNotContain`. It needed updating here (two rows on
+> the happy path now, not one), and updating it is what keeps it able to catch the next one.
 
 ---
 
@@ -1101,6 +1219,12 @@ a proxy log and the OpenAPI examples.
 | duplicate with no reason | 422 `ReasonRequired`, with a `details` entry naming `duplicateReason` (C1) |
 | unknown department or employment type | 422 `department_unknown` / `employment_type_unknown` (E8) |
 | created but delivery failed | 201 with a delivery-failure indicator on the body |
+
+> **The indicator is `HireCreated.delivery`, a `DeliveryResult` (ERT-434).** Two cases, so the DTO
+> branches exhaustively rather than testing a null. `Sent` means **durably queued**, not delivered —
+> nothing transmits until ERT-1010 — so the body must not claim the invitation arrived. And the
+> retry a `Failed` offers is ERT-1030's `resend-link`, which reissues the credential; it is **not**
+> `OutboxNotifier.retry`, which refuses an invitation because its body was never stored.
 
 **Goal**
 

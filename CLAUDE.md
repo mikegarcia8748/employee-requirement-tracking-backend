@@ -73,6 +73,11 @@ decision reachable only through a handler is a bug.
     `AuthenticateHrUserUseCase` verifies a password against *some* hash. `AppError.AuthenticationFailed`
     is a `data object` for the reason `Denied` is one. It is **HR-side only**; a portal failure keeps
     `Denied`. A `SIGN_IN_FAILED` audit row never names the account, even when one was found.
+11. Every §6.4 duration is read from `app_settings` inside its **declared** bounds — bounds are data
+    in `min_value`/`max_value`, never a code constant — and no dependent duration may outrun
+    `link.absolute_expiry_days`. The five cross-field rules live in `AppSettingMapper.crossFieldErrors`
+    and run on the **read** path as well as the write, so a bad combination already in the table
+    fails loudly rather than issuing an over-long link.
 
 Full text and rationale: [docs/architecture.md](docs/architecture.md) §12.
 

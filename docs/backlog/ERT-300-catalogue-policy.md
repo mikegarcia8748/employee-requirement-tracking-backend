@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Epic |
 | **Phase** | 1 |
-| **Status** | In progress — reopened 2026-09-18 by the [ERT-300 review](../2026-09-18-ert-300-review.md) |
+| **Status** | Done — reopened 2026-09-18 by the [ERT-300 review](../2026-09-18-ert-300-review.md), closed again the same day by ERT-310 |
 | **Depends on** | ERT-130, ERT-240 |
 | **PRD** | §6.4, §8.10, §8.11, §5 |
 | **Architecture** | §4, §12 invariant 6 |
@@ -44,7 +44,7 @@ entry can be recorded, and HR can list the catalogue over HTTP.
 | **Parent** | ERT-300 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | In progress |
+| **Status** | Done |
 | **Depends on** | ERT-130, ERT-240 |
 | **PRD** | §6.4, §8.10 |
 | **Architecture** | §4 |
@@ -85,24 +85,26 @@ fails loudly rather than defaulting.
 - [x] Given `link.idle_expiry_days` is `0`, then `LinkPolicy.idleClockEnabled` is false and only the
       absolute ceiling applies (§6.4)
 - [x] Given any settings change, then it is written to the audit log with the old value, new value,
-      actor and timestamp (§8.10) — actor and timestamp as **columns**, old and new in `metadata`
-      — **ticked against seven of the nine keys; the other two throw. See SEC-38.**
+      actor and timestamp (§8.10) — actor and timestamp as **columns**, old and new in `metadata`.
+      **Now true of all nine keys.** It was ticked against seven while the other two threw, which is
+      the C38 shape — a ticked box with a footnote saying it is false. SEC-38 below is the fix and
+      the contract test is what holds it.
 
 > **Reopened 2026-09-18 by the [ERT-300 review](../2026-09-18-ert-300-review.md).** Three findings,
 > one branch. The criterion above is the one that was ticked against a subset.
 
-- [ ] **SEC-38** Given a change to **any** of the nine §6.4 settings, then it is written to the audit
+- [x] **SEC-38** Given a change to **any** of the nine §6.4 settings, then it is written to the audit
       log — including `portal.pin_attempts_before_lockout` and `portal.pin_failures_before_suspend`,
       whose derived metadata keys contain `pin` and are refused by `refuseCredentials`, throwing
       `IllegalArgumentException` out of a `DomainResult` method. Fix: `refuseCredentials` exempts keys
       derived from `LinkPolicySetting` — a closed enum, not caller-chosen text. The denylist stays as
       strict for every other caller and **C25 is untouched**
-- [ ] **SEC-38** Given a tenth setting whose key collides with a credential fragment, then the build
+- [x] **SEC-38** Given a tenth setting whose key collides with a credential fragment, then the build
       fails — a test over `LinkPolicySetting.entries` asserting every derived metadata key is accepted
-- [ ] **HAR-19** Given the settings contract suite, then it exercises **every** key, not four — driven
+- [x] **HAR-19** Given the settings contract suite, then it exercises **every** key, not four — driven
       off `LinkPolicySetting.entries`, so the fake and the adapter are compared on all nine. It is the
       test that proves SEC-38 fixed, and it must fail on the adapter and pass on the fake before the fix
-- [ ] **SEC-39** Given `extend_on_rejection_days` greater than `absolute_expiry_days`, then the policy
+- [x] **SEC-39** Given `extend_on_rejection_days` greater than `absolute_expiry_days`, then the policy
       is refused as a cross-field violation — the rule `V3__app_settings.sql` claims its `1..90` cap
       enforces and which a static bound cannot express against a ceiling settable to 7. Same for
       `completed_grace_days` and `idle_expiry_days`, with boundary tests matching the two rules that
@@ -120,6 +122,30 @@ fails loudly rather than defaulting.
 | Mapper | `audit metadata - every link policy setting key - survives the credential guard` (SEC-38) |
 | Mapper | `link policy validation - extend on rejection beyond the absolute ceiling - is refused as a cross-field violation` (SEC-39) |
 | Mapper | `link policy validation - extend on rejection equal to the absolute ceiling - is accepted` (SEC-39) |
+| Mapper | `link policy validation - completed grace beyond the absolute ceiling - is refused as a cross-field violation` (SEC-39) |
+| Mapper | `link policy validation - completed grace equal to the absolute ceiling - is accepted` (SEC-39) |
+| Mapper | `link policy validation - idle expiry beyond the absolute ceiling - is refused as a cross-field violation` (SEC-39) |
+| Mapper | `link policy validation - idle expiry equal to the absolute ceiling - is accepted` (SEC-39) |
+| Mapper | `link policy validation - an idle clock disabled under the shortest ceiling - is accepted` (SEC-39) |
+| Mapper | `link policy write - an incoming extend beyond the ceiling - is refused before anything is written` (SEC-39) |
+| Mapper | `audit metadata - a credential-shaped value under a link policy metadata key - is still refused` (SEC-38) |
+| Mapper | `audit metadata - a settings key without its old or new suffix - is still refused` (SEC-38) |
+| Mapper | `audit metadata - every exempted setting - actually collides with the denylist` (SEC-38) |
+| Repository | `link policy read - the adapter source - spells the audit metadata suffixes nowhere` (SEC-38) |
+| Repository | `link policy read - the suffix sweep above - is looking at an adapter that still derives them` |
+
+> **The Tests table above named two SEC-39 tests, both for `extend_on_rejection_days`, while the
+> criterion covers three rules.** The review asks for "boundary tests matching the two rules that
+> already exist" — each of which has a refusal asserting code *and* field plus an equality
+> acceptance guard — so six were owed, not two. The missing four are added above rather than
+> silently skipped.
+
+> **Where SEC-38's build guard lives was under-specified, and it is a mapper test.** The review says
+> *"Written as a contract test, for HAR-19's reason"*; this ticket's Tests table filed it under
+> Mapper. Mapper is right and the disagreement is recorded rather than left for a reader to
+> rediscover: the guard is a statement about what `toMetadataJson` accepts, which is not a claim
+> about two implementations agreeing and has no fake side to compare against. HAR-19's contract test
+> is separate and does exist — it is what reproduces SEC-38 across both implementations.
 
 **Files**
 - create `src/data/repository/ExposedAppSettingsRepository.kt`
@@ -134,6 +160,78 @@ fails loudly rather than defaulting.
 - modify `test/testdata/fake/FakeAppSettingsRepository.kt`, `test/testdata/fake/FakesTest.kt`
 - modify [`test/data/db/SeedDataTest.kt`](../../test/data/db/SeedDataTest.kt) — reads
   `LinkPolicySetting.entries` rather than keeping a second copy of the nine keys
+
+Added by the 2026-09-18 reopen, and not named by the list above:
+- modify [`src/data/mapper/AuditEntryMapper.kt`](../../src/data/mapper/AuditEntryMapper.kt) — the
+  exemption inside `refuseCredentials`
+- modify [`test/data/mapper/AuditEntryMapperTest.kt`](../../test/data/mapper/AuditEntryMapperTest.kt)
+  — the build guard and its three edges
+- modify [`test/contract/AppSettingsRepositoryContract.kt`](../../test/contract/AppSettingsRepositoryContract.kt)
+  — HAR-19's nine-key test
+- modify [`resources/db/migration/V3__app_settings.sql`](../../resources/db/migration/V3__app_settings.sql)
+  — the header's cross-field list, and the comment that claimed a cap enforced a cross-field rule
+- modify [`docs/architecture.md`](../architecture.md) §12 — the `app_settings` bounds invariant, which
+  had no row at all
+- modify [`CLAUDE.md`](../../CLAUDE.md) — invariant 11, the short form of the same. Adding a row to
+  §12 and not here is the drift C40 and C42 both record
+
+> **Closed 2026-09-18. The fix for SEC-38 is a declared list, and the reason is this project's own
+> recurring lesson appearing inside the fix for one of its findings.**
+>
+> The review asks for an exemption *"derived from `LinkPolicySetting.entries`"* and, in the same
+> paragraph, for a test where *"a tenth setting named `portal.otp_window_minutes` fails the build the
+> day it is added"*. **Those two cannot both hold.** An exemption derived from `entries` exempts a
+> tenth setting the instant it exists, so the guard passes vacuously forever — the sixth instance of
+> the vacuity trap ERT-320, ERT-350, ERT-410, ERT-420 and ERT-431 each recorded, written into the
+> remedy for one of them.
+>
+> The word doing the work is **declared**. `CREDENTIAL_FRAGMENT_EXEMPT_SETTINGS` lists the two
+> colliding settings one by one, beside the enum where a tenth would be added. It is typed rather
+> than string literals, so renaming a constant is a compile error. Deriving it from `entries` was
+> applied as a mutation and **killed** by `audit metadata - every exempted setting - actually
+> collides with the denylist`.
+>
+> The exemption skips the **key** check only. `isCredentialShaped` still runs on every value,
+> including these — proved by a named test, because skipping both checks is the one break that turns
+> this fix into the hole it patches. **C25 is untouched**: its two pinned tests are value-side, under
+> keys that are not in the exempt set, and both are green and unchanged.
+>
+> `.old` / `.new` is now spelled once, in `AppSettingMapper.auditMetadataKeys()`. A source sweep
+> fails the build if the adapter starts spelling it again, because an exemption matching a second,
+> independently written copy is one rename away from matching nothing.
+
+> **Confirmed by breaking it, twelve times, and none survived.** Dropping the exemption condition;
+> skipping the value check for exempt keys; widening exact match to a prefix; deriving the exempt set
+> from `entries`; leaving a colliding setting off the declared list; reverting the adapter to its own
+> suffix literals; a newly-colliding settings key; each of the three cross-field rules deleted in
+> turn; each written as `>=` instead of `>`; comparing `extend` against the warning rather than the
+> ceiling; and giving all three rules one shared code and field.
+>
+> The two that matter most: **the undeclared colliding setting** was caught by three independent
+> tests — the mapper guard, the exempt-set pin and the contract suite — which is the SEC-38 criterion
+> proved rather than asserted. And **`link policy update - a cross-field violation - is refused and
+> writes nothing`**, which already existed, is what kills any attempt to move `crossFieldErrors()`
+> into the per-row loop and start validating stored values on the write path.
+>
+> HAR-19's test was written first and confirmed **red on `ExposedAppSettingsRepositoryContractTest`
+> and green on `FakeAppSettingsRepositoryContractTest`**, exactly as the ticket requires. Without
+> that step it is not evidence: a contract test that was green before the fix proves nothing about
+> the disagreement it was written to surface.
+
+> **SEC-39 changes behaviour on the read path, and a deployment can already be in the bad state.**
+> `crossFieldErrors()` runs on read as well as write, so a database where an operator has set
+> `extend_on_rejection_days` above `absolute_expiry_days` now fails `linkPolicy()` — and hire
+> creation propagates the `Err` rather than issuing a link. That is the intent (*fail loudly rather
+> than issue an over-long link*), and it is the only change here that a live deployment can notice.
+> The V3 seed passes all five rules, so a database that has not been hand-edited is unaffected.
+
+> **One test had to move, and exactly one.** Every `LinkPolicy` construction in `src/` and `test/`
+> was swept. `link policy validation - a value exactly at its stored minimum - is accepted` set
+> `absolute = 7` while leaving idle 30, extend 30 and grace 14, so all three new rules fired. The
+> other four now sit at their own stored minima — not at 7, which would duplicate the three equality
+> guards and give the test two reasons to fail. Its subject is unchanged and the minimum-boundary
+> mutant still kills it. Everything else was safe because the adapter tests never drop `absolute`
+> below 45, the contract suite uses 60, and `FakeAppSettingsRepository` does not validate at all.
 
 **Out of scope**
 - `GET` / `PATCH /api/settings`. Phase 2.
@@ -222,7 +320,7 @@ reach a new hire.
 
 PRD §12 requires an audit log of every view, approve, reject, download, email change and reopen.
 [`AuditEntry`](../../src/domain/model/AuditEntry.kt) already defines 17 actions and three
-verification methods (17 when written; **25 today** — ERT-190 added eight), and `audit_logs.metadata` is a JSON text column carrying reasons and
+verification methods (17 when written; **26 today** — ERT-190 added eight and ERT-434 one), and `audit_logs.metadata` is a JSON text column carrying reasons and
 verification methods.
 
 Two properties are the point of the table. It is append-only — nothing updates or deletes a row.

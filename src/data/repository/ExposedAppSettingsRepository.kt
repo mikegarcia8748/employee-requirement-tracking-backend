@@ -12,6 +12,7 @@ import com.pgsystem.employee.requirement.tracker.data.mapper.LINK_POLICY_ENTITY
 import com.pgsystem.employee.requirement.tracker.data.mapper.LINK_POLICY_ID
 import com.pgsystem.employee.requirement.tracker.data.mapper.LinkPolicySetting
 import com.pgsystem.employee.requirement.tracker.data.mapper.StoredSetting
+import com.pgsystem.employee.requirement.tracker.data.mapper.auditMetadataKeys
 import com.pgsystem.employee.requirement.tracker.data.mapper.toLinkPolicy
 import com.pgsystem.employee.requirement.tracker.data.mapper.toStoredSetting
 import com.pgsystem.employee.requirement.tracker.data.mapper.validateAgainst
@@ -129,8 +130,13 @@ class ExposedAppSettingsRepository(
             entity = LINK_POLICY_ENTITY,
             entityId = LINK_POLICY_ID,
             timestamp = now,
+            // The suffixes are spelled in `AppSettingMapper.auditMetadataKeys`, not here. Two of the
+            // nine keys contain `pin`, so `AuditEntryMapper`'s credential guard has to recognise
+            // exactly these strings to exempt them (SEC-38) -- and an exemption matching a second,
+            // independently written copy of the spelling is one rename away from matching nothing.
             metadata = changes.flatMap {
-                listOf("${it.setting.key}.old" to it.old, "${it.setting.key}.new" to it.new)
+                val (oldKey, newKey) = it.setting.auditMetadataKeys()
+                listOf(oldKey to it.old, newKey to it.new)
             }.toMap(),
         )
 }

@@ -151,6 +151,107 @@ class AppSettingMapperTest {
         rows.toLinkPolicy().ok().pinFailuresBeforeSuspend shouldBe 5
     }
 
+    // ── The third cross-field family: nothing may outrun the absolute ceiling (SEC-39) ─────────
+
+    // V3's comment on `link.extend_on_rejection_days` claimed its 1..90 cap meant "one rejection
+    // cannot outrun the absolute ceiling". A static bound cannot express that against a ceiling
+    // settable down to 7: absolute 7 with extend 90 pushes a live link to 97 days, 13x the ceiling
+    // the same file calls hard. §6.4's stated fear is that a well-meant edit turns a token into a
+    // permanent credential, and this was the one lever with no cross-field rule.
+    //
+    // Each fixture below moves the ceiling to 31 and the dependent to 32 rather than reaching for
+    // 7 and 90: at absolute 7 all three of these rules fire at once and `single()` would pass for
+    // the wrong reason.
+
+    @Test
+    fun `link policy validation - extend on rejection beyond the absolute ceiling - is refused as a cross-field violation`() {
+        val rows = seeded()
+            .replacing(LinkPolicySetting.ABSOLUTE_EXPIRY_DAYS) { it.copy(value = "31") }
+            .replacing(LinkPolicySetting.EXTEND_ON_REJECTION_DAYS) { it.copy(value = "32") }
+
+        val error = rows.toLinkPolicy().err() as AppError.ValidationFailed
+
+        error.errors.single().code shouldBe "setting.extend_beyond_absolute"
+        error.errors.single().field shouldBe "link.extend_on_rejection_days"
+    }
+
+    @Test
+    fun `link policy validation - extend on rejection equal to the absolute ceiling - is accepted`() {
+        // The vacuity guard. Written as `<` this refuses a legal policy and nothing else notices.
+        val rows = seeded()
+            .replacing(LinkPolicySetting.ABSOLUTE_EXPIRY_DAYS) { it.copy(value = "30") }
+            .replacing(LinkPolicySetting.EXTEND_ON_REJECTION_DAYS) { it.copy(value = "30") }
+
+        rows.toLinkPolicy().ok().extendOnRejectionDays shouldBe 30
+    }
+
+    @Test
+    fun `link policy validation - completed grace beyond the absolute ceiling - is refused as a cross-field violation`() {
+        val rows = seeded()
+            .replacing(LinkPolicySetting.ABSOLUTE_EXPIRY_DAYS) { it.copy(value = "31") }
+            .replacing(LinkPolicySetting.COMPLETED_GRACE_DAYS) { it.copy(value = "32") }
+
+        val error = rows.toLinkPolicy().err() as AppError.ValidationFailed
+
+        error.errors.single().code shouldBe "setting.grace_beyond_absolute"
+        error.errors.single().field shouldBe "link.completed_grace_days"
+    }
+
+    @Test
+    fun `link policy validation - completed grace equal to the absolute ceiling - is accepted`() {
+        val rows = seeded()
+            .replacing(LinkPolicySetting.ABSOLUTE_EXPIRY_DAYS) { it.copy(value = "30") }
+            .replacing(LinkPolicySetting.COMPLETED_GRACE_DAYS) { it.copy(value = "30") }
+
+        rows.toLinkPolicy().ok().completedGraceDays shouldBe 30
+    }
+
+    @Test
+    fun `link policy validation - idle expiry beyond the absolute ceiling - is refused as a cross-field violation`() {
+        // V3 already reasons about this bound -- "above which the idle clock could never bind" --
+        // but the reasoning assumes the ceiling sits at its own maximum of 180.
+        val rows = seeded()
+            .replacing(LinkPolicySetting.ABSOLUTE_EXPIRY_DAYS) { it.copy(value = "29") }
+            .replacing(LinkPolicySetting.EXTEND_ON_REJECTION_DAYS) { it.copy(value = "29") }
+            .replacing(LinkPolicySetting.COMPLETED_GRACE_DAYS) { it.copy(value = "14") }
+
+        val error = rows.toLinkPolicy().err() as AppError.ValidationFailed
+
+        error.errors.single().code shouldBe "setting.idle_beyond_absolute"
+        error.errors.single().field shouldBe "link.idle_expiry_days"
+    }
+
+    @Test
+    fun `link policy validation - idle expiry equal to the absolute ceiling - is accepted`() {
+        val rows = seeded()
+            .replacing(LinkPolicySetting.ABSOLUTE_EXPIRY_DAYS) { it.copy(value = "30") }
+
+        rows.toLinkPolicy().ok().idleExpiryDays shouldBe 30
+    }
+
+    @Test
+    fun `link policy validation - an idle clock disabled under the shortest ceiling - is accepted`() {
+        // §6.4 requires 0 to disable the idle clock, so the rule must not refuse it at any ceiling.
+        val rows = seeded()
+            .replacing(LinkPolicySetting.ABSOLUTE_EXPIRY_DAYS) { it.copy(value = "7") }
+            .replacing(LinkPolicySetting.WARN_BEFORE_EXPIRY_DAYS) { it.copy(value = "1") }
+            .replacing(LinkPolicySetting.IDLE_EXPIRY_DAYS) { it.copy(value = "0") }
+            .replacing(LinkPolicySetting.EXTEND_ON_REJECTION_DAYS) { it.copy(value = "1") }
+            .replacing(LinkPolicySetting.COMPLETED_GRACE_DAYS) { it.copy(value = "1") }
+
+        rows.toLinkPolicy().ok().idleClockEnabled shouldBe false
+    }
+
+    @Test
+    fun `link policy write - an incoming extend beyond the ceiling - is refused before anything is written`() {
+        // The rules run on BOTH paths. `crossFieldErrors()` sits in `validateAgainst` as well as
+        // `toLinkPolicy`, so the Phase 2 screen cannot save a combination the reader would refuse.
+        val policy = LinkPolicy(absoluteExpiryDays = 31, extendOnRejectionDays = 32)
+
+        policy.validateAgainst(seeded()).validationCodes() shouldContainExactly
+            listOf("setting.extend_beyond_absolute")
+    }
+
     // ── The bounds message ──────────────────────────────────────────────────────────────────────
 
     @Test
@@ -175,12 +276,21 @@ class AppSettingMapperTest {
 
     @Test
     fun `link policy validation - a value exactly at its stored minimum - is accepted`() {
-        // The warning has to move too: at the shortest legal link life the seeded 7-day warning
-        // would fall on the expiry itself, which the cross-field rule refuses. Worth seeing, since
-        // it is the one place the two 6.4 rules genuinely constrain each other.
+        // Four other values have to move with it. At the shortest legal link life the seeded 7-day
+        // warning would fall on the expiry itself, and since SEC-39 the idle clock, the rejection
+        // extension and the completed grace all have to fit under the ceiling too — so this is the
+        // one place where every §6.4 cross-field rule genuinely constrains the others at once.
+        //
+        // Each is set to its own stored MINIMUM rather than to 7. Setting them to 7 would make this
+        // fixture a second equality-boundary test for the three SEC-39 rules, duplicating their own
+        // guards and giving this test two reasons to fail. Its subject is the minimum of
+        // `absolute_expiry_days` and nothing else.
         val rows = seeded()
             .replacing(LinkPolicySetting.ABSOLUTE_EXPIRY_DAYS) { it.copy(value = "7") }
             .replacing(LinkPolicySetting.WARN_BEFORE_EXPIRY_DAYS) { it.copy(value = "1") }
+            .replacing(LinkPolicySetting.IDLE_EXPIRY_DAYS) { it.copy(value = "0") }
+            .replacing(LinkPolicySetting.EXTEND_ON_REJECTION_DAYS) { it.copy(value = "1") }
+            .replacing(LinkPolicySetting.COMPLETED_GRACE_DAYS) { it.copy(value = "1") }
 
         rows.toLinkPolicy().ok().absoluteExpiryDays shouldBe 7
     }

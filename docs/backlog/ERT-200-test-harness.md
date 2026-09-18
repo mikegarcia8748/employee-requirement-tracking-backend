@@ -317,7 +317,7 @@ A repository test declares one base class and gets a migrated, seeded, isolated 
 | **Parent** | ERT-200 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | Done |
+| **Status** | In progress — reopened 2026-09-18 by the [ERT-300 review](../2026-09-18-ert-300-review.md) (HAR-20) |
 | **Depends on** | ERT-210 |
 | **PRD** | — |
 | **Architecture** | §10, §11 |

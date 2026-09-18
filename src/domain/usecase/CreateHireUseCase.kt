@@ -21,6 +21,7 @@ import com.pgsystem.employee.requirement.tracker.domain.model.HireCreated
 import com.pgsystem.employee.requirement.tracker.domain.model.PacketStatus
 import com.pgsystem.employee.requirement.tracker.domain.model.RequirementSet
 import com.pgsystem.employee.requirement.tracker.domain.model.RequirementStatus
+import com.pgsystem.employee.requirement.tracker.domain.port.DeliveryResult
 import com.pgsystem.employee.requirement.tracker.domain.port.AuditLog
 import com.pgsystem.employee.requirement.tracker.domain.port.EmployeeRepository
 import com.pgsystem.employee.requirement.tracker.domain.port.ReferenceDataRepository
@@ -63,10 +64,10 @@ data class CreateHire(
 /**
  * HR creates a hire (ERT-431, PRD §8.1).
  *
- * The first two sub-tasks of ERT-430: the rules that decide whether a hire may be created at all
- * (ERT-431), and the requirement set copied onto it from the catalogue (ERT-432). The link and its
- * stored expiry are ERT-433 and the invitation ERT-434 — so a hire created here still has no link,
- * deliberately, and the class grows across the four rather than being written once.
+ * **All four sub-tasks of ERT-430 have landed here**, and the class grew across them rather than
+ * being written once: the rules that decide whether a hire may be created at all (ERT-431), the
+ * requirement set copied onto it from the catalogue (ERT-432), the link and its stored expiry
+ * (ERT-433), and the invitation with its delivery indicator (ERT-434).
  *
  * ### The duplicate rule is a security control, not a nicety
  *
@@ -141,6 +142,25 @@ data class CreateHire(
  * checklist with no hire, and every refusal leaves the repository untouched. The failure surfaces
  * rather than being swallowed, for the reason ERT-431 gives about the audit row: an `Ok` hiding it
  * would produce an unusable hire that every caller reads as a success.
+ *
+ * ### A failed invitation does not lose the hire, and the failure is written down (ERT-434)
+ *
+ * §8.1 requires a failure indicator and a retry action, not a lost record, so a
+ * [DeliveryResult.Failed] never rolls the creation back — it is carried out on [HireCreated] and
+ * recorded as an [AuditAction.INVITATION_DELIVERY_FAILED] row.
+ *
+ * **The audit row is not redundant with the outbox, which is HAR-02.** `NotificationOutbox`'s KDoc
+ * derives §8.1's indicator from the latest outbox row for a hire — but when the outbox *insert* is
+ * what failed, `OutboxNotifier` writes nothing, so there is no latest row. The `Failed` value
+ * arriving here is then the only evidence in existence, and this row is where it is kept. A column
+ * on `employees` was the alternative and E4 forbids it.
+ *
+ * **That audit write is allowed to throw, and the exposure is stated rather than special-cased.**
+ * On this branch an audit failure both destroys the only record of the delivery failure *and*
+ * surfaces a 500 for a hire that exists. It is the same exposure this class already accepts three
+ * calls earlier, and catching it *here specifically* would be a new divergence from the rule the
+ * rows above it follow — an `Ok` that hid it would be worse, because every caller reads `Ok` as
+ * "the invitation is on its way". Fixing it properly needs the transaction the domain cannot have.
  *
  * ### `create`, never `save`, and the return value is load-bearing
  *
@@ -357,9 +377,31 @@ class CreateHireUseCase(
             )
         )
 
-        notifier.sendInvitation(stored.email, stored, plaintextToken)
+        audit.record(
+            entry(
+                action = AuditAction.LINK_ISSUED,
+                actor = command.actingUserId,
+                subject = stored.id,
+                at = now,
+                metadata = mapOf("linkId" to link.id.value, "expiresAt" to expiresAt.toString()),
+            )
+        )
 
-        return HireCreated(stored, RequirementSet(requirements), link).asOk()
+        val delivery = notifier.sendInvitation(stored.email, stored, plaintextToken)
+
+        if (delivery is DeliveryResult.Failed) {
+            audit.record(
+                entry(
+                    action = AuditAction.INVITATION_DELIVERY_FAILED,
+                    actor = command.actingUserId,
+                    subject = stored.id,
+                    at = now,
+                    metadata = mapOf("email" to stored.email.value, "reason" to delivery.reason),
+                )
+            )
+        }
+
+        return HireCreated(stored, RequirementSet(requirements), link, delivery).asOk()
     }
 
     /**

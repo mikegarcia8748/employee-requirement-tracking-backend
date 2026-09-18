@@ -1,6 +1,8 @@
 package com.pgsystem.employee.requirement.tracker.data.mapper
 
 import com.pgsystem.employee.requirement.tracker.domain.model.VerificationMethod
+import io.kotest.assertions.withClue
+import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import kotlinx.serialization.json.Json
@@ -141,5 +143,70 @@ class AuditEntryMapperTest {
     @Test
     fun `audit metadata - a key naming a credential in a different case - is still refused`() {
         assertFailsWith<IllegalArgumentException> { mapOf("AccessPIN" to "123456").toMetadataJson() }
+    }
+
+    // ── The settings exemption, and its three edges (SEC-38) ────────────────────────────────────
+
+    @Test
+    fun `audit metadata - every link policy setting key - survives the credential guard`() {
+        // SEC-38's build guard. `updateLinkPolicy` names each changed setting as `<key>.old` and
+        // `<key>.new`, and two of the nine keys contain `pin` -- so saving either threw an
+        // IllegalArgumentException out of a DomainResult method and the two settings §6.4 promises
+        // are configurable were not.
+        //
+        // Driven off the enum so a tenth setting is covered the day it is added. The exemption it
+        // relies on is DECLARED rather than derived (see CREDENTIAL_FRAGMENT_EXEMPT_SETTINGS), which
+        // is what makes this test able to fail: a tenth setting named `portal.otp_window_minutes`
+        // would not be in that set, and this line is where the build says so.
+        val metadata = LinkPolicySetting.entries.flatMap { setting ->
+            val (old, new) = setting.auditMetadataKeys()
+            listOf(old to "90", new to "45")
+        }.toMap()
+
+        // Anti-vacuity. Without this the guard passes just as happily against an enum whose keys
+        // have all been renamed away from the denylist, proving nothing about the exemption.
+        metadata.keys shouldHaveSize LinkPolicySetting.entries.size * 2
+        metadata.keys.count { "pin" in it } shouldBe 4
+
+        metadata.toMetadataJson().toMetadata() shouldBe metadata
+    }
+
+    @Test
+    fun `audit metadata - a credential-shaped value under a link policy metadata key - is still refused`() {
+        // The exemption skips the KEY check and nothing else. Widening it to skip the value check
+        // too would compile, pass every other test in this file, and turn the one key nobody
+        // inspects into a channel for the credential the guard exists to stop.
+        val exempt = "portal.pin_attempts_before_lockout.new"
+
+        assertFailsWith<IllegalArgumentException> {
+            mapOf(exempt to "Zm9vYmFyYmF6cXV4MDEyMzQ1Njc4OWFiY2RlZg").toMetadataJson()
+        }
+    }
+
+    @Test
+    fun `audit metadata - a settings key without its old or new suffix - is still refused`() {
+        // Exact match against the eighteen generated keys, not a prefix or a pattern. Nothing
+        // writes the bare key, so nothing needs it exempt -- and `startsWith` would quietly exempt
+        // `portal.pin_attempts_before_lockout.whatever_a_caller_typed` as well.
+        assertFailsWith<IllegalArgumentException> {
+            mapOf("portal.pin_attempts_before_lockout" to "5").toMetadataJson()
+        }
+    }
+
+    @Test
+    fun `audit metadata - every exempted setting - actually collides with the denylist`() {
+        // The other direction. An exemption that stops being necessary -- because a key was renamed
+        // -- is a hole nobody closed, and it would never announce itself.
+        CREDENTIAL_FRAGMENT_EXEMPT_SETTINGS.shouldHaveSize(2)
+
+        CREDENTIAL_FRAGMENT_EXEMPT_SETTINGS.forEach { setting ->
+            val (old, _) = setting.auditMetadataKeys()
+            withClue("'${setting.key}' no longer collides, so its exemption is dead weight") {
+                assertFailsWith<IllegalArgumentException> {
+                    // The same key, one character off the exempt list, is the control.
+                    mapOf("$old-unexempted" to "90").toMetadataJson()
+                }
+            }
+        }
     }
 }
