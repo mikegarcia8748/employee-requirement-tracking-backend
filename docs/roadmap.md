@@ -1,10 +1,46 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-450 — `POST /api/employees` and its DTOs](backlog/ERT-400-hire-creation.md#ert-450--post-apiemployees-and-its-dtos)**
+**Next ticket: [ERT-510 — Hire list with progress](backlog/ERT-500-hr-read-side.md#ert-510--hire-list-with-progress)**
 — the deployment track's remaining ticket,
 [ERT-1260](backlog/ERT-1200-deployment.md#ert-1260--gcp-foundation-identity-federation-registry-network-database-secrets),
 is the one piece of work in this project that needs something outside the repository: a GCP project
 and an Owner.
+
+> **2026-09-18 — ERT-400 is closed. HR can create a hire over HTTP.**
+> `POST /api/employees` is mounted, and with it the epic's last ticket. The route is as thin as the
+> ticket promised — parse, call one use case, map the sealed result — because ERT-431…434 had already
+> decided everything. The suite is **897 tests**, green on H2.
+>
+> **Two escalations closed with it, and both were the route's to close.** **C24**: the
+> duplicate-with-no-reason `422` named `field = "reason"`, while the body field a form must fill is
+> `duplicateReason` — four documents spelled it three ways and the mapper was wrong. It is now one
+> spelling, with the old one pinned as **absent** so the regression is a red build. **C25**: a typed
+> duplicate reason with no spaces was a **user-reachable 500** — 32+ characters of mixed-case
+> base64url reads as credential-shaped, and the `require` unwound out of `ExposedAuditLog.record`
+> *after the hire was written*. Fixed with SEC-38's own remedy applied to the other side of that
+> guard: a **declared** free-text key exemption covering the value check only, with a negative
+> control, because an exemption with nothing refusing beside it is indistinguishable from having
+> deleted the rule.
+>
+> **C26 stays open and is now reachable**, which is a change in kind rather than a deferral. A length
+> rule belongs on `EmailAddress` and on every string-taking use case, not invented in this one file;
+> the contract names the four column widths under *Known limits* so a client can cap the inputs until
+> it lands.
+>
+> **ERT-450 is the first ticket to carry the `apicontracts/` definition of done, and the honest part
+> is the exception.** Every payload in
+> [`HIRE_CREATION_API_CONTRACT.md`](../apicontracts/HIRE_CREATION_API_CONTRACT.md) was captured from a
+> running server except one: the `FAILED` invitation body cannot be produced on demand, since the only
+> way to get it is for the outbox insert itself to fail. Its shape is pinned by a route test and the
+> contract says it was not observed. That is the single thing `ApiContractsTest` cannot check, so
+> writing a plausible one instead would have cost nothing and been worth nothing.
+>
+> **The lesson is one the route test nearly repeated.** Its template fixture began with `sortOrder`,
+> name and id order all agreeing, so a route that re-sorted by name or id produced an identical body —
+> the arrangement ERT-320, ERT-350, ERT-410 and ERT-420 each shipped without, and which the *same
+> branch* had just finished documenting one level up in HAR-20. Caught only because it was fresh.
+> The orders now disagree by construction, and a `sortedBy { it.name }` mutation was applied and
+> killed.
 
 > **2026-09-18 — the API now has contracts the front-end can build against.**
 > [`apicontracts/`](../apicontracts/README.md) holds one per module — authentication, user
@@ -18,8 +54,8 @@ and an Owner.
 > production code. What it changes is the **definition of done**: a ticket that adds, removes or
 > changes an `/api` endpoint now updates its module's contract in the same commit, stated in
 > `CLAUDE.md` and on the board, and `ApiContractsTest` fails the build on a mounted route documented
-> in none of them. **ERT-450 is the first ticket to carry it** — it opens a new module, so it writes
-> a new contract — and it is one ticket away.
+> in none of them. **ERT-450 was the first ticket to carry it** — it opened a new module, so it wrote
+> a new contract, and the guard caught the route before the contract existed rather than after.
 >
 > The lesson is in the mutation pass rather than the document. Six deliberate breaks were applied;
 > the two that pointed a sweep at nothing left **three of the four content assertions green**, because
@@ -28,13 +64,12 @@ and an Owner.
 > breaks applied with `sed` silently matched nothing, the suite was green, and the guard looked
 > broken. **A mutation not confirmed to have landed is not a mutation.**
 
-> **ERT-430 is closed, and ERT-450 is a thin route over a use case that now decides everything.**
-> Two things to read before writing it. **C25 is still open and is ERT-450's** — a typed duplicate
-> reason with no spaces is credential-shaped and becomes a user-reachable 500. ERT-310's SEC-38 fix
-> deliberately did **not** touch it: that is the same guard's *value*-side rule, and weakening a
-> tripwire is a specification change. And the 201 body's delivery indicator is
-> `HireCreated.delivery`, a two-case `DeliveryResult` where `Sent` means **durably queued** rather
-> than delivered — nothing transmits until ERT-1010.
+> **ERT-430 is closed, and ERT-450 was a thin route over a use case that decides everything.**
+> Both things this paragraph said to read before writing it turned out to matter, and both are now
+> settled above: **C25** was a user-reachable 500 and is closed, and the 201 body's delivery indicator
+> is `HireCreated.delivery`, a two-case `DeliveryResult` where `Sent` means **durably queued** rather
+> than delivered — which the wire renders as `QUEUED`, never `SENT`, because nothing transmits until
+> ERT-1010.
 
 > **HAR-02 is answered (2026-09-18, ERT-434), and the answer is recorded where the question was
 > asked.** `OutboxNotifier` returns `Failed` and writes **nothing** when the insert is what failed,
@@ -134,7 +169,33 @@ and an Owner.
 > **HAR-20 remains open and ERT-250's status was wrong.** The review's task plan says "ERT-250
 > reopened" and filed two unticked criteria into its block, while the block, the board row and the
 > ERT-200 epic line all still read `Done` — C34's shape, one day later, introduced by the document
-> that exists to catch it. All four are corrected; ERT-250 now reads `In progress`.
+> that exists to catch it. All four are corrected; ERT-250 read `In progress` until it closed.
+>
+> **Closed 2026-09-18. HAR-20 is fixed and ERT-200 is `Done` again.** `ReferenceRoutesTest`'s private
+> `FakeReferenceData` is gone, and "a port has exactly **one** implementation" is now a build failure
+> rather than a convention — the companion to `portsWithoutFakes`, which only ever asserted that a
+> port had *at least* one.
+>
+> **Two things the recommended fix did not mention, and both would have produced a guard that passed
+> vacuously.** The guard cannot be a substring scan: all thirteen bases in `test/contract/` declare
+> `protected abstract val x: SomePort` inside their bodies, so a naive pattern reports thirteen false
+> positives on a clean tree — and the natural response to thirteen false positives is to loosen it
+> until it matches nothing. Only the supertype list counts, walked with balanced delimiters. And it
+> must **not** be `^`-anchored the way `CONCRETE_CLASS` and `PORT_INTERFACE` deliberately are: the
+> offender was a `private class` **nested inside a test class**, so copying the neighbouring idiom
+> would have produced a guard blind to the one declaration it was written for. It was observed red
+> first, reporting exactly one violation across 85 files.
+>
+> **The lesson worth carrying is a claim this ticket made and then killed.** The route's ordering
+> test seeded its two rows **already in name order** against a fake that did not sort, so "in name
+> order" was satisfied by the seed rather than by the port — HAR-20's live consequence, fixed by the
+> swap. The rows were then reseeded in reverse, with ids ascending opposite to the names, and the
+> first draft of the ticket note claimed that caught mutations the old arrangement missed. **It was
+> measured, and it was false**: the id-sort mutation dies under either arrangement, because the fake
+> sorts before the route sees anything and the handler receives an identical list either way. The
+> reversal buys readability — input and output visibly differ, so the ordering is demonstrably the
+> port's — and nothing else. **A plausible claim about a test's strength is worth running before it
+> is written down**, which is the same failure this ticket exists to close, one level up.
 
 > **[ERT-146](backlog/ERT-100-foundations.md#ert-146--a-request-with-no-content-type-is-415-and-every-body-taking-route-publishes-its-schema)
 > jumped the queue on 2026-09-17 and is Done**, which is why ERT-433 was the next ticket at the
@@ -231,10 +292,10 @@ decision register, and the pointer above. Each session updates that pointer on t
 
 | | |
 |---|---|
-| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of **13** in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · **a contract suite per port, run against the fake and the adapter both, with a guard failing the build on a port that has no fake** · a `RepositoryTestBase` giving one migrated, seeded, isolated database per test — H2 by default, **a PostgreSQL schema when `ERT_TEST_DATABASE_URL` is set, which CI's second job does** · **seven Exposed adapters, an outbox notifier and a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data, HR accounts, **hires with their requirement sets**, **upload links resolved by token digest** and **a durable notification outbox** · **seven use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin, and **hire creation with its snapshotted requirement set**) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
+| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of **13** in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · **a contract suite per port, run against the fake and the adapter both, with a guard failing the build on a port that has no fake** · a `RepositoryTestBase` giving one migrated, seeded, isolated database per test — H2 by default, **a PostgreSQL schema when `ERT_TEST_DATABASE_URL` is set, which CI's second job does** · **seven Exposed adapters, an outbox notifier and a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data, HR accounts, **hires with their requirement sets**, **upload links resolved by token digest** and **a durable notification outbox** · **seven use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin, and **hire creation with its snapshotted requirement set**) · **a hire-creation route, its DTOs and its mapper** · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
 | Empty | `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
-| Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics` · `POST /api/auth/login` (the only public `/api` route) · `/api/auth/change-password`, `/api/auth/me` · four `HR_ADMIN`-only routes under `/api/users` · three HR reads — `/api/requirement-templates`, `/api/departments`, `/api/employment-types`. Appendix B specifies the rest. **All ten are documented for a client across four module contracts in [`apicontracts/`](../apicontracts/README.md), with a build guard against an eleventh arriving undocumented (ERT-1145).** |
+| Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics` · `POST /api/auth/login` (the only public `/api` route) · `/api/auth/change-password`, `/api/auth/me` · four `HR_ADMIN`-only routes under `/api/users` · three HR reads — `/api/requirement-templates`, `/api/departments`, `/api/employment-types` · `POST /api/employees`, the first write on the hire side (ERT-450). Appendix B specifies the rest. **All eleven are documented for a client across five module contracts in [`apicontracts/`](../apicontracts/README.md), with a build guard against a twelfth arriving undocumented (ERT-1145) — which is what caught ERT-450's route before its contract existed.** |
 
 The three foundational gaps Phase 0 opened with are closed: `DatabaseFactory.connect()` runs from the
 application lifecycle (ERT-110), Flyway applies a baseline guarded by a drift test (ERT-120), and
@@ -1204,9 +1265,9 @@ ERT-100/ERT-200 review**.
 | C22 | `StatusPages` logs the request URI unredacted at two call sites — a known invariant-4 violation with no ticket | **Closed as ERT-1110**, gating ERT-630 through a `Depends on` row |
 | C23 | **`Notifier.sendInvitation` requires an `AccessPin`, and since 2026-09-16 the invitation must carry none.** ERT-400's own epic text asserts both in consecutive paragraphs: "it carries no PIN", and "only `sendInvitation` accepts an `AccessPin` … do not add an `AccessPin` parameter to any other method". The parameter is what makes "only the invitation may carry a credential" a compile-time property, so removing it weakens a real guard — but ERT-433 cannot call the method without minting a PIN the new model says must not exist at creation *(opened 2026-09-16 by ERT-440)* | **Closed.** Split the port so `Notifier.sendInvitation` takes no PIN and a separate `sendRecoveryPin` does. This keeps the compile-time guard for the recovery PIN on its own dedicated method, which is also the exact method ERT-650 will need anyway. |
 
-| C24 | **`ReasonRequired` renders `field = "reason"`, but two places say `duplicateReason`.** `AppErrorMapper` hardcodes `ApiErrorDetail(code, field = "reason")` and `ErrorMappingTest` pins it; the API contract's `POST /api/employees` row and ERT-450's acceptance criterion both require the `details` entry to name `duplicateReason`. `ApiResponse`'s KDoc adds a third spelling, `duplicate_email_requires_reason`, which is not a code anything emits *(opened 2026-09-17 by ERT-431)* | **Open, owned by ERT-450.** ERT-431 emits the error and cannot see the wire; ERT-450 is the ticket that renders it and will meet this as a failing test. Fixing it is a one-line mapper change plus its pinned test — but which spelling wins is a contract decision, not a mapper decision |
-| C25 | **A typed duplicate reason with no spaces is a user-reachable 500.** ERT-330's audit-metadata guard refuses a value that is 32+ characters of mixed-case base64url, on the stated premise that "a reason is prose" — and prose has spaces, so one space is what saves it. A reason like `ReplacingRecord2026ForJoseDelaCruz` satisfies every clause, and the `require` unwinds out through `ExposedAuditLog.record`. Before ERT-431 no free-text HR value reached that map, so the trap was unreachable *(opened 2026-09-17 by ERT-431)* | **Open, owned by ERT-450.** Deliberately **not** fixed in ERT-431: the guard is ERT-330's security control and weakening a tripwire is a specification change — the C2 failure this very ticket documents. `AuditEntryMapperTest` now **pins today's behaviour** with a named test so the trap is visible rather than discovered in production, and asserts the prose form is still accepted so the pin cannot be mistaken for endorsement |
-| C26 | **Nothing enforces the column widths, so over-long input is a 500 rather than a 422.** `first_name` and `last_name` are `varchar(128)`, `position` `varchar(256)`, `email` `varchar(320)`, and `EmailAddress`'s regex is unbounded — so a 400-character address passes validation and dies at the insert *(opened 2026-09-17 by ERT-431)* | **Open, owned by ERT-450.** Unreachable until a route accepts a body. Not fixed in ERT-431 because a length rule belongs to every string-taking use case, and inventing it in one file leaves five later ones to re-invent it; the email cap belongs on `EmailAddress` itself |
+| C24 | **`ReasonRequired` renders `field = "reason"`, but two places say `duplicateReason`.** `AppErrorMapper` hardcodes `ApiErrorDetail(code, field = "reason")` and `ErrorMappingTest` pins it; the API contract's `POST /api/employees` row and ERT-450's acceptance criterion both require the `details` entry to name `duplicateReason`. `ApiResponse`'s KDoc adds a third spelling, `duplicate_email_requires_reason`, which is not a code anything emits *(opened 2026-09-17 by ERT-431)* | **Closed 2026-09-18 by ERT-450, and `duplicateReason` won.** `details[].field` names the request body field at fault everywhere else in this API, and the field on `CreateHireRequest` is `duplicateReason` — so `reason` pointed a form at an input that does not exist. All four spellings are now one: the mapper, `ErrorMappingTest` (which pins the old spelling as **absent**, so the regression is a red build), `docs/api-contract.md:158`, and `ApiResponse`'s KDoc, whose invented `duplicate_email_requires_reason` is replaced by the code actually emitted |
+| C25 | **A typed duplicate reason with no spaces is a user-reachable 500.** ERT-330's audit-metadata guard refuses a value that is 32+ characters of mixed-case base64url, on the stated premise that "a reason is prose" — and prose has spaces, so one space is what saves it. A reason like `ReplacingRecord2026ForJoseDelaCruz` satisfies every clause, and the `require` unwinds out through `ExposedAuditLog.record`. Before ERT-431 no free-text HR value reached that map, so the trap was unreachable *(opened 2026-09-17 by ERT-431)* | **Closed 2026-09-18 by ERT-450**, the ticket that gave the trap a route to be reached through. The remedy is SEC-38's, applied to the other side of the same guard: a **declared** set of free-text metadata keys — `reason`, and nothing else — exempt from the *value* check only. The key denylist, which the guard's own KDoc calls the actual control, still runs on every entry, so `reason_pin` gets no relief from sitting beside `reason`. The tripwire was not weakened for anything else: the same value under `note`, `email` or `duplicateOf` is still refused, and a test says so, because an exemption with no negative control is indistinguishable from having deleted the rule. The pinned test was **inverted** rather than relaxed, and confirmed red first. Verified against a running server: the 422→201 round trip now returns `201` with `SHARED_EMAIL` |
+| C26 | **Nothing enforces the column widths, so over-long input is a 500 rather than a 422.** `first_name` and `last_name` are `varchar(128)`, `position` `varchar(256)`, `email` `varchar(320)`, and `EmailAddress`'s regex is unbounded — so a 400-character address passes validation and dies at the insert *(opened 2026-09-17 by ERT-431)* | **Open, and now reachable — ERT-450 shipped the route that accepts a body (2026-09-18).** Deliberately still not fixed there: a length rule belongs to every string-taking use case, and inventing it in one file leaves five later ones to re-invent it; the email cap belongs on `EmailAddress` itself. ERT-450 was scoped to C25 instead, which is a defect in a guard rather than a missing rule. The hire-creation contract carries it under *Known limits* with the four column widths, so a client can cap the inputs before the server does — which is the mitigation available until the rule lands |
 
 | C27 | **A catalogue that is entirely optional produces the record the empty-catalogue guard exists to prevent.** ERT-432 refuses an employment type with no active templates, because a hire at zero of zero required documents is *complete* and passes straight through the §8.5 validation loop with nothing uploaded. The guard asks `isEmpty()` — and an employment type whose templates are all `isRequired = false` has exactly that property while passing it *(opened 2026-09-17 by ERT-432's review step)* | **Open, owned by the Phase 2 admin-catalogue epic (§8.10, §8.11).** Deliberately not tightened at hire creation: the defect is in the **catalogue**, not in the hire, and the remedy is the admin screen refusing to publish an all-optional assignment — refusing at creation would block HR for something only an admin can fix, one hire at a time, late. Unreachable today: the V2 seed cross-joins all fourteen templates and ten are required. It becomes reachable the moment **Q2**'s real checklist replaces the seed, or the Phase 2 screen ships. `CreateHireUseCaseTest` **pins today's behaviour** with a named test on ERT-431's C25 precedent, so the trap is visible rather than discovered in production |
 
@@ -1216,7 +1277,8 @@ ERT-100/ERT-200 review**.
 | C31 | ERT-120's title and its board row say "the **12** tables"; `MigrationTest` asserts `allTables.size shouldBe 14` *(opened 2026-09-18)* | **Closed.** Corrected in ERT-120 and on the board with a dated note. The assertion tracked reality throughout; only the prose did not |
 | C32 | `MigrationTest`'s guard is named `identifier generation - the guard above - is pointed at the **ten** keyed tables` and asserts **12** *(opened 2026-09-18)* | **Closed by rename.** The assertion is right; the name is what a reader skimming test output trusts, and a test whose name disagrees with its body is worse than one with no name at all |
 | C44 | **The board's ticket count has been wrong for four tickets.** `docs/backlog/README.md` read `**12 epics · 73 tickets · 17 sub-tasks.**` against **77** ticket rows; the sub-task and epic figures were correct. Four tickets were added without the line moving *(opened 2026-09-18 by ERT-1145)* | **Closed.** Corrected to the counted figure with a dated note beside C34's, which is the same defect one level up — C34 is two status fields that must agree by hand, this is a total that must agree by hand with the rows beneath it. Found only because ERT-1145 incremented it and then counted; **nothing checks it, and the next instance will look the same** |
-| C43 | **Two test-file KDocs describe an arrangement their own bodies contradict.** `RequirementTemplateRoutesTest.kt:213` carries two stacked KDoc blocks, the first saying *"Mounts the handler with no security plugin"* while the body calls `configureSecurity(testJwtConfig())` — ERT-190 made it false and it was left above the second rather than replaced. And the local `FakeReferenceData` KDoc says the shared fake "earns its keep" at ERT-430; it arrived with ERT-431 *(opened 2026-09-18 by the ERT-300 review)* | **Open, owned by the tickets that own those files.** The second is closed by **HAR-20**'s fix on ERT-250. A stale comment on a test harness is the HAR category's own subject: it tells the next reader the suite proves something it does not |
+| C43 | **Two test-file KDocs describe an arrangement their own bodies contradict.** `RequirementTemplateRoutesTest.kt:213` carries two stacked KDoc blocks, the first saying *"Mounts the handler with no security plugin"* while the body calls `configureSecurity(testJwtConfig())` — ERT-190 made it false and it was left above the second rather than replaced. And the local `FakeReferenceData` KDoc says the shared fake "earns its keep" at ERT-430; it arrived with ERT-431 *(opened 2026-09-18 by the ERT-300 review)* | **Half closed 2026-09-18.** The second half went with the class it documented — ERT-250 deleted the local `FakeReferenceData`, and the KDoc predicting a shared fake that had already arrived went with it. The first half is **still open** and belongs to whoever next touches `RequirementTemplateRoutesTest`. A stale comment on a test harness is the HAR category's own subject: it tells the next reader the suite proves something it does not |
+| C45 | **Architecture §3's handler count was wrong in the other direction, and a ticket walked into it.** `docs/architecture.md:100` said *"see hr/ for the thirteen handlers mounted today"*; `src/route/hr/` held **ten** when that was written and eleven after ERT-450. C42 corrected the same sentence's other half — *"the only endpoint today"* — and set thirteen without counting `hr/` itself *(opened 2026-09-18 by ERT-450)* | **Closed.** Corrected to the measured figure, which is what C30 and C34 each concluded about numbers maintained by hand. Two neighbouring counts in the same document are still unverified and are **not** this ticket's: §3's *"thirteen tables"* against fourteen `create table` statements across V1, V4 and V6, and §12's line 406 repeating it. Recorded rather than fixed, because C35's lesson is that a finding nobody owns is the one that gets lost — these belong to whoever next edits that document |
 | C42 | **Architecture §3 and §4 are stale in four places.** §3 annotates `domain/usecase/` as *"(empty — see §5)"* (there are seven) and `HealthRoutes.kt` as *"the only endpoint today"* (thirteen handlers); §4 asserts *"only `sendInvitation` accepts an `AccessPin`"*, which **C23** closed, and *"the seven notification kinds"*, which **C37** corrected to eight in three code comments — the architecture document was not in that sweep *(opened 2026-09-18 by the ERT-300 review)* | **Closed.** Four corrections with a dated note. **And it is how SEC-41 was found:** establishing which method *does* accept an `AccessPin` showed that it takes an `EmailAddress` beside it and renders the PIN into a body. A stale sentence about a control was standing in front of a missing one |
 | C41 | **The API contract miscites §8.10 for `GET /api/requirement-templates`** (§8.11 is templates; §8.10 is the link policy), **and says the reference routes are absent from Appendix B when Appendix B lists both** — contradicting the same document's *"Routes outside Appendix B"* opener, with the claim repeated in `ReferenceRoutes.kt`'s KDoc *(opened 2026-09-18 by the ERT-300 review)* | **Closed.** Both corrected in `api-contract.md` and the route KDoc. The second is the sharper one: it is a claim about a gap that was closed, so a reader chasing it finds the endpoint listed and cannot tell which document is stale |
 | C40 | **`DataModule`'s KDoc describes two bindings; there are twelve.** Written when ERT-310 and ERT-330 landed together, not revisited as ERT-320, ERT-350, ERT-410, ERT-420 and ERT-440 each added one *(opened 2026-09-18 by the ERT-300 review)* | **Closed.** The load-bearing sentence is *"Both adapters share one `DatabaseFactory`, because it is a `single`"* — the argument that makes `ExposedAppSettingsRepository`'s single-transaction audit write correct. A reader taking "both" at face value may not realise it is required of all seven |

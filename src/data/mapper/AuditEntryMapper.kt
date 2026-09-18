@@ -88,9 +88,11 @@ private fun Map<String, String>.refuseCredentials() {
                 "Audit metadata key '$key' names a credential ('$named'). PRD 12: a credential is never logged."
             }
         }
-        require(!value.isCredentialShaped()) {
-            "Audit metadata value under '$key' is credential-shaped (${value.length} characters of " +
-                "mixed-case base64url). PRD 12: a credential is never logged."
+        if (key !in FREE_TEXT_METADATA_KEYS) {
+            require(!value.isCredentialShaped()) {
+                "Audit metadata value under '$key' is credential-shaped (${value.length} characters of " +
+                    "mixed-case base64url). PRD 12: a credential is never logged."
+            }
         }
     }
 }
@@ -125,6 +127,37 @@ private fun Map<String, String>.refuseCredentials() {
  */
 private val EXEMPT_METADATA_KEYS: Set<String> =
     CREDENTIAL_FRAGMENT_EXEMPT_SETTINGS.flatMap { it.auditMetadataKeys().toList() }.toSet()
+
+/**
+ * The metadata keys whose value is free text, and which are therefore exempt from the value-shape
+ * tripwire (C25, closed by ERT-450).
+ *
+ * **This is SEC-38's fix applied to the other side of the same guard, and it keeps all three of
+ * SEC-38's bounds.** Exact matches against a closed set, never a pattern. **Declared** one by one
+ * rather than derived from anything, so a second free-text key is refused until somebody chooses to
+ * add it — deriving the list is what would make the guard exempt its own next hole. And it skips the
+ * **value** check only: [CREDENTIAL_KEY_FRAGMENTS] still runs on every key here, so `reason_pin`
+ * gets no relief from appearing beside `reason`.
+ *
+ * **Why the tripwire was wrong about this key rather than merely inconvenient.** The value rule
+ * rests on the premise stated above — *"a reason is prose"* — and prose has spaces, so one space is
+ * all that saved a value. `ReplacingRecord2026ForJoseDelaCruz` is a reason an officer would
+ * plausibly type, satisfies every clause of [isCredentialShaped], and threw an
+ * `IllegalArgumentException` out through `ExposedAuditLog.record` **after the hire was already
+ * written** — a user-reachable 500 produced by text a user chose. For a field a human types freely
+ * the premise is simply false, and the tripwire cannot protect it in any case: anyone pasting a
+ * credential into a reason box defeats it by adding a space.
+ *
+ * The control is untouched. `reason` names no credential, every other key still has its value
+ * checked, and `AuditEntryMapperTest` pins both halves — the exempt key accepts the value, and the
+ * same value under `note`, `email` or `duplicateOf` is still refused, so the exemption cannot be
+ * mistaken for having deleted the rule.
+ *
+ * Two writers produce this key today and both are free text: `DUPLICATE_EMAIL_OVERRIDDEN` carries
+ * the reason HR typed, and `INVITATION_DELIVERY_FAILED` carries the failure string the notifier
+ * returned.
+ */
+val FREE_TEXT_METADATA_KEYS: Set<String> = setOf("reason")
 
 private fun String.isCredentialShaped(): Boolean =
     length >= CREDENTIAL_VALUE_LENGTH &&

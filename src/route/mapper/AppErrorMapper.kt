@@ -42,8 +42,18 @@ fun AppError.toStatus(): HttpStatusCode = when (this) {
  * second field is one more thing that could differ between two failures that ought to look alike.
  *
  * `ReasonRequired` does not echo its `action` either. The action is server-side context the code
- * already implies; what a client needs is that a `reason` must be collected, which the detail says
- * directly.
+ * already implies; what a client needs is the body field to collect, which the detail names.
+ *
+ * **That field is `duplicateReason`, and the spelling was a real defect (C24, settled by ERT-450).**
+ * It read `reason` while `CreateHireRequest`'s field — the input a form must actually fill — is
+ * `duplicateReason`, so a client binding `details[].field` to its form found nothing. Everywhere else
+ * in this API a `details` entry names the request body field at fault, and this is now the same rule
+ * rather than an exception to it. `ErrorMappingTest` pins the old spelling as **absent**, so the
+ * regression is a red build rather than a rediscovery.
+ *
+ * It is a constant rather than a field on `ReasonRequired` because the error is raised in `domain/`,
+ * which has no opinion about wire names; the day a second use case needs a different one, that is
+ * when the case grows a field, not before.
  *
  * `Denied` renders one shared constant. The mapper **must not** give it a detail, a bespoke message
  * or a `details` entry — any of those is precisely what would pull a wrong PIN and an unknown token
@@ -68,7 +78,7 @@ fun AppError.toApiError(): ApiError = when (this) {
         ApiError(
             code = code,
             message = messageFor(code),
-            details = listOf(ApiErrorDetail(code = code, field = "reason")),
+            details = listOf(ApiErrorDetail(code = code, field = "duplicateReason")),
         )
 
     is AppError.Conflict -> ApiError(code = code, message = detail)

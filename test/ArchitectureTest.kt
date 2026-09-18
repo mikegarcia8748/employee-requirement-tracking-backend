@@ -2,6 +2,7 @@ package com.pgsystem.employee.requirement.tracker
 
 import io.kotest.assertions.withClue
 import com.pgsystem.employee.requirement.tracker.testdata.withoutComments
+import com.pgsystem.employee.requirement.tracker.testdata.withoutStringLiterals
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
@@ -637,6 +638,64 @@ class ArchitectureTest {
     }
 
     @Test
+    fun `port coverage - every implementation of a port in the test tree - lives in the fake directory`() {
+        // HAR-20: the guard above asserts a port HAS a fake. Nothing asserted it has only ONE, and
+        // `ReferenceDataRepository` had two -- the shared fake, which sorts both list reads by name
+        // because the port says so, and a private one inside `ReferenceRoutesTest` that returned the
+        // list as given. `ReferenceRoutesTest` then asserted an ordering against the fake that did
+        // not order, so it passed whether or not ordering survived the route.
+        //
+        // That is HAR-01's defect -- two implementations of one rule drifting -- inside the ticket
+        // that closed HAR-01. One fake per port is what `test/contract/` can actually hold to its
+        // adapter; a second one is invisible to it by construction.
+        val real = guard(sourcesUnder(TEST_DIR)) { portImplementorsOutsideFakes(it) }
+
+        real shouldBe GuardOutcome.Checked(scanned = real.scannedOrZero(), violations = emptyList())
+        (real.scannedOrZero() > 0) shouldBe true
+    }
+
+    @Test
+    fun `port coverage - a second fake for a port outside the fake directory - the build fails`() {
+        portImplementorsOutsideFakes(
+            listOf(
+                source(
+                    "test/route/hr/ReferenceRoutesTest.kt",
+                    "    private class FakeReferenceData(\n" +
+                        "        private val departments: List<Department> = emptyList(),\n" +
+                        "    ) : ReferenceDataRepository {\n    }\n",
+                ),
+            ),
+        ).size shouldBe 1
+    }
+
+    @Test
+    fun `port coverage - a contract suite naming a port it does not implement - does not trip the guard`() {
+        // The negative control that matters, because it is the one a careless pattern breaks on.
+        // Every one of the 13 bases in `test/contract/` declares `protected abstract val x: SomePort`
+        // INSIDE its body, so a guard that scanned from `class` to the next port name would report
+        // all 13 and get loosened until it matched nothing. Only the supertype list counts.
+        portImplementorsOutsideFakes(
+            listOf(
+                source(
+                    "test/contract/ReferenceDataRepositoryContract.kt",
+                    "abstract class ReferenceDataRepositoryContract {\n" +
+                        "    protected abstract val reference: ReferenceDataRepository\n}\n",
+                ),
+            ),
+        ).shouldBeEmpty()
+    }
+
+    @Test
+    fun `guard integrity - the fake directory implements ports - the guard reports checked`() {
+        // The other half of the sweep above: it passes trivially if `portImplementorsOutsideFakes`
+        // has stopped recognising a supertype at all. Point it at the fake directory, which is the
+        // one place a port SHOULD be implemented, and require that it still sees them there.
+        val fakes = portImplementorsOutsideFakes(sourcesUnder(FAKE_DIR), excluded = emptySet())
+
+        assertTrue(fakes.size >= 13, "expected the fake directory to implement every port; found ${fakes.size}")
+    }
+
+    @Test
     fun `test discovery - every class holding a test - is named so the scan discovers it`() {
         // Amper runs the suite with `--scan-class-path` and NO `--include-classname`, so JUnit's own
         // default applies: `^(Test.*|.+[.$]Test.*|.*Tests?)$`. A concrete class named
@@ -765,6 +824,99 @@ class ArchitectureTest {
             .map { "$it has no Fake$it.kt under $FAKE_DIR" }
 
     /**
+     * Classes implementing a domain port from outside `test/testdata/fake/` (HAR-20, ERT-250).
+     *
+     * The companion to [portsWithoutFakes]: that one says every port has a fake, this one says it has
+     * only one. Port names come from [declaredPorts] over the real port directory, so the two guards
+     * cannot disagree about what counts as a port.
+     *
+     * **Only the supertype list counts, and that is the whole difficulty.** Every contract base in
+     * `test/contract/` declares `protected abstract val x: SomePort` in its body, so a pattern that
+     * ran from `class` to the next port name would report all thirteen of them. The supertype list is
+     * the span after the type parameters and the constructor parameter list -- both of which may
+     * themselves contain a `:` -- and before the class body, so it is walked with balanced delimiters
+     * rather than matched.
+     *
+     * **The declaration pattern is deliberately not anchored to column zero**, unlike [CONCRETE_CLASS]
+     * and [PORT_INTERFACE]. HAR-20's offender was a `private class` nested inside a test class; an
+     * anchored pattern misses exactly the case this guard exists for. Anonymous `object : Port { }` is
+     * matched too, since it is the obvious way to reintroduce a local implementation without naming it.
+     *
+     * String literals are stripped along with comments, because this file carries its own synthetic
+     * fixtures as strings and would otherwise report its own negative controls.
+     *
+     * `excluded` and `ports` are parameters so the guard can be aimed at the fake directory itself,
+     * which is how the anti-vacuity test tells "no violations" apart from "no longer recognises a
+     * supertype".
+     */
+    private fun portImplementorsOutsideFakes(
+        files: List<SourceFile>,
+        ports: Set<String> = declaredPorts(sourcesUnder(DOMAIN_PORT_DIR)).toSet(),
+        excluded: Set<String> = setOf(FAKE_DIR),
+    ): List<String> =
+        files
+            .filterNot { file -> excluded.any { file.path.replace('\\', '/').startsWith(it) } }
+            .flatMap { file ->
+                val text = file.text.withoutStringLiterals().withoutComments()
+                TYPE_DECLARATION.findAll(text).mapNotNull { match ->
+                    val name = match.groupValues[1].ifEmpty { "an anonymous object" }
+                    supertypesOf(text, match.range.last + 1)
+                        .firstOrNull { it in ports }
+                        ?.let { "${file.path}: $name implements $it outside $FAKE_DIR" }
+                }
+            }
+
+    /**
+     * The supertypes named by a declaration whose name ends at [from].
+     *
+     * Skips a type-parameter list and a constructor parameter list, then reads to the class body.
+     * Splitting the list on commas is not depth-aware, which is sufficient here: a generic supertype
+     * splits into fragments, and a fragment is not a port name, so it cannot produce a false positive.
+     */
+    private fun supertypesOf(text: String, from: Int): List<String> {
+        var i = from
+        while (i < text.length) {
+            when (text[i]) {
+                ' ', '\t', '\n', '\r' -> i++
+                '<' -> i = skipBalanced(text, i, '<', '>') ?: return emptyList()
+                '(' -> i = skipBalanced(text, i, '(', ')') ?: return emptyList()
+                else -> break
+            }
+        }
+        if (i >= text.length || text[i] != ':') return emptyList()
+
+        var depth = 0
+        var end = text.length
+        for (index in i + 1 until text.length) {
+            when (text[index]) {
+                '(', '<' -> depth++
+                ')', '>' -> depth--
+                '{' -> if (depth <= 0) { end = index; break }
+            }
+        }
+        return text.substring(i + 1, end)
+            .split(',')
+            .map { entry -> entry.trim().takeWhile { it.isLetterOrDigit() || it == '_' || it == '.' } }
+            .map { it.substringAfterLast('.') }
+            .filter { it.isNotEmpty() }
+    }
+
+    /** The index just past the delimiter that closes the one opening at [start], or null if unbalanced. */
+    private fun skipBalanced(text: String, start: Int, open: Char, close: Char): Int? {
+        var depth = 0
+        for (i in start until text.length) {
+            when (text[i]) {
+                open -> depth++
+                close -> {
+                    depth--
+                    if (depth == 0) return i + 1
+                }
+            }
+        }
+        return null
+    }
+
+    /**
      * Concrete classes in one file that actually carry a `@Test`.
      *
      * The body of each class is taken as the span up to the next top-level `class`, which is crude
@@ -821,11 +973,19 @@ class ArchitectureTest {
         const val DOMAIN_PORT_PACKAGE = "com.pgsystem.employee.requirement.tracker.domain.port"
         const val DOMAIN_PORT_DIR = "src/domain/port"
         const val FAKE_DIR = "test/testdata/fake"
-        const val CONTRACT_DIR = "test/contract"
         const val TEST_DIR = "test"
 
         /** A top-level `class Name` that is not abstract — the ones JUnit tries to instantiate. */
         val CONCRETE_CLASS = Regex("""^class\s+([A-Z][A-Za-z0-9_]*)""", RegexOption.MULTILINE)
+
+        /**
+         * Any `class` or `object` declaration, at any indentation, plus an anonymous `object :`.
+         *
+         * Not anchored, unlike [CONCRETE_CLASS] — the declaration this exists to catch was a
+         * `private class` nested inside a test class, and anchoring is what let it hide. Group 1 is
+         * the name, and is empty for the anonymous form.
+         */
+        val TYPE_DECLARATION = Regex("""\b(?:class|object)\s+([A-Z][A-Za-z0-9_]*)|\bobject\s*(?=:)""")
 
         /** JUnit's own default, copied from `TestDiscoveryOptions`. */
         val JUNIT_CLASS_NAME = Regex("""^(Test.*|.+[.$]Test.*|.*Tests?)$""")

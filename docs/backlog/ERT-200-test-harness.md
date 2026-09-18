@@ -18,6 +18,14 @@
 > lifecycle extracted out of `RepositoryTestBase` and ERT-260 needed to change what that lifecycle
 > opens. The suite went from **689 tests to 845**, and runs green on H2 (14.4 s) and on PostgreSQL 17
 > (48.9 s).
+>
+> **Reopened a second time, and closed a second time, both on 2026-09-18.** The
+> [ERT-300 review](../2026-09-18-ert-300-review.md) filed **HAR-20** against ERT-250 — one port with
+> two fakes — and the reopening itself drifted: the review's task plan said "ERT-250 reopened" while
+> the ticket block, the board row and this epic line all still read `Done`. That is **C34's shape,
+> introduced by the document that exists to catch C34**, and the board records it. ERT-250 now closes
+> it for the third time: the local fake is gone, and "a port has exactly one implementation" is a
+> build failure rather than a convention. The suite is **882 tests**, green on H2.
 
 **Description**
 
@@ -317,7 +325,7 @@ A repository test declares one base class and gets a migrated, seeded, isolated 
 | **Parent** | ERT-200 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | In progress — reopened 2026-09-18 by the [ERT-300 review](../2026-09-18-ert-300-review.md) (HAR-20) |
+| **Status** | Done — reopened 2026-09-18 by the [ERT-300 review](../2026-09-18-ert-300-review.md) (HAR-20), closed the same day |
 | **Depends on** | ERT-210 |
 | **PRD** | — |
 | **Architecture** | §10, §11 |
@@ -338,11 +346,17 @@ A repository test declares one base class and gets a migrated, seeded, isolated 
 >
 > `portsWithoutFakes` asserts every port *has* a fake. Nothing asserts a port has only one.
 >
-> - [ ] Given `ReferenceRoutesTest`, then it uses the shared fake and the local `FakeReferenceData` is
->       deleted
-> - [ ] Given a class outside `test/testdata/fake/` implementing a `domain.port` interface, then the
+> - [x] Given `ReferenceRoutesTest`, then it uses the shared fake and the local `FakeReferenceData` is
+>       deleted — all five call sites, and the ordering test rewritten so it still proves something
+>       against a fake that sorts; see the note below
+> - [x] Given a class outside `test/testdata/fake/` implementing a `domain.port` interface, then the
 >       build fails — the guard widened from "every port has a fake" to "exactly one", with the
->       anti-vacuity floor the file's other guards use
+>       anti-vacuity floor the file's other guards use. Observed red on the real tree first,
+>       reporting exactly one violation and naming `ReferenceRoutesTest`
+> - [x] `[derived]` Given `FakeAppSettingsRepository`, then its KDoc records the audit-row divergence
+>       beside the bounds one, so an argued divergence is distinguishable from an accidental one
+>       (HAR-19's second half) — landed with ERT-310 rather than here; verified in place rather than
+>       rewritten
 
 The correctness argument for the entire use-case suite is that a fake and its adapter agree.
 `ExposedUploadLinkRepository` states it outright: a use case that passes against fakes and behaves
@@ -431,6 +445,11 @@ without a fake.
 | Architecture | `port coverage - every domain port - has a fake` |
 | Architecture | `port coverage - a port with no fake - the build fails` |
 | Architecture | `guard integrity - the port directory is populated - the guard reports checked` |
+| Architecture | `port coverage - every implementation of a port in the test tree - lives in the fake directory` |
+| Architecture | `port coverage - a second fake for a port outside the fake directory - the build fails` |
+| Architecture | `port coverage - a contract suite naming a port it does not implement - does not trip the guard` |
+| Architecture | `guard integrity - the fake directory implements ports - the guard reports checked` |
+| Route | `reference data - an authenticated caller - returns the departments in the order the port gave them` |
 
 **Files**
 - create `test/contract/` — one suite per port, parameterised over `(fake, adapter)`
@@ -469,8 +488,10 @@ without a fake.
 > not discovered** — it contributes zero tests, and neither `--fail-if-no-tests` nor CI's
 > `require_tests` notices, because both are whole-run floors. That is this project's vacuity failure
 > with a new door, and it is the specific risk of putting shared tests on a base class: the base is
-> correctly skipped and a misnamed subclass is skipped identically. `ArchitectureTest.contract
-> coverage` fails the build on one. **The discovery was proved rather than assumed** — a deliberately
+> correctly skipped and a misnamed subclass is skipped identically. `ArchitectureTest.test discovery
+> - every class holding a test - is named so the scan discovers it` fails the build on one — it
+> sweeps the whole test tree rather than `test/contract/`, because the trap belongs to the
+> toolchain rather than to contract suites. **The discovery was proved rather than assumed** — a deliberately
 > failing test on a contract base was run once and reported exactly two failures, one per side.
 >
 > ### Two divergences beyond the six, and where each came from
@@ -513,6 +534,51 @@ without a fake.
 > failed — so §8.1's delivery-failure indicator, which `NotificationOutbox`'s KDoc says is derived
 > from the latest row, cannot see a queue-insert failure at all. **ERT-434 owns that question**, and
 > its block now carries it.
+
+> ### Closing HAR-20: two things the recommended fix did not mention (2026-09-18)
+>
+> **The guard has to read the supertype list, and nothing less will do.** The review asks for "no
+> class outside `test/testdata/fake/` implements a `domain.port` interface", which sounds like a
+> substring scan and is not one. Every one of the thirteen bases in `test/contract/` declares
+> `protected abstract val x: SomePort` **inside its body**, so a pattern running from `class` to the
+> next port name reports all thirteen on a clean tree — and the obvious response to thirteen false
+> positives is to loosen the pattern until the suite is green, which is how this project's recurring
+> defect gets in. The supertype list is the span after the type parameters and the constructor
+> parameter list, both of which may themselves contain a `:`, so it is walked with balanced
+> delimiters rather than matched. A named negative control pins it: a contract base naming a port it
+> does not implement must **not** trip the guard.
+>
+> **And it must not be anchored to column zero, unlike every other declaration pattern in the file.**
+> `CONCRETE_CLASS` and `PORT_INTERFACE` are both `^`-anchored, deliberately. HAR-20's offender was a
+> `private class` **nested inside a test class** — indented, and therefore invisible to an anchored
+> pattern. Copying the neighbouring idiom would have produced a guard that passed against the very
+> declaration it was written for. Anonymous `object : Port { }` is matched too, since that is the
+> obvious way to reintroduce a local implementation without naming it.
+>
+> The guard was run **before** the fake was deleted and reported exactly one violation, naming
+> `ReferenceRoutesTest`, across 85 test files. A guard that has never been red has not been tested.
+>
+> **String literals are stripped alongside comments, and that is not tidiness.** `ArchitectureTest`
+> carries its own synthetic fixtures as string literals — including, now, `"class ... : SomePort"` —
+> so an unanchored sweep over `test/` reads the guard's own negative controls as real declarations.
+> Excluding that one file was the alternative and was declined: it is a hole keyed on a filename, and
+> the next test to embed a fixture reopens it.
+>
+> **The route's ordering test needed its arrangement changed, and the reason is not the one that
+> looks obvious.** `reference data - ... returns the departments in the order given` seeded
+> `Accounting`(`d…03`) then `Unassigned`(`d…01`) — **already in name order** — against a local fake
+> that did not sort, so "in name order" was satisfied by the seed rather than by the port. That is
+> HAR-20's live consequence and the swap to the shared fake is what fixes it: ordering now comes from
+> the contract `ReferenceDataRepositoryContract` holds both implementations to.
+>
+> The rows are now seeded in **reverse** name order, ids ascending opposite to the names — and
+> **that part buys readability, not coverage.** The first draft of this note claimed it caught
+> mutations the old arrangement missed. It was measured rather than asserted, and it was wrong: the
+> id-sort mutation is killed under either arrangement, because the fake sorts before the route sees
+> anything and the handler is handed an identical list either way. What the reversal buys is that
+> input and output visibly differ, so the next reader can see the ordering is the port's rather than
+> the seed's. Recorded because the plausible-sounding claim survived until someone ran it, which is
+> the same failure mode as the vacuity it was describing. The test is renamed to what it proves.
 
 ---
 

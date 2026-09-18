@@ -142,12 +142,13 @@ class ApiContractsTest {
         const val SPEC_PATH = "/swagger/documentation.yaml"
 
         /**
-         * Floors, not counts. Ten `/api` operations across four module contracts today; all three rise
-         * as Phase 1 lands, and they rise only when someone chooses to raise them.
+         * Floors, not counts. Eleven `/api` operations across five module contracts today, plus the
+         * shared conventions file; all three rise as Phase 1 lands, and they rise only when someone
+         * chooses to raise them. Raised by ERT-450, which added `POST /api/employees`.
          */
-        const val MOUNTED_API_OPERATIONS = 10
-        const val DOCUMENTED_SAMPLES = 15
-        const val MODULE_CONTRACTS = 5
+        const val MOUNTED_API_OPERATIONS = 11
+        const val DOCUMENTED_SAMPLES = 20
+        const val MODULE_CONTRACTS = 6
 
         val HTTP_METHODS = setOf("get", "post", "put", "patch", "delete")
 

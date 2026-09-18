@@ -54,7 +54,7 @@ enum class ApiResult {
  * two ways and forced the client to handle both.
  *
  * [code] is a domain identifier, not the HTTP status — under 422 alone this system has
- * `email.invalid_format` (highlight the field) and `duplicate_email_requires_reason` (open a
+ * `email.invalid_format` (highlight the field) and `duplicate_email.reason_required` (open a
  * confirmation modal), which the status cannot distinguish.
  *
  * Never a stack trace, a SQL fragment, a driver message, a table name or a file path: those name

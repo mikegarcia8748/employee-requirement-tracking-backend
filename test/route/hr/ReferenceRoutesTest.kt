@@ -1,8 +1,5 @@
 package com.pgsystem.employee.requirement.tracker.route.hr
 
-import com.pgsystem.employee.requirement.tracker.domain.model.Department
-import com.pgsystem.employee.requirement.tracker.domain.model.EmploymentType
-import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 import com.pgsystem.employee.requirement.tracker.domain.port.ReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.plugin.configureSerialization
 import com.pgsystem.employee.requirement.tracker.plugin.configureStatusPages
@@ -14,6 +11,7 @@ import com.pgsystem.employee.requirement.tracker.plugin.configureSecurity
 import com.pgsystem.employee.requirement.tracker.testdata.anHrUser
 import com.pgsystem.employee.requirement.tracker.testdata.authenticatedAs
 import com.pgsystem.employee.requirement.tracker.testdata.entityId
+import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeReferenceDataRepository
 import com.pgsystem.employee.requirement.tracker.testdata.testJwtConfig
 import io.ktor.server.auth.authenticate
 import io.kotest.matchers.shouldBe
@@ -59,7 +57,7 @@ class ReferenceRoutesTest {
             configureSecurity(testJwtConfig())
             routing {
                 authenticate(HR_AUTH) {
-                    referenceRoutes(FakeReferenceData())
+                    referenceRoutes(FakeReferenceDataRepository())
                 }
             }
         }
@@ -80,7 +78,7 @@ class ReferenceRoutesTest {
             configureSecurity(testJwtConfig())
             routing {
                 authenticate(HR_AUTH) {
-                    referenceRoutes(FakeReferenceData())
+                    referenceRoutes(FakeReferenceDataRepository())
                 }
             }
         }
@@ -92,15 +90,27 @@ class ReferenceRoutesTest {
     }
 
     @Test
-    fun `reference data - an authenticated caller - returns the departments in the order given`() =
+    fun `reference data - an authenticated caller - returns the departments in the order the port gave them`() =
         testApplication {
-            // Ordering is the adapter's job and is asserted against SQL; what matters here is that
-            // the route does not re-sort or re-shape what it was handed.
+            // Ordering is the port's job and is asserted against SQL and the fake together by
+            // `ReferenceDataRepositoryContract`; what matters here is that the route does not
+            // re-sort or re-shape what it was handed.
+            //
+            // HAR-20 is why this reads against the shared fake: the local one it replaced did not
+            // sort, so "in name order" was satisfied by the seed rather than by the port, and the
+            // test could not be read as evidence about ordering at all.
+            //
+            // The rows are seeded in REVERSE name order, with ids ascending opposite to the names,
+            // and that is for the reader rather than for coverage. Measured, not assumed: seeding
+            // them already in name order catches the same route mutations, because the fake sorts
+            // before the route sees anything and the handler is handed an identical list either way.
+            // What the reversal buys is that input and output visibly differ, so the ordering is
+            // demonstrably the port's and not the seed's — which is the confusion HAR-20 was.
             withReference(
-                FakeReferenceData(
+                FakeReferenceDataRepository(
                     departments = listOf(
-                        aDepartment(id = entityId("d00000000003"), name = "Accounting"),
                         aDepartment(id = entityId("d00000000001"), name = "Unassigned"),
+                        aDepartment(id = entityId("d00000000003"), name = "Accounting"),
                     ),
                 )
             )
@@ -118,7 +128,7 @@ class ReferenceRoutesTest {
     @Test
     fun `reference data - an authenticated caller - returns the employment types`() = testApplication {
         withReference(
-            FakeReferenceData(
+            FakeReferenceDataRepository(
                 employmentTypes = listOf(anEmploymentType(id = entityId("e00000000001"), name = "Regular")),
             )
         )
@@ -129,7 +139,7 @@ class ReferenceRoutesTest {
 
     @Test
     fun `reference data - an empty department list - returns 200 with an empty list`() = testApplication {
-        withReference(FakeReferenceData())
+        withReference(FakeReferenceDataRepository())
 
         val response = client.get("/api/departments") { authenticatedAs(anHrUser()) }
 
@@ -167,18 +177,4 @@ class ReferenceRoutesTest {
         routing { authenticate(HR_AUTH) { referenceRoutes(reference) } }
     }
 
-    /**
-     * Local rather than in `testdata/fake/`: the shared fakes exist for use-case tests, and there is
-     * no use case for this port yet. ERT-430 is where a `FakeReferenceDataRepository` earns its
-     * place, with the `given`/arrange surface the others have.
-     */
-    private class FakeReferenceData(
-        private val departments: List<Department> = emptyList(),
-        private val employmentTypes: List<EmploymentType> = emptyList(),
-    ) : ReferenceDataRepository {
-        override suspend fun findDepartments(): List<Department> = departments
-        override suspend fun findEmploymentTypes(): List<EmploymentType> = employmentTypes
-        override suspend fun departmentExists(id: EntityId): Boolean = departments.any { it.id == id }
-        override suspend fun employmentTypeExists(id: EntityId): Boolean = employmentTypes.any { it.id == id }
-    }
 }

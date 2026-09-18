@@ -101,33 +101,53 @@ class AuditEntryMapperTest {
     }
 
     @Test
-    fun `audit metadata - a long reason with no spaces - is refused today, which ERT-431 made reachable`() {
-        // NOT an endorsement — this pins a trap so it is visible rather than discovered in
-        // production. `isCredentialShaped` assumes "a reason is prose", and prose has spaces: one
+    fun `audit metadata - a long reason with no spaces under a free text key - is accepted rather than a 500`() {
+        // C25, closed by ERT-450 — the ticket that gave the trap a route to be reached through.
+        //
+        // This test used to pin the opposite, and the inversion is the fix rather than a relaxed
+        // assertion. `isCredentialShaped` rests on "a reason is prose", and prose has spaces: one
         // space fails the `all {}` and the value is accepted. A reason with NO spaces that happens
-        // to be 32+ characters with mixed case and a digit satisfies every clause, and the `require`
-        // throws out through `ExposedAuditLog.record` as a 500.
+        // to be 32+ characters with mixed case and a digit satisfies every clause, so the `require`
+        // threw out through `ExposedAuditLog.record` as a 500 — AFTER the hire was already written.
         //
-        // Before ERT-431 no free-text HR value reached this map, so the trap was unreachable.
-        // `CreateHireUseCase` now writes the typed duplicate reason here, and an officer pasting a
-        // ticket reference rather than a sentence is all it takes.
-        //
-        // Deliberately not fixed here: this is ERT-330's security control, and weakening a tripwire
-        // is a specification change — which is the C2 lesson ERT-431 itself carries. Escalated as
-        // C25, owned by ERT-450, which is where a length and shape rule for body text belongs.
+        // The remedy is SEC-38's, applied to the other side of the same guard: a declared set of
+        // keys exempt from the VALUE check. The key denylist, which is the actual control, still
+        // runs on every entry including these.
         val spaceless = "ReplacingRecord2026ForJoseDelaCruz"
 
         // The property, not a magic number: it is over the 32-character threshold and carries no
-        // character that would take it out of the allowed set.
+        // character that would take it out of the allowed set. Without the exemption this is
+        // indistinguishable from a token, which is the whole difficulty.
         (spaceless.length >= 32) shouldBe true
         spaceless.none { it.isWhitespace() } shouldBe true
 
-        assertFailsWith<IllegalArgumentException> { mapOf("reason" to spaceless).toMetadataJson() }
+        mapOf("reason" to spaceless).toMetadataJson().toMetadata() shouldBe mapOf("reason" to spaceless)
 
-        // The same reason as prose is accepted, which is what makes the trap narrow rather than
-        // theoretical — and what makes it easy to miss.
+        // Paired with the prose form, so "the exemption works" cannot be confused with "the key
+        // stopped being read at all".
         val prose = "Replacing record 2026 for Jose Dela Cruz"
         mapOf("reason" to prose).toMetadataJson().toMetadata() shouldBe mapOf("reason" to prose)
+    }
+
+    @Test
+    fun `audit metadata - the same credential-shaped value under any other key - is still refused`() {
+        // The negative control that keeps the exemption from being indistinguishable from deleting
+        // the tripwire. `reason` is exempt; nothing else is, and a guard that accepted this too
+        // would pass the test above for the wrong reason.
+        val spaceless = "ReplacingRecord2026ForJoseDelaCruz"
+
+        assertFailsWith<IllegalArgumentException> { mapOf("note" to spaceless).toMetadataJson() }
+        assertFailsWith<IllegalArgumentException> { mapOf("email" to spaceless).toMetadataJson() }
+        assertFailsWith<IllegalArgumentException> { mapOf("duplicateOf" to spaceless).toMetadataJson() }
+    }
+
+    @Test
+    fun `audit metadata - a credential named by its key under the free text key - is still refused`() {
+        // The exemption skips the VALUE check only. `reason` carries none of the denied fragments,
+        // so this asserts the half that does the real work is untouched: a key naming a credential
+        // is refused whether or not its value looks like one.
+        assertFailsWith<IllegalArgumentException> { mapOf("reason_pin" to "123456").toMetadataJson() }
+        assertFailsWith<IllegalArgumentException> { mapOf("reason_token" to "abc").toMetadataJson() }
     }
 
     @Test
@@ -207,6 +227,26 @@ class AuditEntryMapperTest {
                     mapOf("$old-unexempted" to "90").toMetadataJson()
                 }
             }
+        }
+    }
+
+    @Test
+    fun `audit metadata - the free text exemption - is a declared list of one rather than a pattern`() {
+        // C25's half of the same discipline SEC-38's list carries. The exemption turns off a
+        // security tripwire for a named key, so it has to be added deliberately: a derived list --
+        // "every key whose value a user typed", say -- would exempt the next free-text key the
+        // moment it existed, and this test would pass forever without ever checking anything.
+        //
+        // Moving this number is a decision, and it belongs in a diff rather than in a rediscovery.
+        FREE_TEXT_METADATA_KEYS shouldBe setOf("reason")
+
+        // Exact match, not a prefix: the near-miss spellings stay guarded. Without this, widening
+        // the check to `startsWith` would pass every assertion above.
+        assertFailsWith<IllegalArgumentException> {
+            mapOf("reasons" to "ReplacingRecord2026ForJoseDelaCruz").toMetadataJson()
+        }
+        assertFailsWith<IllegalArgumentException> {
+            mapOf("reason.old" to "ReplacingRecord2026ForJoseDelaCruz").toMetadataJson()
         }
     }
 }

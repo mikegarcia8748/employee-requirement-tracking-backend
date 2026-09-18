@@ -15,8 +15,9 @@ that makes them worth reading.
 | [User administration](USER_ADMINISTRATION_API_CONTRACT.md) | 4 | ERT-190 |
 | [Requirement catalogue](REQUIREMENT_CATALOGUE_API_CONTRACT.md) | 1 | ERT-340 |
 | [Reference data](REFERENCE_DATA_API_CONTRACT.md) | 2 | ERT-350 |
+| [Hire creation](HIRE_CREATION_API_CONTRACT.md) | 1 | ERT-450 |
 
-Ten endpoints, all HR-side. The portal is not built; see *Not built yet* below.
+Eleven endpoints, all HR-side. The portal is not built; see *Not built yet* below.
 
 **Where these and the generated spec disagree about a field name, the spec wins.** It is generated
 from the live route tree at `/swagger/documentation.yaml`, so it cannot describe a route that does not
@@ -179,6 +180,7 @@ which are `<field>.<rule>` — **the dot is meaningful**: it marks a code that a
 | `user.email_taken` | 409 | creating an account on an address already in use | Keep the form open, mark the address |
 | `user.cannot_deactivate_self` | 409 | an admin deactivating their own account | Disable the control on the signed-in row |
 | `validation_failed` | 422 | one or more fields did not validate | Bind `details` to the form |
+| `duplicate_email.reason_required` | 422 | the address belongs to an active hire and no reason was given | Reveal the reason box, keep the form, re-submit |
 | `request_malformed` | 422 | body was `application/json` but not the expected shape | Client bug — the payload is wrong |
 | `unsupported_media_type` | 415 | `Content-Type` missing or not `application/json` | Client bug — the header is missing |
 | `internal_error` | 500 | anything unhandled | Generic retry |
@@ -188,6 +190,13 @@ which are `<field>.<rule>` — **the dot is meaningful**: it marks a code that a
 | `code` | `field` | Message the server sends |
 |---|---|---|
 | `email.invalid_format` | `email` | `Not a valid email address` |
+| `department_unknown` | `departmentId` | `No department with that id` |
+| `employment_type_unknown` | `employmentTypeId` | `No employment type with that id` |
+| `employment_type_no_requirements` | `employmentTypeId` | that employment type has no active templates, so the hire would be complete with nothing uploaded |
+| `first_name.required` | `firstName` | `A first name is required` |
+| `last_name.required` | `lastName` | `A last name is required` |
+| `position.required` | `position` | `A position is required` |
+| `duplicate_email.reason_required` | `duplicateReason` | none — this entry carries **no** `message` |
 | `role.invalid` | `role` | `A role is one of HR_OFFICER, HR_ADMIN` |
 | `full_name.required` | `fullName` | `A full name is required` |
 | `password.too_short` | `initialPassword` / `newPassword` | `A password must be at least 12 characters` |
@@ -198,10 +207,15 @@ a short password returns **one** `details` entry — `role.invalid` — not four
 email, password, name, then the duplicate check. A form that submits and re-submits surfaces them one
 at a time.
 
-**Codes that exist in the mapper but that no endpoint can return yet** are deliberately absent:
-`duplicate_email.reason_required`, `department_unknown`, `employment_type_unknown` and
-`employment_type_no_requirements` arrive with hire creation (ERT-450). A documented code a client
-cannot receive is the same fiction as a documented endpoint.
+**The four codes this file used to hold back arrived with hire creation (ERT-450)** and are in the
+table above: `duplicate_email.reason_required`, `department_unknown`, `employment_type_unknown` and
+`employment_type_no_requirements`. They were absent while no endpoint could return them, on the rule
+that a documented code a client cannot receive is the same fiction as a documented endpoint. Any code
+added here from now on comes with the endpoint that emits it.
+
+`duplicate_email.reason_required` is the one irregular member of the set: it appears as the
+**top-level** `error.code` rather than under `validation_failed`, and its `details` entry carries no
+`message`. See the [hire creation contract](HIRE_CREATION_API_CONTRACT.md).
 
 ---
 
@@ -265,7 +279,6 @@ deliberately. These are not contracts yet.** Each gets its own file as its modul
 
 | Method | Path | Module | Ticket |
 |---|---|---|---|
-| `POST` | `/api/employees` | Hire creation | ERT-450 |
 | `GET` | `/api/employees`, `/api/employees/{id}` | HR read side | ERT-510, ERT-520 |
 | `GET` | `/api/portal/{token}` | Portal access | ERT-630 |
 | `POST` | `/api/portal/recover`, `/api/employees/{id}/recovery-pin` | Portal access | ERT-650 |
