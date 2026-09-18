@@ -53,6 +53,21 @@ extend, revoke or resend a single link.
 
 **Description**
 
+> ### HAR-14 — `retry` reads and writes in two transactions (2026-09-18, second review)
+>
+> `OutboxNotifier.retry` calls `find(id)`, which opens its own transaction, checks
+> `entry.kind.storesBody`, then opens a **second** transaction to update — so the `check` is made
+> against state that may no longer hold when the write lands. Negligible today: `retry` has no caller
+> until this ticket and there is one writer.
+>
+> `markFailed` in the same class reads and increments **inside one transaction**, with a comment
+> saying why — so the pattern is understood in that file and simply was not applied here. Fold the
+> `find` into the same `factory.transaction { }` the update uses.
+>
+> **Do not "fix" the neighbouring constraint while you are in there:** a failed invitation cannot be
+> re-rendered from this table, because its body is never stored. `retry` refusing a body-less kind is
+> ERT-440's decision and reissuing is ERT-1030's `resend-link`.
+
 **Q12 is answered (2026-09-16): an SMTP relay on internal mail.** No transactional-email provider and
 no API integration — which also settles a §12 question nobody asked. The invitation names a hire and
 carries a live credential; an internal relay keeps both inside the organisation's mail estate.

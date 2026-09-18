@@ -623,9 +623,21 @@ class FakesTest {
         // The acceptance criterion, stated as a test: a use case test needs no Koin, no H2, no
         // Docker and no dispatcher. If this ever stops compiling, the harness has grown a
         // dependency it was built to avoid.
+        //
+        // **Thirteen, not eleven (ERT-250, HAR-03).** ERT-210's criterion counted ten ports because
+        // there were ten; ERT-190 then added `HrUserRepository` and `AccessTokenIssuer` and this
+        // list was not revisited, so the test certifying "every port has a fake" constructed eleven
+        // of thirteen — and `FakeHrUserRepository` was where two of HAR-01's three worst divergences
+        // lived. C9 closed the same drift once already as a documentation fix and it drifted again.
+        //
+        // The list is no longer what holds the count: `ArchitectureTest`'s port-coverage guard fails
+        // the build on a port with no fake, and asserts thirteen ports exist. This stays because it
+        // asserts something the guard cannot — that each fake is *constructible* with no
+        // infrastructure, which is a different claim from "a file with the right name exists".
         val owners = RequirementOwners()
 
         FakeEmployeeRepository(owners = owners)
+        FakeHrUserRepository()
         FakeRequirementTemplateRepository()
         FakeReferenceDataRepository()
         FakeUploadLinkRepository()
@@ -636,5 +648,6 @@ class FakesTest {
         FakePortalAccessTrail()
         FakeNotifier()
         FakeDocumentStorage()
+        FakeAccessTokenIssuer()
     }
 }

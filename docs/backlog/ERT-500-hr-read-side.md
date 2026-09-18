@@ -58,6 +58,18 @@ HR can list hires with correct progress and open one to see every requirement an
 
 **Description**
 
+> ### PERF-13 — `findActiveByEmail` is unbounded (2026-09-18, second review)
+>
+> `limit` appears in exactly two reads in the whole data layer, and this is one of the twelve without
+> it. Most are bounded by the domain and are fine; this one is bounded by how many hires share an
+> address — and SEC-11 exists because that is not always one. Decide a page size **with** the
+> renderer: a limit with no renderer is a guess at a page size, which is why this is recorded here
+> rather than given a ticket of its own.
+>
+> The ordering that makes paging safe is already in place and now under contract:
+> `created_at ASC, id ASC` on both implementations, so two reads of the same page cannot reshuffle.
+> ERT-250 closed the fake's half of that; the adapter has had it since ERT-410's review step.
+
 Two separable pieces that are tempting to write as one and should not be. The §6.5 arithmetic already
 exists and is untested; the list query does not exist and has an N+1 trap in it. Proving the
 arithmetic first means the query has something correct to feed.
@@ -187,6 +199,16 @@ out of the working set.
 | **Architecture** | §12 invariant 9 |
 
 **Description**
+
+> ### PERF-13 — `AuditLog.findFor` has no ceiling at all (2026-09-18, second review)
+>
+> It is the one unbounded read in the data layer with no domain bound behind it. `audit_logs` is
+> append-only, §8.12 renders the history of one entity, and an entity edited for two years returns
+> two years of rows. Take a page size here, with the screen that first renders it.
+>
+> The ordering is already contracted on both implementations — `timestamp ASC, id ASC` — so a page
+> boundary is stable. ERT-250 closed the fake's half; `ExposedAuditLog` has had it since ERT-330.
+> PERF-10/ERT-1190 adds the index that makes the paged read cheap, so land that first.
 
 The hire record: details, overall progress, and every requirement with its status. Document preview
 and version history arrive in ERT-800, once storage exists — this ticket returns the requirement

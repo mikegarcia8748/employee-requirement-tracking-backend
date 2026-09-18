@@ -4,7 +4,13 @@
 — the deployment track's remaining ticket,
 [ERT-1260](backlog/ERT-1200-deployment.md#ert-1260--gcp-foundation-identity-federation-registry-network-database-secrets),
 is the one piece of work in this project that needs something outside the repository: a GCP project
-and an Owner. Take ERT-433 unless that exists.
+and an Owner.
+
+> **Read HAR-02's second half before writing ERT-434.** `OutboxNotifier` returns `Failed` and writes
+> **nothing** when the insert is what failed, so §8.1's delivery-failure indicator — which
+> `NotificationOutbox`'s KDoc says is derived from the latest row for a hire — cannot see a
+> queue-insert failure at all. ERT-250 closed the fake's half of that finding and its block states
+> the open question plainly; ERT-434 owns the answer.
 
 > **2026-09-18 — ERT-100 and ERT-200 were reviewed against their own implementation, and ERT-200 is
 > reopened.** [The findings](2026-09-18-ert-100-200-review.md) continue the house numbering from
@@ -20,6 +26,16 @@ and an Owner. Take ERT-433 unless that exists.
 > | **HAR-04** — `PortalSession` has no `tokenHash`, but the column is `NOT NULL UNIQUE`, so `save` has no source for it | **ERT-620**, as a compile error inside its adapter | criteria added to ERT-620 |
 > | **PERF-10** — the baseline schema indexes almost none of its foreign keys, including `portal_access_logs (upload_link_id, timestamp)`, which §6.6's lockout counter reads on the unauthenticated portal path | **ERT-610, ERT-1020** — after them it is the same work against tables with rows | **ERT-1190** |
 > | **HAR-02** — `OutboxNotifier` returns `Failed` and writes **nothing** when the insert is what failed, so §8.1's indicator, *"derived from the latest row"*, cannot see it | **ERT-434 — the next ticket** | criteria added to ERT-434 |
+>
+> **ERT-250 and ERT-260 closed it again the same day** — see the section below. ERT-200 is `Done`.
+>
+> **A [second pass](2026-09-18-ert-100-200-review-2.md) then re-read both epics with those tickets
+> landed**, and found eleven more. Three of the first pass's *not measured* claims are now measured:
+> PERF-12's collation divergence is **real and wider than assumed** (HAR-09), and HAR-05's V4 defect
+> is a **hard failure** rather than the silent discard offered as the likelier of two. Two findings
+> exist only because ERT-250 built the instruments that found them. **No new ticket numbers were
+> created** — every finding folds into a ticket that already owns the area, which is the remedy for
+> the first pass leaving two of its own findings unowned (C35).
 >
 > The largest finding is **HAR-01**: nothing keeps a port, its fake and its adapter in step, and six
 > divergences are live. Two compose into one that matters — `FakeHrUserRepository` permits two
@@ -132,7 +148,7 @@ decision register, and the pointer above. Each session updates that pointer on t
 
 | | |
 |---|---|
-| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of **13** in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **seven Exposed adapters, an outbox notifier and a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data, HR accounts, **hires with their requirement sets**, **upload links resolved by token digest** and **a durable notification outbox** · **seven use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin, and **hire creation with its snapshotted requirement set**) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
+| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of **13** in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · **a contract suite per port, run against the fake and the adapter both, with a guard failing the build on a port that has no fake** · a `RepositoryTestBase` giving one migrated, seeded, isolated database per test — H2 by default, **a PostgreSQL schema when `ERT_TEST_DATABASE_URL` is set, which CI's second job does** · **seven Exposed adapters, an outbox notifier and a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data, HR accounts, **hires with their requirement sets**, **upload links resolved by token digest** and **a durable notification outbox** · **seven use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin, and **hire creation with its snapshotted requirement set**) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
 | Empty | `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
 | Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics` · `POST /api/auth/login` (the only public `/api` route) · `/api/auth/change-password`, `/api/auth/me` · four `HR_ADMIN`-only routes under `/api/users` · three HR reads — `/api/requirement-templates`, `/api/departments`, `/api/employment-types`. Appendix B specifies the rest. |
@@ -669,6 +685,73 @@ happens before the first write.
 
 ---
 
+**ERT-250 and ERT-260 closed ERT-200 again, and between them they turned two prose rules into
+build failures.** The suite went from **689 tests to 845**, green on H2 in **14.4 s** and on
+**PostgreSQL 17 in 48.9 s**. `test/contract/` is new and holds 13 suites — one per port, each run
+twice.
+
+**Eight divergences were closed, not six, and where each came from is the useful part.** HAR-01
+listed six and every one was reproduced red before it was fixed. The **seventh** was found by the
+contract suite itself: `FakeAccessTokenIssuer` computed `issuedAt.plus(ttl)` while `JwtIssuer`
+truncates to whole seconds first, because `exp` is a NumericDate — so the two disagree for every
+instant not already on a second boundary, which is every `Instant.now()` and therefore every real
+sign-in. It was invisible because `FixedClock.DEFAULT` sits on a whole second, so no test had ever
+handed either implementation an instant that could tell them apart. The **eighth** was found by the
+mutation pass: `FakeHrUserRepository`'s *constructor* was a fourth door into the duplicate-address
+state that `save` and `given` now refuse. **Writing a contract per port, rather than only for the
+ports whose divergences were already known, is what produced the seventh; running the mutation pass
+rather than trusting the green suite is what produced the eighth.**
+
+Four things were decided rather than assumed, and three bind later tickets:
+
+- **A concrete contract class must be named `*Test`, and that is now a guard.** Amper runs the suite
+  with `--scan-class-path` and no `--include-classname`, so JUnit's own default filter applies:
+  `^(Test.*|.+[.$]Test.*|.*Tests?)$`. A class named `EmployeeRepositoryContractSuite` is **silently
+  not discovered** — zero tests, no error, and neither `--fail-if-no-tests` nor CI's `require_tests`
+  notices because both are whole-run floors. That is this project's vacuity failure with a new door,
+  and it is the specific risk of sharing tests through a base class: the abstract base is correctly
+  skipped, and a misnamed subclass is skipped identically. Discovery was **proved** before anything
+  was built on it — a deliberately failing test on a contract base reported exactly two failures,
+  one per side.
+- **`ERT_TEST_DATABASE_URL`, deliberately not `DATABASE_URL`** — and ERT-260's own Files list asked
+  for the wrong one. Amper's test JVM inherits the ambient environment, and `DATABASE_URL` is what
+  `DatabaseConfig.fromEnvironment()` reads, so setting it repoints all **eleven** `testApplication`
+  files at the CI container. It would not fail, either: `ServerTest`'s *"no `DATABASE_URL` set -
+  connects to the in-memory default"* asserts a 200 and a `select 1`, both true against PostgreSQL.
+  **The test name would become a lie and the test would stop testing the dev fallback.**
+- **V4 is a hard failure against a populated database, not the silent discard the review
+  predicted.** `alter table employees add column created_by varchar(8) not null` cannot apply to a
+  table holding rows at all, so a deployment to a database with one hire in it stops mid-chain. It
+  is exempt — no database with V4 unapplied holds rows — and the exemption is **load-bearing**: one
+  test asserts the rows survive V5 onward, another asserts V4 still fails, so a rewrite of V4 fails
+  the build rather than leaving a stale licence for the next migration. Verified by adding a
+  deliberately destructive V8 and watching the sweep catch it.
+- **The collation divergence is real, larger than PERF-12 assumed, and now measured.** The review
+  ranked it *"not measured"* because it *"cannot be exhibited on H2 by definition"*. With a
+  PostgreSQL job it can be: `Apple, Zebra, _Underscore, apple` ascending is
+  `Apple, Zebra, _Underscore, apple` in Kotlin **and** in H2, and
+  `apple, Apple, _Underscore, Zebra` in PostgreSQL 17. **Every fake agrees with H2 and disagrees
+  with production.** `ExposedRequirementTemplateRepository` argues its own name tiebreak cannot fire
+  because `sort_order` runs 1..14 with no ties; the same argument was never made for
+  `employee_requirements.name_snapshot`, where `sort_order_snapshot` carries `default(0)` so ties are
+  ordinary — exactly the path ERT-432's migration header warns about. `CollationTest` **pins** it on
+  the C25/C27 precedent; the remedy is a collation decision in a migration and belongs with
+  **ERT-1190**.
+
+**One thing is recorded as untestable rather than counted as covered.** Swapping `singleOrNull` for
+`firstOrNull` in `findByEmail` **survives on both implementations**: with uniqueness enforced on
+every write door here and by `users_email_unique` plus the lowercase CHECK there, two rows on one
+address are unreachable through the port. It is an equivalent mutant, not a gap — and `singleOrNull`
+stays on both, because a migration or a psql prompt can still write the pair and the right answer
+then is "I cannot tell you who this is", not "here is the first one I found".
+
+**The mutation pass is what this ticket rests on.** Fourteen deliberate breaks — seven against the
+fakes, six against the adapters in the mirror direction, one against the new constructor guard —
+and **twelve failed a named contract test**. The two survivors are the equivalent mutant above. Both
+new `ArchitectureTest` guards were verified by making the build fail rather than by reading them.
+
+---
+
 ## Phases
 
 Phases follow PRD [§15](employee-requirements-tracker-prd_1.md). Phase 0 is additional — it is the
@@ -954,6 +1037,10 @@ ERT-100/ERT-200 review**.
 | C30 | **Port count, for the second time.** ERT-200, ERT-210 and the board say **10** domain ports; the *Where the code is* table below says "13 ports" and "a test harness of **10** in-memory fakes" in one sentence; there are **13** of each, and `FakesTest`'s "every fake is constructible" acceptance test constructs **11**. **C9 closed this exact drift once**, as a documentation fix *(opened 2026-09-18)* | **Corrected here and in the four documents; guarded by ERT-250.** A count in prose has nothing holding it, which is why one correction did not hold. The deliverable is the `ArchitectureTest` port-coverage guard, not a third recount |
 | C31 | ERT-120's title and its board row say "the **12** tables"; `MigrationTest` asserts `allTables.size shouldBe 14` *(opened 2026-09-18)* | **Closed.** Corrected in ERT-120 and on the board with a dated note. The assertion tracked reality throughout; only the prose did not |
 | C32 | `MigrationTest`'s guard is named `identifier generation - the guard above - is pointed at the **ten** keyed tables` and asserts **12** *(opened 2026-09-18)* | **Closed by rename.** The assertion is right; the name is what a reader skimming test output trusts, and a test whose name disagrees with its body is worse than one with no name at all |
+| C37 | **Three comments say the invitation is the only body-less notification, and that two of *seven* `Notifier` methods take no address.** `NotificationKind` has **eight** entries and **two** with `storesBody = false` — `RECOVERY_PIN` joined `INVITATION` when C23 split the port. The code is right in all three places and the prose is not *(opened 2026-09-18 by the second review)* | **Closed.** Corrected with a dated note in each. It is the C33 shape one epic later, and it matters more than it looks: `storesBody` exists so an eighth kind **must choose**, and the comment beside it told a reader the rule was "invitation only" |
+| C36 | **`libs.versions.toml:12` declares `kotlin = "2.4.0"` and nothing reads it.** `module.yaml`'s `settings.kotlin` names no version, so the entry binds nothing; the compiler actually in use is **2.4.10**, from the toolchain `./kotlin` pins by sha256 *(opened 2026-09-18 by the second review)* | **Open, owned by ERT-1140.** Same family as the unused R2DBC dependencies that ticket already holds: a value that lives only in prose binds nothing, and a reader would edit that line expecting the compiler to move |
+| C35 | **The first ERT-100/ERT-200 review dispositioned two of its own findings into no ticket.** TASK-37 routed SEC-35, SEC-33 and HAR-07 to tickets by number and gave **SEC-34** and **HAR-06** a sentence each; `grep -rn "SEC-34\|HAR-06" docs/backlog/` returned nothing *(opened 2026-09-18 by the second review)* | **Closed by filing both.** SEC-34 into **ERT-1175**, HAR-06 into **ERT-1140**, each with a dated note. Kept rather than quietly fixed because of what it is: the E5/E6/C22 lesson — *a gap without a number is invisible* — which that same document names, applied to its own output eight hours later |
+| C34 | **ERT-433's status disagreed with itself in the two places the board's own rule names.** The board row read `Not started`, the ticket block read **`Completed`** — which is not one of the four values the legend defines — and the work had been merged to `main`. The roadmap's pointer still said *"Take ERT-433 unless that exists"* beneath a line naming ERT-434 as next *(opened 2026-09-18 while taking ERT-250)* | **Closed.** All three corrected. Worth keeping rather than silently fixing: the "update it in two places" rule is the only thing holding these in step, nothing checks it, and this is the second time a value carried in prose has drifted — C9 and C30 were the first two, and ERT-250's port-coverage guard is what finally stopped that one |
 | C33 | `ExposedRequirementTemplateRepository.kt:44-49` — the KDoc reading *"Does **not** filter by `is_active` — only `findActiveForEmploymentType` does"* sits above `findActiveForEmploymentType`, the method it contrasts *with*, rather than above `findById`, the method it describes *(opened 2026-09-18)* | **Closed.** Moved |
 
 **Still open, and deliberately so:** the PRD has **no owner**. E3's ratification, and any future

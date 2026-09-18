@@ -343,7 +343,7 @@ class ExposedAppSettingsRepositoryTest : RepositoryTestBase() {
 
         settings.updateLinkPolicy(policyWith(absoluteExpiryDays = 45), ACTOR).ok()
 
-        strings("select id from audit_logs") shouldBe listOf(TAKEN_AUDIT_ID, "ENT000000002")
+        strings("select id from audit_logs order by id") shouldBe listOf(TAKEN_AUDIT_ID, "ENT000000002")
         auditLog().findFor(LINK_POLICY_ID)
             .last().metadata["link.absolute_expiry_days.old"] shouldBe "90"
         storedValue("link.absolute_expiry_days") shouldBe "45"

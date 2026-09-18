@@ -17,6 +17,8 @@ import org.jetbrains.exposed.v1.jdbc.SchemaUtils
 import org.jetbrains.exposed.v1.jdbc.vendors.currentDialectMetadata
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
+import org.flywaydb.core.internal.exception.FlywayMigrateException
 
 /**
  * The schema, against real SQL.
@@ -266,18 +268,25 @@ private val DIALECT_SPECIFIC = listOf(
 internal class TestDatabase(val config: DatabaseConfig, val factory: DatabaseFactory) {
 
     fun tableNames(): List<String> = query(
-        "select table_name from information_schema.tables where table_schema = 'PUBLIC'"
+        "select table_name from information_schema.tables where table_schema = current_schema"
     ) { it.lowercase() }
 
     fun columnsOf(table: String): List<String> = query(
-        "select column_name from information_schema.columns where lower(table_name) = '${table.lowercase()}'"
+        """
+        select column_name from information_schema.columns
+        where table_schema = current_schema and lower(table_name) = '${table.lowercase()}'
+        """.trimIndent()
     ) { it.lowercase() }
 
     fun uniqueColumns(table: String): List<String> = query(
         """
         select c.column_name from information_schema.table_constraints t
-        join information_schema.key_column_usage c on t.constraint_name = c.constraint_name
-        where t.constraint_type = 'UNIQUE' and lower(t.table_name) = '${table.lowercase()}'
+        join information_schema.key_column_usage c
+          on t.constraint_name = c.constraint_name
+         and t.constraint_schema = c.constraint_schema
+        where t.constraint_type = 'UNIQUE'
+          and t.table_schema = current_schema
+          and lower(t.table_name) = '${table.lowercase()}'
         """.trimIndent()
     ) { it.lowercase() }
 
@@ -288,7 +297,8 @@ internal class TestDatabase(val config: DatabaseConfig, val factory: DatabaseFac
             exec(
                 """
                 select column_name, character_maximum_length from information_schema.columns
-                where lower(table_name) = '${table.lowercase()}'
+                where table_schema = current_schema
+                  and lower(table_name) = '${table.lowercase()}'
                   and character_maximum_length is not null
                 """.trimIndent()
             ) { rs -> while (rs.next()) widths[rs.getString(1).lowercase()] = rs.getInt(2) }
@@ -313,5 +323,171 @@ internal fun withFreshDatabase(block: (TestDatabase) -> Unit) {
         block(TestDatabase(config, factory))
     } finally {
         factory.close()
+    }
+}
+
+/**
+ * Migrations applied to a database that already holds rows (ERT-260, HAR-05).
+ *
+ * **Every other test in this file runs against a fresh database, and that is a blind spot rather
+ * than a choice.** The idempotence test proves the *runner* is idempotent; the drift test proves the
+ * *destination* matches `Tables.kt`. Neither migrates a database with data in it — so
+ * `V4__hr_users.sql` shipped green, and **every acceptance criterion ERT-120 wrote is about a fresh
+ * database**, which makes this class of defect ship green by construction. ERT-1220 and ERT-1230
+ * made "a database with rows in it" a real place.
+ *
+ * ### What V4 actually does, measured rather than predicted
+ *
+ * The 2026-09-18 review said V4 against a populated table would be *"either a hard failure … or a
+ * silent discard of four actor columns"*. It is **the hard failure**, and that is worth stating
+ * plainly because it is the worse of the two: `alter table employees add column created_by
+ * varchar(8) not null` cannot apply to a table holding rows, so the migration aborts part-applied
+ * rather than quietly losing four columns. A deployment to a database with a single hire in it would
+ * stop mid-chain.
+ *
+ * It is **exempt** rather than fixed, and the exemption is narrow: no database that still has V4
+ * unapplied holds any rows. Tests and local runs start fresh; ERT-1260 has not been taken, so no UAT
+ * or production database exists at all. V4's own header already argues the same thing from the other
+ * end — the four columns held free text with no conversion to a `users(id)` that must exist, so
+ * there was nothing to preserve.
+ *
+ * **The sweep is still the deliverable.** It seeds *after* the exempt migration and runs everything
+ * from V5 on against the populated database, so every migration added from here is checked — and
+ * [`the exemption is load-bearing`][PopulatedMigrationTest] asserts V4 still fails, so the day
+ * someone rewrites it the build says to drop the exemption rather than leaving a stale licence for
+ * the next one.
+ */
+class PopulatedMigrationTest {
+
+    /**
+     * Migrations that cannot be applied to a database holding rows, each with the argument for it.
+     *
+     * Adding a row here is the deliberate, reviewable act this sweep exists to force. It is not a
+     * list of known failures to route around: every entry is asserted to still be failing.
+     */
+    private val cannotApplyToRows = mapOf(
+        "4" to "V4 re-adds employees.created_by as `varchar(8) not null` with no default, which no " +
+            "engine will apply to a populated table. Accepted because no database with V4 " +
+            "unapplied holds rows: tests start fresh and ERT-1260 has not been taken, so no " +
+            "deployed database exists. The four columns held free text with no conversion to a " +
+            "users(id) that must exist, so there was nothing to preserve either.",
+    )
+
+    @Test
+    fun `schema migration - a database holding rows - the rows survive the remaining migrations`() =
+        withFreshDatabase { db ->
+            // Seeded past the one exempt migration, so this sweeps V5 onward -- and every migration
+            // added after them, which is the part that matters going forward.
+            migrate(db.config, target = LAST_EXEMPT_VERSION)
+            db.seedAHireAndASettingChange()
+
+            migrate(db.config)
+
+            db.countOf("employees") shouldBe 1
+            db.valueOf("select first_name from employees") shouldBe "Jose"
+            db.valueOf("select last_name from employees") shouldBe "Dela Cruz"
+            db.valueOf("select email from employees") shouldBe "jose@example.com"
+            db.valueOf("select packet_status from employees") shouldBe "DRAFT_COLLECTING"
+            db.valueOf("select created_by from employees") shouldBe "HRU00001"
+
+            // A value an administrator had changed away from its seeded default, which is the case
+            // a migration rewriting app_settings would destroy.
+            db.valueOf("select \"value\" from app_settings where \"key\" = 'link.absolute_expiry_days'") shouldBe "45"
+
+            // And the column V7 added to a table that already had rows: `default 0` is what let it
+            // apply at all, and this is the test that says the default reached the existing row.
+            db.valueOf("select sort_order_snapshot from employee_requirements") shouldBe "0"
+        }
+
+    @Test
+    fun `schema migration - the sweep above - actually ran migrations against the populated database`() {
+        // The anti-vacuity half. A target that already named the last version would migrate nothing
+        // afterwards, and the test above would pass having proved nothing at all.
+        withFreshDatabase { db ->
+            val toExempt = migrate(db.config, target = LAST_EXEMPT_VERSION)
+            val rest = migrate(db.config)
+
+            toExempt.migrationsExecuted shouldBe 4
+            (rest.migrationsExecuted >= 3) shouldBe true
+        }
+    }
+
+    @Test
+    fun `schema migration - an exempt migration - still fails against rows so the exemption is load-bearing`() =
+        withFreshDatabase { db ->
+            // The other half of the exemption, and the half that keeps it honest. If V4 is ever
+            // rewritten to apply cleanly, this fails and its author removes the entry deliberately
+            // instead of leaving a licence behind that covers the next migration by accident.
+            cannotApplyToRows.keys shouldBe setOf("4")
+
+            migrate(db.config, target = "3")
+            db.seedAHireBeforeTheActorColumnsBecameKeys()
+
+            assertFailsWith<FlywayMigrateException> { migrate(db.config, target = "4") }
+        }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Arrange and assert helpers for a database that already holds rows.
+// ---------------------------------------------------------------------------------------------
+
+/** The last migration that cannot be applied to a populated database. The sweep starts after it. */
+private const val LAST_EXEMPT_VERSION = "4"
+
+/**
+ * A hire, its checklist row, and an administrator-changed setting — written as V4 leaves the schema.
+ *
+ * The actor columns are `users(id)` foreign keys from V4 on, so the account has to exist first. This
+ * is the state every migration from V5 is applied to in the real world.
+ */
+private fun TestDatabase.seedAHireAndASettingChange() {
+    exec(
+        """
+        insert into users (id, email, full_name, password_hash, "role", is_active,
+                           password_change_required, created_at)
+        values ('HRU00001', 'hr.officer@example.com', 'Ana Reyes', 'x', 'HR_OFFICER', true, false,
+                current_timestamp)
+        """.trimIndent()
+    )
+    exec(
+        """
+        insert into employees (id, first_name, last_name, department_id, "position",
+                               employment_type_id, email, packet_status, submitted_by_hr,
+                               anomaly_flags, created_at, created_by)
+        values ('EMP00001', 'Jose', 'Dela Cruz', 'd00000000001', 'Store Associate',
+                'e00000000001', 'jose@example.com', 'DRAFT_COLLECTING', false,
+                '', current_timestamp, 'HRU00001')
+        """.trimIndent()
+    )
+    exec(
+        """
+        insert into employee_requirements (id, employee_id, template_id, name_snapshot,
+                                           is_required_snapshot, status, rejection_count)
+        values ('REQ000000001', 'EMP00001', 'c00000000001', 'NBI Clearance', true, 'PENDING', 0)
+        """.trimIndent()
+    )
+    exec("update app_settings set \"value\" = '45' where \"key\" = 'link.absolute_expiry_days'")
+}
+
+/** The same hire at V3, when `created_by` was still `varchar(128)` of free text. */
+private fun TestDatabase.seedAHireBeforeTheActorColumnsBecameKeys() {
+    exec(
+        """
+        insert into employees (id, first_name, last_name, department_id, "position",
+                               employment_type_id, email, packet_status, submitted_by_hr,
+                               anomaly_flags, created_at, created_by)
+        values ('EMP00001', 'Jose', 'Dela Cruz', 'd00000000001', 'Store Associate',
+                'e00000000001', 'jose@example.com', 'DRAFT_COLLECTING', false,
+                '', current_timestamp, 'hr.officer@example.com')
+        """.trimIndent()
+    )
+}
+
+/** The first column of the first row, as text. */
+private fun TestDatabase.valueOf(sql: String): String = runBlocking {
+    factory.transaction {
+        var value: String? = null
+        exec(sql) { rs -> if (rs.next()) value = rs.getString(1) }
+        value ?: error("No row for: $sql")
     }
 }
