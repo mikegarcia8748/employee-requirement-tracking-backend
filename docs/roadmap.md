@@ -6,6 +6,28 @@
 is the one piece of work in this project that needs something outside the repository: a GCP project
 and an Owner.
 
+> **2026-09-18 — the API now has contracts the front-end can build against.**
+> [`apicontracts/`](../apicontracts/README.md) holds one per module — authentication, user
+> administration, the requirement catalogue and reference data — covering the ten mounted `/api`
+> endpoints with request payloads, success bodies, every failure body they can return, an error-code
+> table and client flows with diagrams, plus a conventions file the four share rather than repeat.
+> **Every sample was captured from a running server**, not composed — which is also how two apparent
+> defects were checked and cleared, both recorded in ERT-1145's block.
+>
+> **Nothing here changes the Next ticket pointer.** ERT-1145 is cross-cutting and touches no
+> production code. What it changes is the **definition of done**: a ticket that adds, removes or
+> changes an `/api` endpoint now updates its module's contract in the same commit, stated in
+> `CLAUDE.md` and on the board, and `ApiContractsTest` fails the build on a mounted route documented
+> in none of them. **ERT-450 is the first ticket to carry it** — it opens a new module, so it writes
+> a new contract — and it is one ticket away.
+>
+> The lesson is in the mutation pass rather than the document. Six deliberate breaks were applied;
+> the two that pointed a sweep at nothing left **three of the four content assertions green**, because
+> an empty collection satisfies them all — the vacuity test was the only thing that spoke. And the
+> pass found a seventh instance of this project's recurring defect in its own first attempt: four
+> breaks applied with `sed` silently matched nothing, the suite was green, and the guard looked
+> broken. **A mutation not confirmed to have landed is not a mutation.**
+
 > **Read HAR-02's second half before writing ERT-434.** `OutboxNotifier` returns `Failed` and writes
 > **nothing** when the insert is what failed, so §8.1's delivery-failure indicator — which
 > `NotificationOutbox`'s KDoc says is derived from the latest row for a hire — cannot see a
@@ -182,7 +204,7 @@ decision register, and the pointer above. Each session updates that pointer on t
 | Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of **13** in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · **a contract suite per port, run against the fake and the adapter both, with a guard failing the build on a port that has no fake** · a `RepositoryTestBase` giving one migrated, seeded, isolated database per test — H2 by default, **a PostgreSQL schema when `ERT_TEST_DATABASE_URL` is set, which CI's second job does** · **seven Exposed adapters, an outbox notifier and a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data, HR accounts, **hires with their requirement sets**, **upload links resolved by token digest** and **a durable notification outbox** · **seven use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin, and **hire creation with its snapshotted requirement set**) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
 | Empty | `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
-| Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics` · `POST /api/auth/login` (the only public `/api` route) · `/api/auth/change-password`, `/api/auth/me` · four `HR_ADMIN`-only routes under `/api/users` · three HR reads — `/api/requirement-templates`, `/api/departments`, `/api/employment-types`. Appendix B specifies the rest. |
+| Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics` · `POST /api/auth/login` (the only public `/api` route) · `/api/auth/change-password`, `/api/auth/me` · four `HR_ADMIN`-only routes under `/api/users` · three HR reads — `/api/requirement-templates`, `/api/departments`, `/api/employment-types`. Appendix B specifies the rest. **All ten are documented for a client across four module contracts in [`apicontracts/`](../apicontracts/README.md), with a build guard against an eleventh arriving undocumented (ERT-1145).** |
 
 The three foundational gaps Phase 0 opened with are closed: `DatabaseFactory.connect()` runs from the
 application lifecycle (ERT-110), Flyway applies a baseline guarded by a drift test (ERT-120), and
@@ -781,6 +803,47 @@ fakes, six against the adapters in the mirror direction, one against the new con
 and **twelve failed a named contract test**. The two survivors are the equivalent mutant above. Both
 new `ArchitectureTest` guards were verified by making the build fail rather than by reading them.
 
+**ERT-1145 then wrote the contracts a client is built from, and they are the first documents here
+whose content was measured rather than composed.** [`apicontracts/`](../apicontracts/README.md) holds
+one per module and covers the ten mounted `/api` endpoints — payloads, success bodies, every failure
+body each can return, an error-code table keyed to what the UI should do, and client flows with
+diagrams. The suite went from 846 tests to 851.
+
+Three things were decided rather than assumed:
+
+- **A directory of module contracts, not a sixth section of an existing document.** `api-contract.md`
+  is 928 lines of *why* and says outright that it must never become a spec; the generated spec is
+  authoritative for shape and cannot express call order. The contracts take the *how* and state that
+  **where they and the spec disagree about a field name, the spec wins**. The split is by module
+  because that is the unit a front-end takes on — a screen consumes a module, and a ticket delivers
+  one — with the envelope and error codes held once in the directory's `README.md` rather than
+  repeated four times. They are held against drift the same way §9 holds everything else:
+  `ApiContractsTest` reads its route list **from the generated spec**, so a route cannot exist
+  without the build demanding a section for it.
+- **Every sample was captured from a running server.** That is a discipline no guard can check — and
+  it is what cleared two apparent defects rather than documenting either wrongly. `findAll()` on the
+  catalogue route *looks* unfiltered and is not: `includeInactive` is a defaulted parameter. And the
+  two `204` routes build an envelope they hand to `respond(204, …)`, which the contract says carries
+  no body — **measured: zero bytes on the wire**, with a `Content-Type` header still sent over
+  nothing. A reader checking either from the call site alone would have concluded the opposite.
+  **`/swagger/documentation.yaml` also serves JSON despite its extension**, which the first version of
+  the guard's YAML line-matcher discovered by silently matching nothing.
+- **The vacuity test is the deliverable, not the three content tests.** Six breaks were applied. The
+  four content breaks each failed their named test. The two that pointed a sweep at nothing — the
+  route prefix, then the fence language — left **three of the four content assertions green**, because
+  an empty collection satisfies every one of them. Only the vacuity test spoke. That is the sixth
+  instance of this project's recurring lesson, arranged for in advance for once rather than
+  discovered.
+
+**And the seventh instance arrived inside the mutation pass itself, which is the one worth carrying
+forward.** The first four breaks were applied with `sed`; three silently matched nothing. The suite
+was green, the output showed no failures, and the obvious reading was that the guard did not work. The
+breaks were then re-applied through a script that **asserts its anchor is present before writing**,
+and all four failed immediately. ERT-320 found vacuity in a seed, ERT-350 in a single seeded row,
+ERT-410 inside a test written to prevent it, ERT-420 in two such tests, ERT-440 in a "does not
+contain" assertion, ERT-431 in the harness. ERT-1145 found it in **the mutation itself**: a break not
+confirmed to have landed proves nothing, and a green suite under one is evidence of nothing at all.
+
 ---
 
 ## Phases
@@ -1068,6 +1131,7 @@ ERT-100/ERT-200 review**.
 | C30 | **Port count, for the second time.** ERT-200, ERT-210 and the board say **10** domain ports; the *Where the code is* table below says "13 ports" and "a test harness of **10** in-memory fakes" in one sentence; there are **13** of each, and `FakesTest`'s "every fake is constructible" acceptance test constructs **11**. **C9 closed this exact drift once**, as a documentation fix *(opened 2026-09-18)* | **Corrected here and in the four documents; guarded by ERT-250.** A count in prose has nothing holding it, which is why one correction did not hold. The deliverable is the `ArchitectureTest` port-coverage guard, not a third recount |
 | C31 | ERT-120's title and its board row say "the **12** tables"; `MigrationTest` asserts `allTables.size shouldBe 14` *(opened 2026-09-18)* | **Closed.** Corrected in ERT-120 and on the board with a dated note. The assertion tracked reality throughout; only the prose did not |
 | C32 | `MigrationTest`'s guard is named `identifier generation - the guard above - is pointed at the **ten** keyed tables` and asserts **12** *(opened 2026-09-18)* | **Closed by rename.** The assertion is right; the name is what a reader skimming test output trusts, and a test whose name disagrees with its body is worse than one with no name at all |
+| C44 | **The board's ticket count has been wrong for four tickets.** `docs/backlog/README.md` read `**12 epics · 73 tickets · 17 sub-tasks.**` against **77** ticket rows; the sub-task and epic figures were correct. Four tickets were added without the line moving *(opened 2026-09-18 by ERT-1145)* | **Closed.** Corrected to the counted figure with a dated note beside C34's, which is the same defect one level up — C34 is two status fields that must agree by hand, this is a total that must agree by hand with the rows beneath it. Found only because ERT-1145 incremented it and then counted; **nothing checks it, and the next instance will look the same** |
 | C43 | **Two test-file KDocs describe an arrangement their own bodies contradict.** `RequirementTemplateRoutesTest.kt:213` carries two stacked KDoc blocks, the first saying *"Mounts the handler with no security plugin"* while the body calls `configureSecurity(testJwtConfig())` — ERT-190 made it false and it was left above the second rather than replaced. And the local `FakeReferenceData` KDoc says the shared fake "earns its keep" at ERT-430; it arrived with ERT-431 *(opened 2026-09-18 by the ERT-300 review)* | **Open, owned by the tickets that own those files.** The second is closed by **HAR-20**'s fix on ERT-250. A stale comment on a test harness is the HAR category's own subject: it tells the next reader the suite proves something it does not |
 | C42 | **Architecture §3 and §4 are stale in four places.** §3 annotates `domain/usecase/` as *"(empty — see §5)"* (there are seven) and `HealthRoutes.kt` as *"the only endpoint today"* (thirteen handlers); §4 asserts *"only `sendInvitation` accepts an `AccessPin`"*, which **C23** closed, and *"the seven notification kinds"*, which **C37** corrected to eight in three code comments — the architecture document was not in that sweep *(opened 2026-09-18 by the ERT-300 review)* | **Closed.** Four corrections with a dated note. **And it is how SEC-41 was found:** establishing which method *does* accept an `AccessPin` showed that it takes an `EmailAddress` beside it and renders the PIN into a body. A stale sentence about a control was standing in front of a missing one |
 | C41 | **The API contract miscites §8.10 for `GET /api/requirement-templates`** (§8.11 is templates; §8.10 is the link policy), **and says the reference routes are absent from Appendix B when Appendix B lists both** — contradicting the same document's *"Routes outside Appendix B"* opener, with the claim repeated in `ReferenceRoutes.kt`'s KDoc *(opened 2026-09-18 by the ERT-300 review)* | **Closed.** Both corrected in `api-contract.md` and the route KDoc. The second is the sharper one: it is a claim about a gap that was closed, so a reader chasing it finds the endpoint listed and cannot tell which document is stale |

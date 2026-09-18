@@ -363,6 +363,142 @@ build does not use.
 
 ---
 
+## ERT-1145 — API contracts for the front-end, one per module, with a guard
+
+| | |
+|---|---|
+| **Parent** | ERT-1100 |
+| **Type** | Ticket |
+| **Phase** | Cross-cutting — any time |
+| **Status** | Done |
+| **Depends on** | ERT-146 |
+| **PRD** | Appendix B |
+| **Architecture** | §9 |
+
+**Description**
+
+The front-end has nothing it can write an HTTP client from. Four documents describe this API and none
+of them serves that reader: [`api-contract.md`](../api-contract.md) is the design contract and carries
+no payload, no response body and no call sequence; the generated spec carries schemas but not worked
+examples or ordering; PRD Appendix B is a method-and-path sketch; the roadmap says when. So an
+engineer wiring `POST /api/auth/login` reads a Kotlin DTO for the field names, `AppErrorMapper` for the
+failure statuses, and a security audit to learn why the failure body is deliberately uninformative.
+Nowhere does any document say *sign in, get a 409 on everything, call change-password, sign in again.*
+
+This is a sibling of ERT-1140 rather than part of it: that ticket owns the file a newcomer to the
+**repository** opens first, this one owns what a consumer of the **API** opens first.
+
+**One contract per module, in [`apicontracts/`](../../apicontracts/README.md), written as the module
+lands** — not one growing document. A module is the unit a front-end takes on: a screen consumes one,
+and a ticket delivers one, so a contract per module is the thing a reviewer can check against the
+ticket in front of them. The envelope, the error-code table and CORS are held once in that directory's
+`README.md`; repeating them four times would guarantee four versions of them within a sprint. Four
+contracts exist today — authentication, user administration, the requirement catalogue and reference
+data — and ERT-450 opens the fifth.
+
+> **A hand-written document of wire examples overlaps the generated spec's authority, and this project
+> has already argued that a hand-maintained schema drifts within a sprint — *"a spec that lies is worse
+> than none"* (§9).** Three things answer it, and the guide's own header states them. It documents
+> examples and sequences, which a generator cannot produce, and no schemas, which it can. Where the two
+> disagree about a field name, **the spec wins.** And `ApiContractsTest` reads the route list *from
+> the generated spec* — which `OpenApiDocSource.Routing` builds from the live route tree — so a route
+> cannot exist without the build demanding a section for it in some contract.
+
+The guard is the deliverable, on ERT-146 and ERT-1245's precedent: `api-contract.md` has carried the
+"declare your schema" rule in prose since ERT-145 and five routes broke it anyway. Prose does not stop
+the sixth.
+
+**Goal**
+
+A front-end engineer can write a working client from one document, every sample in it was observed
+rather than composed, and an endpoint cannot ship without a section.
+
+**Stories**
+- As an engineer on the front-end, I want a request and a response body for every endpoint so that I
+  do not have to read Kotlin to learn a field name.
+- As an engineer on the front-end, I want the failure codes and what to do about each, so that my
+  error handling is a table rather than a guess.
+- As an engineer on the front-end, I want the order to call things in, so that the password-change gate
+  is not something I discover from a `409` in production.
+- As an engineer on the next session, I want the build to fail when I add an endpoint and forget the
+  guide, so that the document stays complete without anybody policing it.
+
+**Acceptance criteria**
+- [x] `[derived]` Given the ten mounted `/api` operations, then each has a section in its module's
+      contract carrying a request, a success body, and every failure body it can return
+- [x] `[derived]` Given every sample in the guide, then it was captured from a running server rather
+      than composed
+- [x] `[derived]` Given a mounted `/api` route documented in no contract, then the build fails
+      naming it
+- [x] `[derived]` Given a malformed JSON sample, a sample carrying a `result` the envelope does not
+      allow, or a failure sample with no `code`, then the build fails
+- [x] `[derived]` Given a sweep that matches nothing — the route prefix, the fence language, or the
+      contracts directory — then the build fails rather than passing on an empty collection
+- [x] `[derived]` Given a ticket that adds or changes an `/api` endpoint, then updating its module's
+      contract is part of its definition of done, stated in `CLAUDE.md` and on the board
+
+**Tests**
+| Level | Test |
+|---|---|
+| Architecture | `api contracts - every mounted api route - has a section in some contract` |
+| Architecture | `api contracts - every json sample - is parseable json` |
+| Architecture | `api contracts - every enveloped sample - carries a result the envelope allows` |
+| Architecture | `api contracts - every failure sample - names a code a client can branch on` |
+| Architecture | `api contracts - the guard itself - is not vacuous` |
+
+> **Two discrepancies were checked rather than assumed, and both came back clean.** They are recorded
+> because each reads as a defect from the call site and is not.
+>
+> `GET /api/requirement-templates` is documented as returning **active** templates and its handler
+> calls `templates.findAll()`, which looks unfiltered. `findAll(includeInactive: Boolean = false)`
+> carries a defaulted parameter and the adapter's `where` reads `if (includeInactive) Op.TRUE else
+> isActive eq true`, so the documentation is correct. A reader checking the call site alone would
+> conclude otherwise.
+>
+> The two `204` routes build an `ApiResponse` and hand it to `respond(204, …)`, and the contract says a
+> `204` carries no envelope. **Measured against the running server: zero bytes on the wire**, both
+> routes. A `Content-Type: application/json` header is still sent with nothing behind it, which is
+> noted in the guide because a client that parses on the header rather than on the length would break.
+
+> **The mutation pass, seven breaks, re-run in full after the restructure.** Removing an endpoint
+> heading, corrupting a sample, changing a sample's `result` to `ok`, and dropping `code` from a
+> failure sample each failed their named test. Then the three that matter: pointing the route sweep at
+> a prefix matching nothing, the fence regex at a language matching nothing, and the contracts
+> directory at one holding no contracts. **The first two left every other assertion green** — four
+> assertions over empty collections — and only the vacuity test failed. That is the sixth instance of
+> this suite's recurring lesson, arranged for deliberately rather than discovered. The pass was run
+> again from scratch when the single guide became four contracts, because a guard that was verified
+> against a different shape has not been verified.
+>
+> **A seventh instance arrived during the pass itself.** The first four breaks were applied with
+> `sed`, three of which silently matched nothing; the tests were green and the guard looked wrong. The
+> mutations were being verified by their absence. Re-applying them through a script that asserts its
+> anchor is present is what produced the four real failures above. **A mutation that is not confirmed
+> to have landed is not a mutation**, and a green suite under one is evidence of nothing.
+
+**Files**
+- create [`apicontracts/README.md`](../../apicontracts/README.md) — the index, and the envelope, error
+  codes and CORS the module contracts share rather than repeat
+- create [`apicontracts/AUTHENTICATION_API_CONTRACT.md`](../../apicontracts/AUTHENTICATION_API_CONTRACT.md)
+- create [`apicontracts/USER_ADMINISTRATION_API_CONTRACT.md`](../../apicontracts/USER_ADMINISTRATION_API_CONTRACT.md)
+- create [`apicontracts/REQUIREMENT_CATALOGUE_API_CONTRACT.md`](../../apicontracts/REQUIREMENT_CATALOGUE_API_CONTRACT.md)
+- create [`apicontracts/REFERENCE_DATA_API_CONTRACT.md`](../../apicontracts/REFERENCE_DATA_API_CONTRACT.md)
+- create [`test/ApiContractsTest.kt`](../../test/ApiContractsTest.kt)
+- modify [`test/testdata/SourceFiles.kt`](../../test/testdata/SourceFiles.kt) — `projectFile`, so the
+  guard can sweep a directory rather than name each contract
+- modify [`docs/api-contract.md`](../api-contract.md) — the authority table gains a row
+- modify [`docs/architecture.md`](../architecture.md) — §9 registers the guide
+- modify [`CLAUDE.md`](../../CLAUDE.md) — the definition of done
+- modify [`docs/backlog/README.md`](README.md) — the row, the count, the rule
+
+**Out of scope**
+- Portal endpoints. `route/portal/` is empty; ERT-630 onward write their own module contracts.
+- Any change to a `describe { }` block or to the generated spec. The guide is additive.
+- An OpenAPI file checked into the repository, which §9 refuses.
+- The root README. ERT-1140 owns it.
+
+---
+
 ## ERT-1150 — Malware scanning behind the `isClean` gate
 
 | | |

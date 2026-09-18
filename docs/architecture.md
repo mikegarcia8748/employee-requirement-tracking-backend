@@ -358,6 +358,27 @@ anyone who asks, and that surface is what the audit is about.
 `request-new-link`. Otherwise a future engineer reads them as bugs and "fixes" them into an
 enumeration oracle.
 
+**The generated spec is not enough for a client, and [`apicontracts/`](../apicontracts/README.md) is
+the rest of it (ERT-1145).** A generator publishes schemas; it cannot publish a worked payload, the
+failure `code` a client branches on, or the order to call things in — and the order is where the cost
+is. Nothing in the spec says *sign in, get a 409 on everything, call change-password, sign in again*,
+which is the first thing every client meets.
+
+**One contract per module, written as the module lands** — `AUTHENTICATION_API_CONTRACT.md` and its
+siblings — with the envelope, the error-code table and CORS held once in that directory's `README.md`
+rather than repeated in each. The split is by module rather than by phase or by route file because
+that is the unit a front-end takes on: a screen consumes a module, and a ticket delivers one. Each
+contract carries examples and sequences only, and states outright that **where it and the spec
+disagree about a field name, the spec wins**.
+
+That leaves them exposed to the drift this section exists to refuse, so they are held the same way.
+Rather than keeping its own endpoint list, `ApiContractsTest` reads the route list **from the
+generated spec** — which `OpenApiDocSource.Routing` builds from the live route tree — and fails the
+build on a mounted `/api` route documented in no contract. A route therefore cannot exist without
+appearing in the spec, and cannot appear in the spec without the build demanding a section for it.
+What no guard can check is whether a sample was observed or invented; the ticket requires them
+captured from a running server, and that part is a discipline rather than a test.
+
 ---
 
 ## 10. Testing
