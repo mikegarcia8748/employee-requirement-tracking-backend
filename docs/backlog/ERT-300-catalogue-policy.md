@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Epic |
 | **Phase** | 1 |
-| **Status** | Done |
+| **Status** | In progress — reopened 2026-09-18 by the [ERT-300 review](../2026-09-18-ert-300-review.md) |
 | **Depends on** | ERT-130, ERT-240 |
 | **PRD** | §6.4, §8.10, §8.11, §5 |
 | **Architecture** | §4, §12 invariant 6 |
@@ -44,7 +44,7 @@ entry can be recorded, and HR can list the catalogue over HTTP.
 | **Parent** | ERT-300 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | Done |
+| **Status** | In progress |
 | **Depends on** | ERT-130, ERT-240 |
 | **PRD** | §6.4, §8.10 |
 | **Architecture** | §4 |
@@ -86,6 +86,27 @@ fails loudly rather than defaulting.
       absolute ceiling applies (§6.4)
 - [x] Given any settings change, then it is written to the audit log with the old value, new value,
       actor and timestamp (§8.10) — actor and timestamp as **columns**, old and new in `metadata`
+      — **ticked against seven of the nine keys; the other two throw. See SEC-38.**
+
+> **Reopened 2026-09-18 by the [ERT-300 review](../2026-09-18-ert-300-review.md).** Three findings,
+> one branch. The criterion above is the one that was ticked against a subset.
+
+- [ ] **SEC-38** Given a change to **any** of the nine §6.4 settings, then it is written to the audit
+      log — including `portal.pin_attempts_before_lockout` and `portal.pin_failures_before_suspend`,
+      whose derived metadata keys contain `pin` and are refused by `refuseCredentials`, throwing
+      `IllegalArgumentException` out of a `DomainResult` method. Fix: `refuseCredentials` exempts keys
+      derived from `LinkPolicySetting` — a closed enum, not caller-chosen text. The denylist stays as
+      strict for every other caller and **C25 is untouched**
+- [ ] **SEC-38** Given a tenth setting whose key collides with a credential fragment, then the build
+      fails — a test over `LinkPolicySetting.entries` asserting every derived metadata key is accepted
+- [ ] **HAR-19** Given the settings contract suite, then it exercises **every** key, not four — driven
+      off `LinkPolicySetting.entries`, so the fake and the adapter are compared on all nine. It is the
+      test that proves SEC-38 fixed, and it must fail on the adapter and pass on the fake before the fix
+- [ ] **SEC-39** Given `extend_on_rejection_days` greater than `absolute_expiry_days`, then the policy
+      is refused as a cross-field violation — the rule `V3__app_settings.sql` claims its `1..90` cap
+      enforces and which a static bound cannot express against a ceiling settable to 7. Same for
+      `completed_grace_days` and `idle_expiry_days`, with boundary tests matching the two rules that
+      already exist, and V3's comment rewritten to point at the validator
 
 **Tests**
 | Level | Test |
@@ -95,6 +116,10 @@ fails loudly rather than defaulting.
 | Repository | `link policy read - a missing key - fails naming the key rather than defaulting` |
 | Repository | `link policy read - idle expiry of zero - reports the idle clock disabled` |
 | Repository | `link policy update - a valid change - records old and new value in the audit log` |
+| Contract | `settings contract - a change to every settings key in turn - both implementations accept it` (SEC-38, HAR-19) |
+| Mapper | `audit metadata - every link policy setting key - survives the credential guard` (SEC-38) |
+| Mapper | `link policy validation - extend on rejection beyond the absolute ceiling - is refused as a cross-field violation` (SEC-39) |
+| Mapper | `link policy validation - extend on rejection equal to the absolute ceiling - is accepted` (SEC-39) |
 
 **Files**
 - create `src/data/repository/ExposedAppSettingsRepository.kt`
@@ -197,7 +222,7 @@ reach a new hire.
 
 PRD §12 requires an audit log of every view, approve, reject, download, email change and reopen.
 [`AuditEntry`](../../src/domain/model/AuditEntry.kt) already defines 17 actions and three
-verification methods, and `audit_logs.metadata` is a JSON text column carrying reasons and
+verification methods (17 when written; **25 today** — ERT-190 added eight), and `audit_logs.metadata` is a JSON text column carrying reasons and
 verification methods.
 
 Two properties are the point of the table. It is append-only — nothing updates or deletes a row.
@@ -354,8 +379,10 @@ fails as a domain error rather than a constraint violation.
 **Acceptance criteria**
 - [x] `[derived]` Given the seeded reference data, when departments are read, then all are returned
       in name order
-- [ ] `[derived]` Given an employment type id that does not exist, then hire creation fails with
-      `NotFound` naming which one — **carried forward to ERT-430, see below**
+- [x] `[derived]` Given an employment type id that does not exist, then hire creation fails with a
+      **422 `employment_type_unknown`** naming which one (E8; the original wording said `NotFound`,
+      which maps to 404) — delivered by **ERT-431** in
+      [`CreateHireUseCase.kt:195-212`](../../src/domain/usecase/CreateHireUseCase.kt)
 - [x] Given an unrecognized department or employment type, then it is flagged rather than silently
       creating a new one (§8.2, the same rule applied to single creation) — the *check* lands here
       as `departmentExists` / `employmentTypeExists`; the flagging is ERT-431's
@@ -369,6 +396,14 @@ fails as a domain error rather than a constraint violation.
 > tripwire. ERT-430's `Depends on` now names ERT-350 so the criterion is not lost. ERT-430 will also
 > want a `FakeReferenceDataRepository` in `test/testdata/fake/`; ERT-350 has only a local fake in its
 > route test, because a shared fake exists for use-case tests and there is no use case yet.
+>
+> **Discharged 2026-09-18 (C38).** All three statements above are now false and the criterion is
+> ticked. `CreateHireUseCase` exists and implements both checks (ERT-431, commit `66e014e`);
+> `src/domain/usecase/` holds seven use cases; `test/testdata/fake/FakeReferenceDataRepository.kt`
+> exists and ERT-250 has given it a contract suite. The note is kept rather than deleted because the
+> reasoning it records — why the use case did not belong to this ticket — outlives its subject.
+> **The local fake in the route test was never removed, and the two now disagree about ordering:
+> HAR-20.**
 
 > **Settled 2026-09-16 (E8): it is a 422.** This ticket previously specified `AppError.NotFound`,
 > which `AppErrorMapper` sends to 404, while ERT-450 and `docs/api-contract.md` both said 422 — and

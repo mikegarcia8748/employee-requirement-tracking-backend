@@ -200,6 +200,24 @@ out of the working set.
 
 **Description**
 
+
+> ### HAR-16 — one unreadable audit row makes an entity's whole history unreadable (2026-09-18, [ERT-300 review](../2026-09-18-ert-300-review.md))
+>
+> This ticket gives `AuditLog.findFor` its first caller, and `findFor` maps over the whole result set,
+> so **one bad row takes out every entry for that entity** — on an append-only table, so it cannot be
+> removed.
+>
+> Two ways a row is bad. Malformed metadata JSON is **deliberate and pinned** (`audit log - a stored
+> metadata value that is not json - fails rather than returning a broken entry`); only the blast
+> radius is unrecorded. `AuditAction.valueOf` on an unknown action name is **neither**:
+> `audit_logs.action` is `varchar(64)` with no `check`, and during a rolling deploy an instance on the
+> new build writes a new action name that an instance on the old build throws reading. ERT-1120
+> reasons about multi-instance explicitly and ERT-1270/1280 make it routine.
+>
+> - [ ] Given a stored action name this binary does not know, then `findFor` returns the other entries
+>       rather than throwing — one policy (skip-and-count, or an `UNKNOWN` sentinel carrying the raw
+>       string) applied to both cases, with a test per case
+
 > ### PERF-13 — `AuditLog.findFor` has no ceiling at all (2026-09-18, second review)
 >
 > It is the one unbounded read in the data layer with no domain bound behind it. `audit_logs` is

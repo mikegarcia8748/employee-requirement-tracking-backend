@@ -53,11 +53,13 @@ ERT-250 and ERT-260
 
 ## [ERT-300](ERT-300-catalogue-policy.md) — Requirement catalogue and link policy
 
-Phase 1 · depends on ERT-130, ERT-240 · **Done**
+Phase 1 · depends on ERT-130, ERT-240 · **In progress** — reopened 2026-09-18 by the
+[ERT-300 review](../2026-09-18-ert-300-review.md), which found SEC-38 (two of the nine §6.4 settings
+cannot be saved), SEC-39 and HAR-19 against ERT-310
 
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
-| [ERT-310](ERT-300-catalogue-policy.md#ert-310--appsettingsrepository-adapter-with-64-bounds-enforcement) | `AppSettingsRepository` adapter with §6.4 bounds enforcement | Ticket | ERT-130, ERT-240 | Done |
+| [ERT-310](ERT-300-catalogue-policy.md#ert-310--appsettingsrepository-adapter-with-64-bounds-enforcement) | `AppSettingsRepository` adapter with §6.4 bounds enforcement | Ticket | ERT-130, ERT-240 | In progress |
 | [ERT-320](ERT-300-catalogue-policy.md#ert-320--requirementtemplaterepository-adapter) | `RequirementTemplateRepository` adapter | Ticket | ERT-130, ERT-240 | Done |
 | [ERT-330](ERT-300-catalogue-policy.md#ert-330--auditlog-adapter) | `AuditLog` adapter | Ticket | ERT-240 | Done |
 | [ERT-340](ERT-300-catalogue-policy.md#ert-340--get-apirequirement-templates) | `GET /api/requirement-templates` | Ticket | ERT-140, ERT-320 | Done |

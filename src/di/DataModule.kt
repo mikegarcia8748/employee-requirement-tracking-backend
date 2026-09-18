@@ -34,14 +34,16 @@ import org.koin.dsl.module
  * fails at runtime, in production, on the one path nobody exercised.
  *
  * Each binding lands in the same change as the use case that needs it — **or** in the ticket that
- * establishes the adapter, which is what happened for the two below. ERT-300's whole purpose is to
- * set the adapter pattern before ERT-410 onward make it mechanical, and an adapter nothing can
- * resolve has not established anything. `DataModuleTest` resolves both, so a binding that is wrong
- * fails the build rather than the first request that needs it.
+ * establishes the adapter, which is what happened for `AuditLog` and `AppSettingsRepository` in
+ * ERT-310/330. ERT-300's whole purpose is to set the adapter pattern before ERT-410 onward make it
+ * mechanical, and an adapter nothing can resolve has not established anything. `DataModuleTest`
+ * resolves every bound port, so a binding that is wrong fails the build rather than the first
+ * request that needs it.
  *
- * Both adapters share one [DatabaseFactory], because it is a `single`. That is not incidental: it is
- * what lets `ExposedAppSettingsRepository` write a settings change and its audit row in one
- * transaction.
+ * **Every repository here shares one [DatabaseFactory], because it is a `single`.** That is not
+ * incidental: it is what lets `ExposedAppSettingsRepository` write a settings change and its audit
+ * row in one transaction. It is required of all seven, not of the two this note first described —
+ * corrected 2026-09-18 (C40), when the count had been two for five tickets.
  */
 val dataModule = module {
     single { DatabaseConfig.fromEnvironment(isDevMode()) }

@@ -88,7 +88,7 @@ src/
   domain/                 the rules. Pure Kotlin.
     model/                entities, status enums, LinkPolicy
     port/                 repository and service interfaces
-    usecase/              one class per business rule (empty — see §5)
+    usecase/              one class per business rule (seven as of ERT-431)
 
   data/                   adapters implementing domain ports
     db/                   DatabaseFactory (Hikari + Exposed), table/ schema
@@ -97,7 +97,7 @@ src/
     crypto/ time/ id/     BcryptHasher, SystemClock, SecureRandom generators
 
   route/                  thin HTTP adapters
-    HealthRoutes.kt       the only endpoint today
+    HealthRoutes.kt       health; see hr/ for the thirteen handlers mounted today
     hr/ portal/           handlers, split by audience and auth model
     dto/                  @Serializable wire types — the OpenAPI schema source
     mapper/               dto ↔ domain
@@ -125,7 +125,7 @@ its own dispatcher and the use case never sees one.
 | `AppSettingsRepository` | the §6.4 policy, read at runtime | `ExposedAppSettingsRepository` — **bound** |
 | `AuditLog` | HR-side actions | `ExposedAuditLog` — **bound** |
 | `PortalAccessTrail` | append-only portal attempts, distinct IPs, failure counts | *(pending)* |
-| `Notifier` | the seven notification kinds | `OutboxNotifier` — **bound**; ERT-1010 drains it over SMTP |
+| `Notifier` | the eight notification kinds | `OutboxNotifier` — **bound**; ERT-1010 drains it over SMTP |
 | `DocumentStorage` | object storage; signed URLs **HR-side only** | filesystem for dev, GCS in production (Q20) *(pending)* |
 | `HrUserRepository` | HR accounts, roles, password hashes | `ExposedHrUserRepository` — **bound** |
 | `AccessTokenIssuer` | the bearer credential a signed-in HR user presents | `JwtIssuer` — **bound** |
@@ -141,9 +141,16 @@ Four of these encode a rule in their *shape* rather than their documentation:
   record rather than an identifier. `create` returns the hire **as stored**, which may carry a
   different id than the argument (ERT-410). `saveRequirements` keeps insert-or-update, because an
   `EntityId` draws from 62^12; that asymmetry is why the two widths are separate types.
-- **`Notifier`** — only `sendInvitation` accepts an `AccessPin`. Every other method is structurally
-  incapable of carrying the credential, so "no email but the invitation contains the PIN" (§8.9) is
-  a compile-time property, not a review checklist item.
+- **`Notifier`** — **as of C23 the `AccessPin` moved off `sendInvitation` and onto
+  `sendRecoveryPin`**, so the invitation is structurally incapable of carrying the credential.
+  *(Corrected 2026-09-18, C42: this said "only `sendInvitation` accepts an `AccessPin`", which C23
+  made false and which read as an argument for the opposite of what the port now does.)*
+
+  **This bullet no longer describes a control, and SEC-41 is why.** §12 invariant 4, PRD §12 and
+  PRD §5 all say a recovery PIN is *never emailed at all* — so a `Notifier` method that accepts one
+  makes the forbidden state the single representable one, and `NotificationMessages.recoveryPin`
+  already renders the PIN into a body. Nothing calls it; **ERT-650 is gated on deciding whether the
+  rule stands or §12 is amended.** Until then, do not read this row as a compile-time property.
 - **`UploadLinkRepository.findByTokenHash`** takes a hash, never plaintext. A lookup by plaintext
   would imply the token was recoverable from storage.
 - **`DocumentStorage.signedUrlFor`** is documented HR-side only, and no portal use case may depend
