@@ -167,16 +167,17 @@ class FakeNotifierTest {
     }
 
     @Test
-    fun `fake notifier - the notifier itself throws - is a different path from a failed delivery`() = runTest {
-        // A use case may survive Failed and still fall over on an exception. The two are separate
-        // failure modes and the fake keeps them separate.
+    fun `fake notifier - a send that fails - returns Failed and never throws`() = runTest {
+        // The inverse of the test that stood here until ERT-250 (HAR-02). That one made a send
+        // THROW and asserted the exception was a separate failure mode -- a mode `OutboxNotifier`
+        // has no way to produce, because its `queue` turns every throwable into `Failed` so that
+        // §8.1's "the hire survives a failed invitation" holds. The fake no longer has the path.
         val notifier = FakeNotifier()
-        notifier.failure.failNextCall()
+        notifier.failEverySend("SMTP unavailable")
 
-        assertFailsWith<IllegalStateException> {
-            notifier.sendInvitation(anEmail(), anEmployee(), "t")
-        }
+        val result = notifier.sendInvitation(anEmail(), anEmployee(), "t")
 
-        notifier.attempts.shouldBeEmpty()
+        result shouldBe DeliveryResult.Failed("SMTP unavailable")
+        notifier.attempts shouldHaveSize 1
     }
 }

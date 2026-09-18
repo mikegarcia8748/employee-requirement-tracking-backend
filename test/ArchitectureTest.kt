@@ -606,6 +606,86 @@ class ArchitectureTest {
         assertTrue(receiving >= 5, "expected the route tree to read request bodies; found $receiving handlers")
     }
 
+    // ── Port coverage ───────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `port coverage - every domain port - has a fake`() {
+        // The whole correctness argument for the use-case suite is that a fake and its adapter
+        // agree. A port with NO fake is the case before that argument can even be made, and it has
+        // happened twice: `ReferenceDataRepository` (C9), then `HrUserRepository` and
+        // `AccessTokenIssuer`, which ERT-190 added after ERT-210 wrote the criterion.
+        val real = guard(sourcesUnder(DOMAIN_PORT_DIR)) { portsWithoutFakes(it) }
+
+        real shouldBe GuardOutcome.Checked(scanned = real.scannedOrZero(), violations = emptyList())
+        (real.scannedOrZero() > 0) shouldBe true
+    }
+
+    @Test
+    fun `port coverage - a port with no fake - the build fails`() {
+        portsWithoutFakes(
+            listOf(source("src/domain/port/Repositories.kt", "interface AppointmentRepository {")),
+        ).size shouldBe 1
+    }
+
+    @Test
+    fun `port coverage - a port whose fake exists - does not trip the guard`() {
+        // Paired with the test above, so "the guard fires" and "the guard fires at everything" are
+        // distinguishable. `AuditLog` has `FakeAuditLog.kt` beside the others.
+        portsWithoutFakes(
+            listOf(source("src/domain/port/AuditLog.kt", "interface AuditLog {")),
+        ).shouldBeEmpty()
+    }
+
+    @Test
+    fun `test discovery - every class holding a test - is named so the scan discovers it`() {
+        // Amper runs the suite with `--scan-class-path` and NO `--include-classname`, so JUnit's own
+        // default applies: `^(Test.*|.+[.$]Test.*|.*Tests?)$`. A concrete class named
+        // `EmployeeRepositoryContractSuite` is therefore never instantiated, contributes zero tests,
+        // and reports nothing — `--fail-if-no-tests` and CI's `require_tests` are both whole-run
+        // floors and neither sees one silently empty class.
+        //
+        // That is this project's own vacuity failure with a new door, and it is the specific risk of
+        // putting shared tests on an abstract base: the base is correctly skipped, and a
+        // misnamed subclass is skipped identically.
+        //
+        // Swept over the WHOLE suite rather than over `test/contract/` alone. The trap is not
+        // particular to contract suites -- it is particular to this toolchain -- and a guard aimed
+        // at one directory of nine would have let the next instance land anywhere else.
+        val misnamed = sourcesUnder(TEST_DIR)
+            .flatMap { file -> classesHoldingATestIn(file) }
+            .filterNot { it.substringAfterLast(": ").matches(JUNIT_CLASS_NAME) }
+
+        misnamed.shouldBeEmpty()
+    }
+
+    @Test
+    fun `guard integrity - the test tree holds classes that hold tests - the guard reports checked`() {
+        // A walk that matched no class would make the check above pass forever. The suite holds
+        // well over a hundred test classes; the floor is deliberately far below that.
+        val holders = sourcesUnder(TEST_DIR).sumOf { classesHoldingATestIn(it).size }
+
+        assertTrue(holders >= 50, "expected classes holding tests; found $holders")
+    }
+
+    @Test
+    fun `test discovery - a class holding a test but named for the scan to skip - the build fails`() {
+        classesHoldingATestIn(
+            source("test/contract/EmployeeContractSuite.kt", "class EmployeeContractSuite {\n    @Test\n    fun x() {}\n}"),
+        ).filterNot { it.substringAfterLast(": ").matches(JUNIT_CLASS_NAME) }.size shouldBe 1
+    }
+
+    @Test
+    fun `guard integrity - the port directory is populated - the guard reports checked`() {
+        // The count C9 and C30 each corrected in prose, held by an assertion instead. ERT-210's
+        // criterion said ten; `Repositories.kt` alone declares eight, and there are thirteen in all.
+        // Moving this number is a decision, and it belongs in a diff rather than in a third recount.
+        declaredPorts(sourcesUnder(DOMAIN_PORT_DIR)) shouldHaveSize 13
+
+        // The other half: the fake directory has to be readable from here, or every port would look
+        // covered by an empty listing exactly as easily as by a full one.
+        (fakeFileNames().size > 13) shouldBe true
+    }
+
     /**
      * Handlers whose body does not begin with a gate call.
      *
@@ -665,6 +745,54 @@ class ArchitectureTest {
         }
     }
 
+    /**
+     * Ports declared under `src/domain/port/` with no `Fake<Name>.kt` beside the others.
+     *
+     * Parses interface *declarations* rather than file names, because `Repositories.kt` declares
+     * eight of the thirteen in one file — a guard keyed on files would see one port there and call
+     * the other seven covered.
+     *
+     * `fakes` is a parameter so a synthetic port can be checked against the real directory listing
+     * without writing a file, which is how the two tests above tell "the guard fires" apart from
+     * "the guard fires at everything".
+     */
+    private fun portsWithoutFakes(
+        files: List<SourceFile>,
+        fakes: Set<String> = fakeFileNames(),
+    ): List<String> =
+        declaredPorts(files)
+            .filterNot { "Fake$it.kt" in fakes }
+            .map { "$it has no Fake$it.kt under $FAKE_DIR" }
+
+    /**
+     * Concrete classes in one file that actually carry a `@Test`.
+     *
+     * The body of each class is taken as the span up to the next top-level `class`, which is crude
+     * and sufficient: a helper class with no test in it is not a discovery risk, and an abstract
+     * base is never instantiated by JUnit whatever it is called.
+     */
+    private fun classesHoldingATestIn(file: SourceFile): List<String> {
+        val text = file.text.withoutComments()
+        val classes = CONCRETE_CLASS.findAll(text).toList()
+        return classes.mapIndexedNotNull { index, match ->
+            val end = classes.getOrNull(index + 1)?.range?.first ?: text.length
+            "${file.path}: ${match.groupValues[1]}"
+                .takeIf { "@Test" in text.substring(match.range.first, end) }
+        }
+    }
+
+    private fun declaredPorts(files: List<SourceFile>): List<String> =
+        files.flatMap { file ->
+            PORT_INTERFACE.findAll(file.text.withoutComments()).map { it.groupValues[1] }
+        }
+
+    private fun fakeFileNames(): Set<String> =
+        File(projectDir, FAKE_DIR)
+            .listFiles { file -> file.extension == "kt" }
+            .orEmpty()
+            .map { it.name }
+            .toSet()
+
     private fun source(path: String, text: String) = SourceFile(path, text)
 
     private fun sourcesUnder(dir: String): List<SourceFile> =
@@ -691,6 +819,26 @@ class ArchitectureTest {
         const val PORTAL_ROUTE_DIR = "src/route/portal"
         const val PLUGIN_PACKAGE = "com.pgsystem.employee.requirement.tracker.plugin"
         const val DOMAIN_PORT_PACKAGE = "com.pgsystem.employee.requirement.tracker.domain.port"
+        const val DOMAIN_PORT_DIR = "src/domain/port"
+        const val FAKE_DIR = "test/testdata/fake"
+        const val CONTRACT_DIR = "test/contract"
+        const val TEST_DIR = "test"
+
+        /** A top-level `class Name` that is not abstract — the ones JUnit tries to instantiate. */
+        val CONCRETE_CLASS = Regex("""^class\s+([A-Z][A-Za-z0-9_]*)""", RegexOption.MULTILINE)
+
+        /** JUnit's own default, copied from `TestDiscoveryOptions`. */
+        val JUNIT_CLASS_NAME = Regex("""^(Test.*|.+[.$]Test.*|.*Tests?)$""")
+
+        /**
+         * A top-level `interface Name` declaration, anchored at column zero.
+         *
+         * Anchored rather than free, because `\binterface` also matches `sealed interface
+         * DeliveryResult` in `Notifier.kt` — a result type, not a port, and it has no fake for the
+         * same reason `TokenGrant` does not. A port is a plain top-level interface; anything
+         * indented is nested and anything prefixed is sealed or private.
+         */
+        val PORT_INTERFACE = Regex("""^interface\s+([A-Z][A-Za-z0-9_]*)""", RegexOption.MULTILINE)
 
         val HANDLER = Regex("""\b(get|post|put|patch|delete)\(\s*"([^"]+)"\s*\)\s*\{""")
 

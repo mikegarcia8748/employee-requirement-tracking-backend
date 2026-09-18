@@ -66,10 +66,20 @@ class FakeEmployeeRepository(
      * rather than by listing statuses here: a completed or cancelled hire sharing an address is not
      * a collision worth warning about, and that rule already lives on the type. Restating it would
      * give it two definitions that could drift.
+     *
+     * **Ordered by creation, then id — the order `ExposedEmployeeRepository` promises (ERT-250).**
+     * This returned map insertion order until the contract suite compared the two (HAR-01 a). The
+     * adapter's `ORDER BY` was added in ERT-410's review step because SEC-11's duplicate list must
+     * not reshuffle between two reads of the same page; a fake without it would let ERT-450 render
+     * that list from an order no database guarantees. The id tiebreak is not decoration: every
+     * builder creates at `FixedClock.DEFAULT`, so two hires sharing an instant is this harness's
+     * default case.
      */
     override suspend fun findActiveByEmail(email: EmailAddress): List<Employee> {
         failure.check()
-        return employees.values.filter { it.email == email && !it.packetStatus.isTerminal }
+        return employees.values
+            .filter { it.email == email && !it.packetStatus.isTerminal }
+            .sortedWith(compareBy({ it.createdAt }, { it.id.value }))
     }
 
     /**

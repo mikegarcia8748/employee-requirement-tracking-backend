@@ -773,7 +773,7 @@ Added with the `sort_order_snapshot` column, and by the review step:
 |---|---|
 | **Parent** | ERT-430 |
 | **Type** | Sub-task |
-| **Status** | Completed |
+| **Status** | Done |
 | **Depends on** | ERT-432 |
 | **PRD** | §6.4, §6.6, §8.1, §12 |
 
@@ -846,6 +846,29 @@ The idle clock is the second of two clocks — when `idleExpiryDays` is 0 it is 
 | **PRD** | §8.1, §8.9, §6.6 |
 
 **Description**
+
+> ### SEC-37 — a cancelled request is reported as a delivery failure (2026-09-18, second review)
+>
+> `OutboxNotifier.queue` wraps the clock read, the id draw and the insert in one `runCatching`, which
+> catches **`Throwable`** — so `CancellationException` becomes
+> `DeliveryResult.Failed("CancellationException")` and the calling coroutine carries on as though a
+> delivery had merely failed.
+>
+> The `runCatching` is correct and must stay: §8.1 requires the hire to survive a failed invitation,
+> and ERT-250's contract suite now asserts on **both** implementations that no send ever throws. The
+> defect is only that cancellation is not a delivery failure — this ticket would record one and
+> surface a retry action to HR for a request nobody is waiting for, and structured concurrency loses
+> a cancellation it is entitled to. On Cloud Run a client disconnect or an instance drain is the
+> realistic producer.
+>
+> Re-throw `CancellationException` before the `getOrElse`, or catch `Exception` rather than
+> `Throwable`. **The new contract test will not catch this** — it asserts a failure is a value, which
+> is exactly what the bug does — so it needs a test of its own.
+>
+> It is filed here rather than against ERT-1010 because this ticket is what first gives `queue` a
+> caller, and because it sits beside the question this ticket already owes an answer to: HAR-02's
+> second half, *how does a hire whose outbox insert failed become visible to HR, given there is no
+> row?*
 
 Delivery is fallible and the hire is created regardless — §8.1 requires a failure indicator and a
 retry action, not a lost record. [`DeliveryResult`](../../src/domain/port/Notifier.kt) models this

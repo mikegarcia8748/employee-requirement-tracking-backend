@@ -25,6 +25,26 @@ import com.pgsystem.employee.requirement.tracker.domain.port.RejectedItem
  * [failEverySend] makes all of them. A failed send still lands in [attempts]: "returned Failed and
  * recorded the attempt" is one assertion, not two systems.
  *
+ * **`DeliveryResult.Failed` is the only failure this fake has, and that is deliberate (ERT-250,
+ * HAR-02).** It used to carry a [FakeFailure] as well, so a test could make a send *throw* — and
+ * `OutboxNotifier` structurally cannot. Its `queue` wraps the clock read, the id draw and the insert
+ * in one `runCatching`, so an unreachable database, a foreign-key violation, anything at all becomes
+ * `Failed`; §8.1 requires exactly that, because `CreateHireUseCase` must see a value it can report
+ * rather than an exception unwinding the creation it has just completed.
+ *
+ * So a use case hardened against a throwing notifier was hardened against nothing, and the test
+ * proving it was hardened proved nothing. The worse direction is the one that costs an afternoon: a
+ * use case that correctly ignores the impossible throw, made to look broken by a fake-backed test.
+ * [FakeFailure]'s own KDoc warns against this class of mistake in the mirror direction — *"a fake
+ * that returned `DomainResult.Err` would be modelling a path the real adapter does not have"* — and
+ * this was that warning, inverted, in the fake beside it.
+ *
+ * **What is still open, and is not this fake's to answer:** `OutboxNotifier` returns `Failed` and
+ * writes **nothing** when the insert is what failed, while this fake records the attempt and exposes
+ * it as [failed]. `NotificationOutbox`'s KDoc says §8.1's delivery-failure indicator is derived from
+ * the latest row for a hire — so that indicator cannot see a queue-insert failure at all. **ERT-434
+ * owns that question** and its block carries it.
+ *
  * ### Recording the token and PIN is what makes an end-to-end test possible
  *
  * The invitation is the only place either plaintext exists. Capturing both here lets a later test
@@ -33,8 +53,6 @@ import com.pgsystem.employee.requirement.tracker.domain.port.RejectedItem
  * storage, which is precisely what the hashing design forbids.
  */
 class FakeNotifier : Notifier {
-
-    val failure = FakeFailure()
 
     private val log = mutableListOf<Attempt>()
     private val queuedFailures = ArrayDeque<String>()
@@ -121,16 +139,13 @@ class FakeNotifier : Notifier {
         deliver(Sent.HrSuspensionNotice(employee, reason))
 
     /**
-     * The one path every send takes.
+     * The one path every send takes, and the only one — it cannot throw.
      *
      * The attempt is recorded **before** the result is known to the caller, so a failure is never a
-     * silent no-op. [failure] is separate and throws: a notifier that raises rather than returning
-     * `Failed` is a different failure mode, and a use case that survives one may not survive the
-     * other.
+     * silent no-op. There is deliberately no [FakeFailure] here: see this class's note on HAR-02 for
+     * why a throwing notifier is a path `OutboxNotifier` has no way to produce.
      */
     private fun deliver(notification: Sent): DeliveryResult {
-        failure.check()
-
         val reason = queuedFailures.removeFirstOrNull() ?: failingEverySend
         val result = if (reason == null) DeliveryResult.Sent else DeliveryResult.Failed(reason)
 

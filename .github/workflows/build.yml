@@ -94,6 +94,97 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # ERT-260. The suite above runs on H2 in PostgreSQL mode, which is not PostgreSQL --
+  # RepositoryTestBase has said so in its KDoc since ERT-240, and ERT-240 deferred the real thing
+  # with no ticket number. This is that ticket: a SECOND opinion, not a replacement. H2 stays the
+  # default so a local run needs no Docker, which is the trade ERT-240 was actually protecting.
+  #
+  # Three divergences were latent rather than hypothetical, and one is now measured: Kotlin and H2
+  # order text by UTF-16 code unit, PostgreSQL by the database collation, so `Apple, Zebra, apple`
+  # on H2 is `apple, Apple, Zebra` here. test/data/db/CollationTest.kt pins it.
+  #
+  # The variable is ERT_TEST_DATABASE_URL and deliberately NOT DATABASE_URL: Amper's test JVM
+  # inherits this environment, and DATABASE_URL is what DatabaseConfig.fromEnvironment reads, so
+  # setting it would silently repoint all eleven testApplication files at this container --
+  # including ServerTest's "no DATABASE_URL set" test, which would keep passing while testing
+  # something else.
+  postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: ert
+          POSTGRES_USER: ert
+          POSTGRES_PASSWORD: ert_ci_only
+        ports:
+          - 5432:5432
+        # `pg_isready -U ert -d ert` rather than a bare `pg_isready`, for the reason
+        # docker-compose.yml records: a bare one passes against initdb's temporary server.
+        options: >-
+          --health-cmd "pg_isready -U ert -d ert -q"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+          --health-start-period 10s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same key as the build job, so the second job reuses the first job's download rather
+      # than provisioning its own toolchain.
+      - name: Restore the Kotlin toolchain and dependency cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/JetBrains/Kotlin
+          key: kotlin-${{ runner.os }}-${{ hashFiles('kotlin', 'libs.versions.toml', 'module.yaml') }}
+          restore-keys: kotlin-${{ runner.os }}-
+
+      - name: Test against PostgreSQL
+        env:
+          ERT_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/ert
+          ERT_TEST_DATABASE_USER: ert
+          ERT_TEST_DATABASE_PASSWORD: ert_ci_only
+        run: ./kotlin test
+
+      # The same discovery floor the build job enforces, and it matters more here: a job whose
+      # engine override was ignored would run the whole suite on H2 and report a confident green.
+      # `ran against postgres` below is what actually catches that; this catches a suite that
+      # stopped discovering.
+      - name: Publish the test report and enforce a discovery floor
+        if: always()
+        uses: mikepenz/action-junit-report@v5
+        with:
+          report_paths: 'build/**/TEST-*.xml'
+          require_tests: true
+          fail_on_failure: true
+          detailed_summary: true
+          check_name: 'PostgreSQL test report'
+
+      # Without this the job proves nothing a green H2 run would not also prove. The two tests
+      # named here are the ones that ABORT on H2 and RUN on PostgreSQL, so their presence in the
+      # report is the evidence that the override was honoured.
+      - name: Assert the suite actually ran against PostgreSQL
+        run: |
+          set -euo pipefail
+          report=$(find build -name 'TEST-*.xml' | head -n1)
+          test -n "$report" || { echo "no junit report produced"; exit 1; }
+          for named in "a postgres override - runs each test in its own schema" \
+                       "a finished test - drops the schema it was given"; do
+            if grep -rFq "$named" build --include='TEST-*.xml'; then
+              echo "ran on postgres: $named"
+            else
+              echo "MISSING: '$named' did not run -- the engine override was not honoured"
+              exit 1
+            fi
+          done
+          if grep -rFq 'Assumption failed: no PostgreSQL override set' build --include='TEST-*.xml'; then
+            echo "a PostgreSQL-only test was skipped; the override did not reach the test JVM"
+            exit 1
+          fi
+
   image:
     # Proves the container still builds and still boots, without pushing
     # anything. Runs on every PR rather than behind a `paths` filter: a filtered

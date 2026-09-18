@@ -280,7 +280,7 @@ object AuditLogs : EntityIdTable("audit_logs") {
  * this per kind, so a kind added later must choose rather than inherit — the device
  * `AnomalyFlag.freezesRetention` and `LinkStatus.opensPortal` already use.
  *
- * **[recipient] is nullable because two of the seven `Notifier` methods take no address.**
+ * **[recipient] is nullable because two of the eight `Notifier` methods take no address.**
  * `sendPacketReadyForReview` and `notifyHrOfSuspension` go to HR, whose address is ERT-1010's
  * configuration rather than this ticket's. A sentinel string would be a lie in a column other code
  * reads; [kind] already names the audience.
@@ -298,7 +298,14 @@ object NotificationOutbox : EntityIdTable("notification_outbox") {
     val employeeId = reference("employee_id", Employees)
     val subject = varchar("subject", 256)
 
-    /** Null for `INVITATION`, always. See this table's own note. */
+    /**
+     * Null for every kind whose `storesBody` is false — `INVITATION` and `RECOVERY_PIN`.
+     *
+     * Corrected 2026-09-18 (C37). This read "Null for `INVITATION`, always", which was true until
+     * C23 split the port and gave the recovery PIN its own method. The rule has never been a list
+     * of kinds — it is `NotificationKind.storesBody`, which every kind must choose — and a comment
+     * naming one of them is how a ninth kind would inherit the wrong side of it.
+     */
     val body = text("body").nullable()
 
     val status = varchar("status", 32)

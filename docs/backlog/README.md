@@ -12,6 +12,11 @@ Status values: `Not started` · `In progress` · `Done` · `Blocked`. A session 
 ticket it takes **in two places** — here and in the ticket's own block. Sub-tasks carry a Status row
 too, because a session working one opens the epic file and never opens this page.
 
+> **The two places drifted, and it was found by accident (C34, 2026-09-18).** ERT-433 was committed
+> to `main`, its own block read `Completed` — which is not one of the four values above — and this
+> row still read `Not started`. Both are corrected. The rule is the one thing holding these in step
+> and nothing checks it; noted here because the next instance will look the same.
+
 ## [ERT-100](ERT-100-foundations.md) — Runtime foundations
 
 Phase 0 · depends on — · **Done**
@@ -33,8 +38,9 @@ Phase 0 · depends on — · **Done**
 
 ## [ERT-200](ERT-200-test-harness.md) — Test harness
 
-Phase 0 · depends on ERT-120 · **In progress** — reopened 2026-09-18 by the
-[ERT-100/ERT-200 review](../2026-09-18-ert-100-200-review.md)
+Phase 0 · depends on ERT-120 · **Done** — reopened 2026-09-18 by the
+[ERT-100/ERT-200 review](../2026-09-18-ert-100-200-review.md), closed again the same day by
+ERT-250 and ERT-260
 
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
@@ -42,8 +48,8 @@ Phase 0 · depends on ERT-120 · **In progress** — reopened 2026-09-18 by the
 | [ERT-220](ERT-200-test-harness.md#ert-220--deterministic-fixedclock-and-id-token-and-pin-generators) | Deterministic `FixedClock` and id, token and PIN generators | Ticket | — | Done |
 | [ERT-230](ERT-200-test-harness.md#ert-230--domain-test-builders) | Domain test builders | Ticket | ERT-220 | Done |
 | [ERT-240](ERT-200-test-harness.md#ert-240--repository-integration-test-base-against-h2-in-postgresql-mode) | Repository integration-test base against H2 in PostgreSQL mode | Ticket | ERT-120, ERT-130 | Done |
-| [ERT-250](ERT-200-test-harness.md#ert-250--contract-tests-binding-each-ports-fake-to-its-adapter) | Contract tests binding each port's fake to its adapter | Ticket | ERT-210 | Not started |
-| [ERT-260](ERT-200-test-harness.md#ert-260--a-postgresql-ci-job-and-a-migration-applied-to-a-database-with-data) | A PostgreSQL CI job, and a migration applied to a database with data | Ticket | ERT-240, ERT-1160 | Not started |
+| [ERT-250](ERT-200-test-harness.md#ert-250--contract-tests-binding-each-ports-fake-to-its-adapter) | Contract tests binding each port's fake to its adapter | Ticket | ERT-210 | Done |
+| [ERT-260](ERT-200-test-harness.md#ert-260--a-postgresql-ci-job-and-a-migration-applied-to-a-database-with-data) | A PostgreSQL CI job, and a migration applied to a database with data | Ticket | ERT-240, ERT-1160 | Done |
 
 ## [ERT-300](ERT-300-catalogue-policy.md) — Requirement catalogue and link policy
 
@@ -68,7 +74,7 @@ Phase 1 · depends on ERT-300
 | [ERT-430](ERT-400-hire-creation.md#ert-430--createhireusecase) | `CreateHireUseCase` | Ticket | ERT-190, ERT-210, ERT-230, ERT-310, ERT-320, ERT-350, ERT-410, ERT-420, ERT-440 | In progress |
 | [ERT-431](ERT-400-hire-creation.md#ert-431--email-validation-and-duplicate-on-active-with-typed-reason) | ↳ Email validation and duplicate-on-active with typed reason | Sub-task | ERT-210, ERT-230 | Done |
 | [ERT-432](ERT-400-hire-creation.md#ert-432--requirement-set-snapshot-from-the-template-catalogue) | ↳ Requirement-set snapshot from the template catalogue | Sub-task | ERT-431 | Done |
-| [ERT-433](ERT-400-hire-creation.md#ert-433--token-issue-digested-with-expiresat-computed-from-policy) | ↳ Token issue, digested, with `expiresAt` computed from policy | Sub-task | ERT-432 | Not started |
+| [ERT-433](ERT-400-hire-creation.md#ert-433--token-issue-digested-with-expiresat-computed-from-policy) | ↳ Token issue, digested, with `expiresAt` computed from policy | Sub-task | ERT-432 | Done |
 | [ERT-434](ERT-400-hire-creation.md#ert-434--invitation-dispatch-and-surviving-delivery-failure) | ↳ Invitation dispatch and surviving delivery failure | Sub-task | ERT-433, ERT-440 | Not started |
 | [ERT-440](ERT-400-hire-creation.md#ert-440--notifier-dev-adapter-outbox-table-no-smtp) | `Notifier` dev adapter: outbox table, no SMTP | Ticket | ERT-120 | Done |
 | [ERT-450](ERT-400-hire-creation.md#ert-450--post-apiemployees-and-its-dtos) | `POST /api/employees` and its DTOs | Ticket | ERT-140, ERT-190, ERT-430 | Not started |

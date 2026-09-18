@@ -6,6 +6,7 @@ import com.pgsystem.employee.requirement.tracker.domain.port.AccessTokenIssuer
 import com.pgsystem.employee.requirement.tracker.domain.port.TokenGrant
 import java.time.Duration
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 /**
  * The [AccessTokenIssuer] a use-case test uses (ERT-190).
@@ -26,11 +27,24 @@ class FakeAccessTokenIssuer(private val ttl: Duration = Duration.ofMinutes(60)) 
     /** Every user a token was minted for, in order. Empty means the issuer was never reached. */
     val issuedFor: List<HrUser> get() = issued.toList()
 
+    /**
+     * Expiry is computed from `issuedAt` **truncated to whole seconds**, exactly as `JwtIssuer` does.
+     *
+     * A JWT's `exp` is a NumericDate — seconds since the epoch — so an issuer that adds the TTL to
+     * the instant as given returns a time the token cannot represent, and tells its caller an expiry
+     * the verifier disagrees with by up to a second.
+     *
+     * This fake added the TTL to the raw instant until ERT-250's contract suite compared the two.
+     * The divergence is on every `Instant.now()` and therefore on every real sign-in; it stayed
+     * invisible because `FixedClock.DEFAULT` happens to sit on a whole second, so no existing test
+     * ever handed either implementation an instant that could tell them apart. It was not one of the
+     * six HAR-01 listed — the contract suite found it.
+     */
     override fun issue(user: HrUser, issuedAt: Instant): TokenGrant {
         issued += user
         return TokenGrant(
             token = AccessToken("fake-token-for-${user.id.value}-as-${user.role.name}"),
-            expiresAt = issuedAt.plus(ttl),
+            expiresAt = issuedAt.truncatedTo(ChronoUnit.SECONDS).plus(ttl),
         )
     }
 }

@@ -4,7 +4,7 @@
 |---|---|
 | **Type** | Epic |
 | **Phase** | 0 |
-| **Status** | In progress |
+| **Status** | Done |
 | **Depends on** | ERT-120 |
 | **PRD** | — |
 | **Architecture** | §10 |
@@ -13,6 +13,11 @@
 > [ERT-100/ERT-200 review](../2026-09-18-ert-100-200-review.md) found that nothing keeps a fake and
 > its adapter in step (six live divergences, HAR-01), and that the Postgres CI job ERT-240 deferred
 > was deferred to nobody. **ERT-250** and **ERT-260** are those two.
+>
+> **Closed again 2026-09-18.** Both landed in one branch, because ERT-250 needed the database
+> lifecycle extracted out of `RepositoryTestBase` and ERT-260 needed to change what that lifecycle
+> opens. The suite went from **689 tests to 845**, and runs green on H2 (14.4 s) and on PostgreSQL 17
+> (48.9 s).
 
 **Description**
 
@@ -312,7 +317,7 @@ A repository test declares one base class and gets a migrated, seeded, isolated 
 | **Parent** | ERT-200 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-210 |
 | **PRD** | — |
 | **Architecture** | §10, §11 |
@@ -376,19 +381,22 @@ without a fake.
   that matching the fake is a red test rather than a habit.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given each port, then one suite of contract tests runs against both its fake and
-      its adapter, asserting ordering, uniqueness and not-found semantics
-- [ ] `[derived]` Given the six divergences above, then each is closed by a contract test that failed
-      first
-- [ ] Given `FakeHrUserRepository`, then a second account on the same address is refused, and
-      `findByEmail` answers the way `singleOrNull` does
-- [ ] Given `FakeUploadLinkRepository.given`, then it refuses a duplicate `token_hash` the way the
+- [x] `[derived]` Given each port, then one suite of contract tests runs against both its fake and
+      its adapter, asserting ordering, uniqueness and not-found semantics — **13 suites, 144 tests**
+      in `test/contract/`
+- [x] `[derived]` Given the six divergences above, then each is closed by a contract test that failed
+      first — each was observed red before its fix, and each is caught by a named test when reverted
+- [x] Given `FakeHrUserRepository`, then a second account on the same address is refused, and
+      `findByEmail` answers the way `singleOrNull` does — refused on **all four** doors; see the
+      `singleOrNull` note below
+- [x] Given `FakeUploadLinkRepository.given`, then it refuses a duplicate `token_hash` the way the
       constructor and `save` already do
-- [ ] `[derived]` Given `FakeNotifier`, then its failure mode is `DeliveryResult.Failed` only, with
+- [x] `[derived]` Given `FakeNotifier`, then its failure mode is `DeliveryResult.Failed` only, with
       the reason recorded in its KDoc
-- [ ] `[derived]` Given an `interface` under `src/domain/port/` with no `Fake<Name>.kt` beside the
-      others, then the build fails — with the anti-vacuity assertion the file's other guards use
-- [ ] `[derived]` Given the four ports with no adapter yet, then their suite runs against the fake
+- [x] `[derived]` Given an `interface` under `src/domain/port/` with no `Fake<Name>.kt` beside the
+      others, then the build fails — with the anti-vacuity assertion the file's other guards use.
+      Verified by adding one and watching the build go red
+- [x] `[derived]` Given the four ports with no adapter yet, then their suite runs against the fake
       alone, so ERT-610, ERT-620 and ERT-720 bind into a harness that already exists
 
 **Tests**
@@ -420,6 +428,66 @@ without a fake.
   stricter than object storage on purpose.
 - The `PortalSession` model/port gap. That is a design decision, and it belongs to **ERT-620**.
 
+> ### Decided rather than assumed
+>
+> **The shared tests live on an abstract base with one concrete subclass per implementation**, not on
+> a JUnit 5 test interface and not on `@ParameterizedTest`. The interface form works — Kotlin 2.4
+> emits real JVM default methods — but the ordering of `@BeforeEach` methods contributed by
+> *different interfaces* is unspecified, and the database lifecycle depends on that ordering.
+> `@ParameterizedTest` needs `junit-jupiter-params`, which `module.yaml` does not declare: it is on
+> the classpath only transitively through **MockK**, which **ERT-1140 may remove** — so a contract
+> harness built on it would break on an unrelated cleanup.
+>
+> **The adapter side composes `MigratedDatabase` rather than extending `RepositoryTestBase`.** Kotlin
+> has one superclass and the contract needs it. The lifecycle moved into a class both can own, so
+> there is still exactly one copy of it and the nine existing `RepositoryTestBase` subclasses needed
+> no edit.
+>
+> **A concrete contract class must be named `*Test`, and there is now a guard saying so.** Amper runs
+> the suite with `--scan-class-path` and no `--include-classname`, so JUnit's own default applies:
+> `^(Test.*|.+[.$]Test.*|.*Tests?)$`. A class named `EmployeeRepositoryContractSuite` is **silently
+> not discovered** — it contributes zero tests, and neither `--fail-if-no-tests` nor CI's
+> `require_tests` notices, because both are whole-run floors. That is this project's vacuity failure
+> with a new door, and it is the specific risk of putting shared tests on a base class: the base is
+> correctly skipped and a misnamed subclass is skipped identically. `ArchitectureTest.contract
+> coverage` fails the build on one. **The discovery was proved rather than assumed** — a deliberately
+> failing test on a contract base was run once and reported exactly two failures, one per side.
+>
+> ### Two divergences beyond the six, and where each came from
+>
+> **The seventh was found by the contract suite itself**, which is the argument for writing one per
+> port rather than only for the ports whose divergences were already known.
+> `FakeAccessTokenIssuer` computed `issuedAt.plus(ttl)`; `JwtIssuer` truncates `issuedAt` to whole
+> seconds first, because `exp` is a NumericDate. The two disagree for every instant not already on a
+> second boundary — which is every `Instant.now()`, and therefore every real sign-in. It stayed
+> invisible because `FixedClock.DEFAULT` happens to sit on a whole second, so no test had ever handed
+> either implementation an instant that could tell them apart.
+>
+> **The eighth was found by the mutation pass**, not by the review and not by the suite.
+> `FakeHrUserRepository`'s **constructor** was a fourth door into the duplicate-address state that
+> `save` and `given` now refuse — `FakeUploadLinkRepository` has guarded its own constructor since
+> ERT-420, and this one did not.
+>
+> ### `singleOrNull` vs `firstOrNull` is an equivalent mutant, on both sides
+>
+> Recorded rather than quietly counted as covered. With uniqueness enforced on every write door here
+> and by `users_email_unique` plus the lowercase CHECK there, **two rows on one address are
+> unreachable through the port in both implementations** — so swapping the two reports `SURVIVED` on
+> the fake *and* on the adapter. It is not a gap in the suite; it is a distinction no test can
+> construct. `singleOrNull` stays on both, because a migration or a psql prompt can still write the
+> pair and the right answer then is "I cannot tell you who this is".
+>
+> ### The mutation pass
+>
+> Fourteen deliberate breaks, each reverted after: seven against the fakes, six against the adapters
+> in the mirror direction, one against the new constructor guard. **Twelve failed a named contract
+> test**; the two that survived are the equivalent mutant above. The two new `ArchitectureTest`
+> guards were each verified by making the build fail — a port with no fake, and a contract class
+> named so the scan would skip it.
+>
+> The harness requires the literal string `tests successful` before reading an empty failure list as
+> a survival, on ERT-431's precedent: Amper prints `ERROR:` inside a box-drawn frame, never `error:`.
+>
 > **HAR-02's second half is not this ticket's.** `FakeNotifier` records a failed attempt and exposes
 > it as `failed`; `OutboxNotifier` returns `Failed` and writes **nothing**, because the insert is what
 > failed — so §8.1's delivery-failure indicator, which `NotificationOutbox`'s KDoc says is derived
@@ -435,7 +503,7 @@ without a fake.
 | **Parent** | ERT-200 |
 | **Type** | Ticket |
 | **Phase** | Cross-cutting — **Phase 1 exit checklist** |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-240, ERT-1160 |
 | **PRD** | §11 |
 | **Architecture** | §10, §13 |
@@ -488,17 +556,20 @@ fails the build instead of shipping.
   populated database at least once before.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given a push, then the repository tests run a second time against a real PostgreSQL
-      service container
-- [ ] `[derived]` Given a local run with no Docker, then H2 stays the default and the suite is
+- [x] `[derived]` Given a push, then the repository tests run a second time against a real PostgreSQL
+      service container — the whole suite does, not only the repository tests, and a step asserts the
+      override was honoured rather than trusting a green H2 run
+- [x] `[derived]` Given a local run with no Docker, then H2 stays the default and the suite is
       unchanged — this is an additional job, not a replacement
-- [ ] Given migrations to V3 and then a seeded `employees` and `app_settings` row, when the remaining
-      migrations run, then the rows survive with their values
-- [ ] `[derived]` Given `V4`, then it either preserves the four actor columns or carries a documented
-      exemption saying the destruction was deliberate against an empty database
-- [ ] `[derived]` Given the PostgreSQL job, then a collation-sensitive ordering test exists for
-      `employee_requirements.name_snapshot`, where `sort_order_snapshot` defaults to 0 and ties are
-      ordinary
+- [x] Given migrations to a seeded `employees` and `app_settings` row, when the remaining migrations
+      run, then the rows survive with their values — **seeded after V4 rather than after V3**, see
+      the exemption below
+- [x] `[derived]` Given `V4`, then it carries a documented exemption — and a test asserting the
+      exemption is still **load-bearing**, so a rewrite of V4 fails the build rather than leaving a
+      stale licence behind
+- [x] `[derived]` Given the PostgreSQL job, then a collation-sensitive ordering test exists for
+      `employee_requirements.name_snapshot` — `test/data/db/CollationTest.kt`, and the divergence is
+      **real and measured**
 
 **Tests**
 | Level | Test |
@@ -515,8 +586,61 @@ fails the build instead of shipping.
 - modify [`test/data/db/MigrationTest.kt`](../../test/data/db/MigrationTest.kt) — the
   populated-database test
 
+> ### Decided rather than assumed
+>
+> **The override is `ERT_TEST_DATABASE_URL`, deliberately not `DATABASE_URL`.** This ticket's own
+> Files list said "a `DATABASE_URL` path", and that would have been a defect. Amper's test JVM
+> **inherits the ambient environment** — verified in the CLI's bytecode: `extraEnvironment` is an
+> overlay on `ProcessBuilder.environment()`, which nothing clears — and `DATABASE_URL` is what
+> `DatabaseConfig.fromEnvironment()` reads. Setting it would repoint all **eleven** `testApplication`
+> files at the CI container, each of which connects, migrates and runs the HR bootstrap. Worse, it
+> would not fail: `ServerTest`'s
+> *"no `DATABASE_URL` set - connects to the in-memory default"* asserts a 200 and a `select 1`, both
+> of which hold against PostgreSQL. **The test name would become a lie and the test would silently
+> stop testing the dev fallback.**
+>
+> **Isolation on PostgreSQL is a schema per test, not a database per test and not truncation.**
+> `CREATE DATABASE` locks the template and needs a maintenance connection; truncation would have to
+> know the foreign-key order of every table forever *and* restore the seed rows that ERT-310's and
+> ERT-350's tests deliberately delete. A schema is the same structural promise as ERT-240's
+> brand-new in-memory database — a namespace nothing else has a name for, dropped whole — so that
+> ticket's isolation argument carries over rather than being weakened. **Measured: 48.9 s against
+> PostgreSQL 17 versus 14.4 s on H2**, for 845 tests. Revisit against a number, not a hunch.
+>
+> **V4 is exempt, and it is a hard failure rather than the silent discard the review predicted.**
+> The 2026-09-18 review said V4 against a populated table would be *"either a hard failure … or a
+> silent discard of four actor columns"*. Measured: `alter table employees add column created_by
+> varchar(8) not null` **cannot apply to a table holding rows at all**, so the migration aborts
+> part-applied. That is the worse of the two — a deployment to a database with a single hire stops
+> mid-chain. The exemption is narrow and stated in `PopulatedMigrationTest`: no database with V4
+> unapplied holds rows, because tests start fresh and ERT-1260 has not been taken, so no deployed
+> database exists. The sweep seeds **after** V4 and runs V5 onward, so every migration added from
+> here is checked; a second test asserts V4 still fails, so the exemption cannot go stale unnoticed.
+> Both were verified by adding a deliberately destructive V8 and watching the sweep catch it.
+>
+> ### The collation divergence is larger than PERF-12 assumed
+>
+> The review ranked it **not measured**, saying it *"cannot be exhibited on H2 by definition"*. With
+> a PostgreSQL job it can be. The same four strings, ordered three ways:
+>
+> | Ordered ascending | `Apple`, `Zebra`, `_Underscore`, `apple` |
+> |---|---|
+> | Kotlin `String.compareTo` — every fake | `Apple`, `Zebra`, `_Underscore`, `apple` |
+> | H2 in PostgreSQL mode | `Apple`, `Zebra`, `_Underscore`, `apple` |
+> | **PostgreSQL 17, `en_US.UTF-8`** | **`apple`, `Apple`, `_Underscore`, `Zebra`** |
+>
+> **The fakes agree with H2 and disagree with production.** `ExposedRequirementTemplateRepository`
+> argues its own name tiebreak cannot fire because `sort_order` runs 1..14 with no ties; the same
+> argument was never made for `name_snapshot`, where `sort_order_snapshot` carries `default(0)` so
+> ties are ordinary — which is precisely the path ERT-432's migration header warns about.
+>
+> `CollationTest` **pins** today's behaviour on the C25/C27 precedent rather than fixing it: the fix
+> is a collation decision that belongs in a migration (`collate "C"`, or an ordering key that is not
+> text), and that is ERT-1190's territory. **Filed as a finding.**
+
 **Out of scope**
 - Testcontainers. A GitHub Actions service container needs no library and no Docker on a developer's
   machine, which is what ERT-240's trade was actually protecting.
 - Moving the default. H2 stays the local and default engine; the point is a second opinion, not a
   replacement.
+- **Fixing the collation divergence.** Pinned and filed; the remedy is a migration.

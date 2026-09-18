@@ -300,6 +300,29 @@ The pepper can be rotated without stranding every hire mid-onboarding.
 
 **Description**
 
+> ### Three more, from the second ERT-100/ERT-200 review (2026-09-18)
+>
+> **HAR-11 — `junit-jupiter-params` is on the test classpath only because of MockK**, and this ticket
+> is where MockK's fate is decided. `module.yaml` declares four test dependencies and params is not
+> one of them; `mockk-jvm` depends on the `junit-jupiter` **aggregator**, whose POM pulls it.
+> Nothing uses `@ParameterizedTest` today — and ERT-250 rejected it as the contract-suite shape
+> partly for this reason. **Whichever way MockK goes, say so in the same commit:** if it stays,
+> declare params explicitly so the capability is owned rather than inherited; if it goes, note that
+> `@ParameterizedTest` goes with it.
+>
+> **C36 — `libs.versions.toml:12` declares `kotlin = "2.4.0"` and nothing reads it.**
+> `module.yaml`'s `settings.kotlin` names no version, so the entry binds nothing; the compiler
+> actually in use is **2.4.10**, from the toolchain `./kotlin` pins by sha256. A reader deciding
+> whether a language feature is available reads the wrong number, and would edit that line expecting
+> the compiler to move. Same family as the R2DBC dependencies this ticket already owns.
+>
+> **HAR-06 — the two warning lists in `DataModule.kt`**, which the **first** review filed and its
+> TASK-37 dispositioned into no ticket at all (C35). `jwtWarnings` and `notifierWarnings` are
+> file-level mutable lists appended during Koin graph construction; true of one boot on one thread,
+> false of a test JVM where every container appends to the same two unsynchronised lists. The fix is
+> the one HAR-06 states: hold the wrapper `JwtConfig.fromEnvironment` already returns, and let
+> `configureKoin()` read it, rather than pushing into a global on the way past.
+
 The root [`README.md`](../../README.md) is **stock Ktor Project Generator boilerplate**. It advertises
 features that were deleted — architecture §15 lists them — and says nothing about the Employee
 Requirements Tracker. It is the first file a new engineer or an auditor opens, and it currently
@@ -586,6 +609,29 @@ attempt is unchanged.
 
 **Description**
 
+> ### SEC-34 belongs here, and has been unowned since the first review (2026-09-18)
+>
+> **`AppError.Conflict` is the one error whose message reaches the wire unguarded.** ERT-140 and
+> ERT-190 made `Denied`, `AuthenticationFailed` and `Forbidden` field-less `data object`s *precisely*
+> so two call sites cannot render two bodies; every other case routes its message through
+> `messageFor(code)`, a closed `when` over known strings. `AppErrorMapper` sends `Conflict`'s
+> free-text `detail` straight to the client.
+>
+> Harmless today — every construction site passes a static literal, and all were read. The finding is
+> that the property the other three hold **structurally** is held here by convention, in the one case
+> whose value is a caller-influenced string. The realistic failure is ordinary:
+> `Conflict("upload_locked", "Requirement ${'$'}{requirement.nameSnapshot} is locked")` on a portal
+> path reads as helpful in review and puts a snapshot name into a response the write-mostly rule
+> exists to keep bare.
+>
+> Route `Conflict` through `messageFor(code)` like everything else and keep `detail` server-side, or
+> carry it as an `ApiErrorDetail` with a `field` — the slot the envelope already has. Either way it
+> becomes a shape rather than a habit.
+>
+> **Filed here by the second review (C35).** The first review's TASK-37 named the fix and no ticket;
+> `grep -rn "SEC-34" docs/backlog/` returned nothing for eight hours, which is the E5/E6/C22 lesson
+> that same document names.
+
 The complete plugin inventory is `Koin`, `CORS`, `ContentNegotiation`, `StatusPages`, `CallLogging`
 and `MicrometerMetrics`. Grepping `src/` for `HSTS`, `DefaultHeaders`, `X-Frame`, `Content-Security`
 or `RequestValidation` returns **nothing** (SEC-20). `embeddedServer(Netty)` is configured with a
@@ -735,6 +781,33 @@ Someone finds out.
 | **Architecture** | §7, §14 |
 
 **Description**
+
+> ### Two more things belong in this migration (2026-09-18, second ERT-100/ERT-200 review)
+>
+> **HAR-09 — `employee_requirements.name_snapshot` orders differently on the two engines.** ERT-260
+> built the PostgreSQL job that finally measured PERF-12's collation claim, which the first review
+> ranked *"not measured"* and said *"cannot be exhibited on H2 by definition"*. It can:
+> `Apple, Zebra, _Underscore, apple` ascending is `Apple, Zebra, _Underscore, apple` in Kotlin **and**
+> in H2, and `apple, Apple, _Underscore, Zebra` in PostgreSQL 17. **Every fake agrees with the test
+> engine and disagrees with production.**
+>
+> `ExposedRequirementTemplateRepository` argues its own name tiebreak cannot fire because `sort_order`
+> runs 1..14 with no ties. The same argument cannot be made here: `sort_order_snapshot` carries
+> `default(0)` — which is what let V7 apply to a populated table — and V7's own header warns that a
+> writer inheriting that default collapses the order back to name. `test/data/db/CollationTest.kt`
+> **pins** today's behaviour engine-aware; the remedy is a collation decision and it belongs in a
+> migration. Decide it here: `collate "C"` on the column, or an ordering key that is not text.
+>
+> **SEC-36 — nothing stops a hire holding the same requirement twice.** `employee_requirements`
+> declares two foreign keys and no uniqueness, and `saveRequirements` is insert-or-update keyed on
+> `id` alone, so the same template can be snapshotted against one hire any number of times. A
+> duplicated row is counted twice by §6.5's progress arithmetic, so the hire reads "2 of 15" against
+> a checklist of fourteen and never completes. Unreachable through `CreateHireUseCase` today;
+> reachable from ERT-1030's reissue, Phase 2's reopen, or any retry that re-runs the snapshot.
+>
+> **This is a correctness constraint, not an access path** — give it its own line rather than folding
+> it into the index list, and note that a unique index on `(employee_id, template_id)` serves both
+> purposes.
 
 `V1__baseline.sql` declares thirteen tables and creates **two** plain indexes — `employees_email` and
 `audit_logs_entity_id` — plus the two `token_hash` uniques and the primary keys. Neither PostgreSQL

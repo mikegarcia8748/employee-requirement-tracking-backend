@@ -31,9 +31,24 @@ class FakeAuditLog : AuditLog {
         recorded += entry
     }
 
+    /**
+     * Chronological, then by id — the order `ExposedAuditLog.findFor` promises (ERT-250).
+     *
+     * This returned insertion order until the contract suite compared the two (HAR-01 d). The
+     * adapter has ordered by `timestamp ASC, id ASC` since ERT-330; a fake that returned whatever a
+     * test happened to record in would have made the first §8.12 history render differently against
+     * SQL than against every test that passed.
+     *
+     * The id is a tiebreaker for determinism only. Production ids are random, so id order is not
+     * time order and must never be read as though it were — two entries sharing an instant are
+     * genuinely unordered, and this picks one deterministically so both implementations pick the
+     * same one.
+     */
     override suspend fun findFor(entityId: Identifier): List<AuditEntry> {
         failure.check()
-        return recorded.filter { it.entityId == entityId }
+        return recorded
+            .filter { it.entityId == entityId }
+            .sortedWith(compareBy({ it.timestamp }, { it.id.value }))
     }
 
     // ── Assert ──────────────────────────────────────────────────────────────────────────────────

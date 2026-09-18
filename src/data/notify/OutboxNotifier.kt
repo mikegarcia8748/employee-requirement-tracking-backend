@@ -313,7 +313,9 @@ class OutboxNotifier(
  * A `data/` type rather than a domain model: nothing in `domain/` knows this table exists, and the
  * port it implements speaks only in `DeliveryResult`. ERT-1010 is its only caller.
  *
- * [body] is null for `INVITATION` by rule and for nothing else — see [OutboxNotifier]'s own note.
+ * [body] is null for the kinds whose [NotificationKind.storesBody] is false — `INVITATION` and,
+ * since C23 split the port, `RECOVERY_PIN`. See [OutboxNotifier]'s own note. (Corrected 2026-09-18,
+ * C37: this said "`INVITATION` and nothing else", which was true until `RECOVERY_PIN` arrived.)
  */
 data class OutboxEntry(
     val id: EntityId,

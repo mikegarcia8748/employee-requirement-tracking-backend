@@ -90,13 +90,16 @@ A failing test should say which business rule broke without opening the file.
 
 | Level | Where | Covers |
 |---|---|---|
-| Use case | `test/domain/usecase/` | every business rule, exhaustively — **where business rules are proven**, and where the suite's weight belongs as Phase 1 lands (14% of 689 today; `test/data/` is 37%) |
+| Use case | `test/domain/usecase/` | every business rule, exhaustively — **where business rules are proven**, and where the suite's weight belongs as Phase 1 lands (14% of 689 when measured 2026-09-18; the suite is 845 today) |
 | Plugin | `test/plugin/` | a startup rule, as a pure function — see `bootstrapDecision` |
-| Repository | `test/data/repository/` | real SQL against H2 in PostgreSQL mode |
+| Repository | `test/data/repository/` | real SQL against H2 in PostgreSQL mode — and against **real PostgreSQL** in CI's second job (ERT-260). Locally, `ERT_TEST_DATABASE_URL` switches engines; H2 is the default and needs no Docker |
+| Contract | `test/contract/` | one suite per domain port, run against **both** its fake and its adapter, so the two cannot disagree without the build saying so (ERT-250). A concrete class must be named `*Test` or JUnit's scan silently skips it — `ArchitectureTest` fails the build otherwise |
 | Route | `test/route/` | wiring, status codes, serialization — never a decision |
 | Architecture | `test/ArchitectureTest.kt` | the dependency rule, as a build failure |
 
-Fakes, `FixedClock` and builders live in `test/testdata/`.
+Fakes, `FixedClock` and builders live in `test/testdata/`. **A fake must match its adapter**, and
+`test/contract/` is what holds that — adding a port means adding a fake (the build fails otherwise)
+and a contract suite beside the others.
 
 ## Conventions
 

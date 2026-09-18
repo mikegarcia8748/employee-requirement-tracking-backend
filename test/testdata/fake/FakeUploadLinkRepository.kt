@@ -47,20 +47,30 @@ class FakeUploadLinkRepository(vararg seed: UploadLink) : UploadLinkRepository {
      * read-only confirmation is not a link a new invitation should reuse. The ordering is here so
      * the answer is deterministic if a test ever arranges two, which the schema permits.
      */
+    /**
+     * Newest first, with the id breaking a tie — the order
+     * `ExposedUploadLinkRepository.findActiveForEmployee` promises (ERT-250).
+     *
+     * This was `maxByOrNull { it.issuedAt }` until the contract suite compared the two, and
+     * `maxByOrNull` returns the **first** maximal element in iteration order rather than the last
+     * (HAR-01 f). The adapter orders by `issued_at DESC, id DESC` and limits to one.
+     *
+     * **The tie is the default case in this harness, not an edge case.** Every builder issues at
+     * `FixedClock.DEFAULT`, so two links sharing an instant is what a test gets unless it goes out
+     * of its way — and `FakesTest`'s ordering test set them a day apart, so it never reached the tie
+     * the adapter's KDoc exists to describe.
+     */
     override suspend fun findActiveForEmployee(employeeId: PersonId): UploadLink? {
         failure.check()
         return links.values
             .filter { it.employeeId == employeeId && it.status == LinkStatus.ACTIVE }
-            .maxByOrNull { it.issuedAt }
+            .sortedWith(compareByDescending<UploadLink> { it.issuedAt }.thenByDescending { it.id.value })
+            .firstOrNull()
     }
 
     override suspend fun save(link: UploadLink): UploadLink {
         failure.check()
-        val clash = links.values.firstOrNull { it.tokenHash == link.tokenHash && it.id != link.id }
-        check(clash == null) {
-            "Link ${link.id.value} carries the token hash already held by ${clash?.id?.value}; " +
-                "upload_links.token_hash is unique"
-        }
+        refuseDuplicateDigest(link)
         links[link.id] = link
         savedLinks += link
         return link
@@ -68,7 +78,35 @@ class FakeUploadLinkRepository(vararg seed: UploadLink) : UploadLinkRepository {
 
     // ── Arrange ─────────────────────────────────────────────────────────────────────────────────
 
+    /**
+     * Adds links without recording a save — and refuses a duplicate digest, as [save] and the
+     * constructor already do.
+     *
+     * **This was the unguarded third door (HAR-01 e).** Two of the three ways into this fake's state
+     * enforced `upload_links_token_hash_unique` and explained at length why; this one was a plain
+     * map put, so a test could arrange a pair the database has refused since V1 and then assert on
+     * which of them `findByTokenHash` returned.
+     */
     fun given(vararg links: UploadLink): FakeUploadLinkRepository = apply {
-        links.forEach { this.links[it.id] = it }
+        links.forEach {
+            refuseDuplicateDigest(it)
+            this.links[it.id] = it
+        }
+    }
+
+    /**
+     * `upload_links_token_hash_unique`, in memory.
+     *
+     * Re-saving the *same* id is an update and must pass: a link keeps its digest across a
+     * revocation or an extension, so refusing every repeat of a hash already held would make the
+     * fake stricter than the column.
+     */
+    private fun refuseDuplicateDigest(link: UploadLink) {
+        val clash = links.values.firstOrNull { it.tokenHash == link.tokenHash && it.id != link.id }
+
+        check(clash == null) {
+            "Link ${link.id.value} carries the token hash already held by ${clash?.id?.value}; " +
+                "upload_links.token_hash is unique"
+        }
     }
 }

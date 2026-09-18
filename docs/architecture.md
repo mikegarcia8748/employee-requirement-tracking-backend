@@ -360,6 +360,7 @@ enumeration oracle.
 | Use case | `test/domain/usecase/` | every business rule, exhaustively. **Where business rules are proven**, and where the weight belongs as Phase 1 lands. |
 | Architecture | `test/ArchitectureTest.kt` | the dependency rule, as a build failure |
 | Route | `test/*Test.kt` | wiring, status codes, serialization — never a decision |
+| Contract | `test/contract/` | one suite per port, run against **both** its fake and its adapter (ERT-250) |
 | Fakes & builders | `test/testdata/` | in-memory ports, `FixedClock`, sample data |
 
 Loop: **red → green → refactor → review.** The review step is not optional — after a use case is
@@ -379,7 +380,24 @@ above now states the intent rather than describing the suite. ERT-450 onward is 
 true.
 
 **MockK is declared and used by no test**, as of the same review. Reach for a fake before a mock;
-ERT-1140 decides whether the dependency stays.
+ERT-1140 decides whether the dependency stays. **ERT-260 found a second reason to decide it
+carefully:** `junit-jupiter-params` reaches the test classpath *only* transitively through MockK, so
+anything built on `@ParameterizedTest` would break when MockK is removed. Nothing is, deliberately.
+
+**A fake must agree with its adapter, and `test/contract/` is what holds that (ERT-250).** One suite
+per port, run twice — against the fake and against the adapter — so a green use-case suite means the
+same thing against SQL that it means in memory. `ArchitectureTest` fails the build on a port with no
+fake, and on a contract class named so JUnit's scan would skip it: Amper passes
+`--scan-class-path` with no `--include-classname`, so a concrete test class must match
+`^(Test.*|.+[.$]Test.*|.*Tests?)$` or it contributes zero tests **silently** — the same
+undiscovered-is-indistinguishable-from-passing trap the Kotest constraint above describes, reached
+through a different door.
+
+**The repository suite has a second engine (ERT-260).** H2 in PostgreSQL mode is the default and
+needs no Docker; setting `ERT_TEST_DATABASE_URL` runs the same suite against real PostgreSQL, one
+schema per test, which CI does in its own job. It is deliberately **not** `DATABASE_URL`: the test
+JVM inherits the ambient environment and that name is what `DatabaseConfig.fromEnvironment()` reads,
+so using it would silently repoint every `testApplication` test at the CI database.
 
 So tests use `kotlin.test` (`@Test`, discovered by JUnit 5) with **Kotest assertions**
 (`shouldBe`, `shouldBeEmpty`) and **MockK**, which work normally as libraries. BDD structure comes
