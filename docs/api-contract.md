@@ -593,7 +593,7 @@ state, shown plainly including when absent** — so `COMPLETE` is not mistaken f
 Unknown id → **404**.
 
 #### `GET /api/requirement-templates`
-*ERT-340 · PRD §8.10*
+*ERT-340 · PRD §8.11*
 
 Active templates in `sort_order`. No internal identifiers beyond the template id. The catalogue is
 currently PRD Appendix A, **seeded as illustrative pending Q2** — it is data, so replacing it is a
@@ -613,9 +613,10 @@ Reference data is **seeded, not managed**: there is no create, update or delete 
 list is a `200` with `[]`, never a `404`.
 
 Two resources rather than one `/api/reference-data`, because `meta.total` is meaningless over a
-heterogeneous payload and every other path here is one resource per path. **Neither endpoint appears
-in PRD Appendix B** — the gap was found by ERT-350, which also found that no port exposed either
-table.
+heterogeneous payload and every other path here is one resource per path. **Neither endpoint appeared
+in PRD Appendix B until ERT-350 added them** — the gap was found by ERT-350, which also found that no
+port exposed either table. *(Corrected 2026-09-18, C41: this read "Neither endpoint appears", which
+contradicted Appendix B and this document's own "Routes outside Appendix B" opener.)*
 
 The employment type chosen here selects the requirement set a hire is given, and that set is
 **snapshotted at creation** — editing the catalogue afterwards does not move a hire already

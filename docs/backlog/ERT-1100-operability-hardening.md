@@ -782,6 +782,28 @@ Someone finds out.
 
 **Description**
 
+
+> ### Two more from the [ERT-300 review](../2026-09-18-ert-300-review.md) (2026-09-18)
+>
+> **PERF-15 — `audit_logs` is indexed for `entity_id` alone.** An access path, so it joins the list
+> below. `findFor` filters on `entity_id` and orders by `(timestamp, id)`, which the single-column
+> index cannot serve, so every read is an index scan plus a sort; §8.13's exception report filters on
+> `actor_user_id` and `action`, neither indexed — and `actor_user_id` is a V4 foreign key, which
+> PostgreSQL does not index automatically. A composite `(entity_id, timestamp, id)` serves `findFor`
+> without a sort and subsumes the existing index; `(actor_user_id, action)` serves §8.13.
+>
+> **SEC-40 — the `varchar(12)` id columns permit ids `EntityId.of` will reject.** *Its own line, not
+> the index list: this is a correctness constraint, not an access path — the SEC-36 precedent.*
+> `EntityId.of` requires **exactly** 12 chars of `[A-Za-z0-9]`; `varchar(12)` permits anything up to
+> 12. `orFail` calls `error(...)`, so one short id makes `findDepartments()` throw and
+> `GET /api/departments` answer **500 permanently**, blocking the add-hire form. Reference data is
+> "seeded, not managed" in Phase 1 and the V2 seed holds exactly one department, so a hand-written
+> `insert` is the expected path — and Q2's answer replaces the whole catalogue the same way.
+>
+> - [ ] Given a row whose id is not exactly 12 characters, then the database refuses the insert —
+>       `check (char_length(id) = 12)` on the `varchar(12)` id columns, so the failure lands where the
+>       operator is standing rather than where a hire is
+
 > ### Two more things belong in this migration (2026-09-18, second ERT-100/ERT-200 review)
 >
 > **HAR-09 — `employee_requirements.name_snapshot` orders differently on the two engines.** ERT-260

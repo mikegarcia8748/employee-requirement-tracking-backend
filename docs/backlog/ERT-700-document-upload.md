@@ -350,6 +350,28 @@ decision taken with its eyes open, not a permissive default nobody chose.
 
 **Description**
 
+
+> ### HAR-15 — the append-only guard reads one file, and this is the ticket that makes it matter (2026-09-18, [ERT-300 review](../2026-09-18-ert-300-review.md))
+>
+> PRD §12's append-only guarantee for `audit_logs` is enforced by a text sweep of **one file** —
+> `ExposedAuditLogTest` scans `ExposedAuditLog.kt` for `update(`, `deleteWhere`, `upsert` and friends.
+> `AuditLogs` carries no visibility restriction, so any other file under `src/data/` can mutate the
+> table and the sweep sees nothing; `ArchitectureTest` walks `src/domain` and `src/core` only.
+>
+> **This ticket's entire job is deleting rows, under invariant 8, which is a compliance rule.** A
+> purge that also tidied `audit_logs` would compile, pass the whole suite, and read as reasonable in
+> review. That is the reachability, and it is why the finding is filed here.
+>
+> It is HAR-10's shape one epic later — a guard covering a ninth of its surface — and architecture §12
+> compounds it: invariant 7 gives the **portal** trail a row with a named mechanism, and `audit_logs`
+> has no invariant row at all.
+>
+> - [ ] Given any file in `src/` but `ExposedAuditLog.kt`, `AuditEntryMapper.kt` and `Tables.kt`, then
+>       naming `AuditLogs` fails the build — the sweep moved into `ArchitectureTest` and inverted, which
+>       is stronger than enumerating Exposed's write API and cannot miss a raw `exec`
+> - [ ] Given architecture §12, then it carries an append-only invariant row for `audit_logs`, beside
+>       invariant 7's row for the portal trail
+
 SEC-13: the superseded version is the evidence. An attacker with portal access could otherwise erase
 a forgery by uploading five innocuous replacements, and automatic purging would do the deleting for
 them.

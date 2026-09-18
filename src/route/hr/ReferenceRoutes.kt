@@ -16,9 +16,11 @@ import io.ktor.server.routing.openapi.describe
 /**
  * The reference data behind the add-hire form (ERT-350, PRD 8.1).
  *
- * **Not in PRD Appendix B.** Neither the PRD nor the API contract named a reference-data endpoint,
- * which is the same gap ERT-350 found in the port set: `Employee` requires a `departmentId` and an
- * `employmentTypeId`, and nothing offered HR a way to discover either. Two resources rather than one
+ * **These endpoints were missing from PRD Appendix B until ERT-350 added them** — corrected
+ * 2026-09-18 (C41); the earlier wording said they are absent, and Appendix B has listed both since.
+ * Neither the PRD nor the API contract named a reference-data endpoint originally, which is the same
+ * gap ERT-350 found in the port set: `Employee` requires a `departmentId` and an `employmentTypeId`,
+ * and nothing offered HR a way to discover either. Two resources rather than one
  * `/api/reference-data`, because `meta.total` is meaningless over a heterogeneous payload and every
  * other path in Appendix B is one resource per path. The cost is a second round trip on one form,
  * which an aggregate can answer later by composing these two; the contract document now carries both

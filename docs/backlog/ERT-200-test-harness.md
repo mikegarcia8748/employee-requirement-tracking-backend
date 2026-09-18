@@ -324,6 +324,26 @@ A repository test declares one base class and gets a migrated, seeded, isolated 
 
 **Description**
 
+
+> ### HAR-20 — `ReferenceDataRepository` has two fakes, and they disagree (2026-09-18, [ERT-300 review](../2026-09-18-ert-300-review.md))
+>
+> The shared `FakeReferenceDataRepository` sorts both list reads by name — the contract this ticket's
+> own `ReferenceDataRepositoryContract` enforces. `ReferenceRoutesTest` still carries a **private
+> `FakeReferenceData`** that returns the list as given. ERT-350's carry-forward note explains why the
+> local one existed; ERT-431 delivered the shared one and the local one was not removed.
+>
+> The consequence is exact: `ReferenceRoutesTest` asserts `/api/departments` returns rows "in name
+> order" against a fake that does not sort, so the route test passes whether or not ordering survives
+> the DTO mapping — ERT-350's vacuity, reached through a third door.
+>
+> `portsWithoutFakes` asserts every port *has* a fake. Nothing asserts a port has only one.
+>
+> - [ ] Given `ReferenceRoutesTest`, then it uses the shared fake and the local `FakeReferenceData` is
+>       deleted
+> - [ ] Given a class outside `test/testdata/fake/` implementing a `domain.port` interface, then the
+>       build fails — the guard widened from "every port has a fake" to "exactly one", with the
+>       anti-vacuity floor the file's other guards use
+
 The correctness argument for the entire use-case suite is that a fake and its adapter agree.
 `ExposedUploadLinkRepository` states it outright: a use case that passes against fakes and behaves
 differently against SQL is the failure this harness exists to prevent.

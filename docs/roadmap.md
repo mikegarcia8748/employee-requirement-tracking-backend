@@ -54,6 +54,37 @@ and an Owner.
 > cross-field `app_setting` bounds the V3 seed deferred (`crossFieldErrors()` implements both). The
 > suite was **689 tests, 13.75 s, green** before and after.
 
+> **2026-09-18 — ERT-300 was reviewed against its own implementation, and ERT-310 is reopened.**
+> [The findings](2026-09-18-ert-300-review.md) continue the house numbering from SEC-37, PERF-13,
+> HAR-14 and C37. **Neither ERT-100/ERT-200 pass looked at this epic**: both were scoped to Phase 0,
+> and ERT-300 is the first Phase 1 epic and the first four adapters — the pattern ERT-410 onward copy.
+>
+> Twelve findings, two High. **Nothing here changes the Next ticket pointer.** Two findings gate work
+> already in the queue and should be read before the ticket they gate:
+>
+> | Finding | Gates | Ticket |
+> |---|---|---|
+> | **SEC-41** — `Notifier.sendRecoveryPin` takes an `AccessPin` and `NotificationMessages.recoveryPin` renders it into an email body, while PRD §12, PRD §5, architecture §12 invariant 4 and `CLAUDE.md` invariant 4 all say a PIN is **never emailed**. Nothing calls it yet | **ERT-650**, which would be the first caller | criteria added to **ERT-650** |
+> | **HAR-15** — PRD §12's append-only guarantee for `audit_logs` is a text sweep of **one file**, and `audit_logs` has no row in architecture §12 at all | **ERT-734**, whose entire job is deleting rows | criteria added to **ERT-734** |
+>
+> **The largest in-scope finding is SEC-38: two of the nine §6.4 settings can never be saved.**
+> `updateLinkPolicy` builds its audit metadata keys from the setting key, and the credential guard
+> refuses any key containing `pin` as a substring — which `portal.pin_attempts_before_lockout` and
+> `portal.pin_failures_before_suspend` both do, throwing `IllegalArgumentException` out of a
+> `DomainResult` method. Fifteen `updateLinkPolicy` exercises across the adapter test and the contract
+> suite touch neither field. It is **C25's guard from the other side**: C25 is the value-side false
+> positive and stays with ERT-450; the fix here exempts the closed set of keys the application itself
+> generates, leaving the denylist as strict for every other caller.
+>
+> **SEC-39** adds the third cross-field rule `V3__app_settings.sql` claims a static bound enforces —
+> `extend_on_rejection_days` can outrun the absolute ceiling by 13×. The first pass cleared this
+> category correctly: it read the header's two named deferrals, and the third is asserted forty lines
+> down as a property of a bound rather than as a deferral.
+>
+> **No new ticket numbers.** ERT-310 is reopened with SEC-38, SEC-39 and HAR-19; everything else folds
+> into ERT-250, ERT-520, ERT-620, ERT-650, ERT-734, ERT-1020 and ERT-1190. Four documentation
+> contradictions (C40, C41, C42) were fixed in the review's own branch.
+
 > **[ERT-146](backlog/ERT-100-foundations.md#ert-146--a-request-with-no-content-type-is-415-and-every-body-taking-route-publishes-its-schema)
 > jumped the queue on 2026-09-17 and is Done**, which is why ERT-433 is still the next ticket rather
 > than the one after it. `POST /api/auth/login` answered a user-reachable **500** to a request with
@@ -1037,6 +1068,12 @@ ERT-100/ERT-200 review**.
 | C30 | **Port count, for the second time.** ERT-200, ERT-210 and the board say **10** domain ports; the *Where the code is* table below says "13 ports" and "a test harness of **10** in-memory fakes" in one sentence; there are **13** of each, and `FakesTest`'s "every fake is constructible" acceptance test constructs **11**. **C9 closed this exact drift once**, as a documentation fix *(opened 2026-09-18)* | **Corrected here and in the four documents; guarded by ERT-250.** A count in prose has nothing holding it, which is why one correction did not hold. The deliverable is the `ArchitectureTest` port-coverage guard, not a third recount |
 | C31 | ERT-120's title and its board row say "the **12** tables"; `MigrationTest` asserts `allTables.size shouldBe 14` *(opened 2026-09-18)* | **Closed.** Corrected in ERT-120 and on the board with a dated note. The assertion tracked reality throughout; only the prose did not |
 | C32 | `MigrationTest`'s guard is named `identifier generation - the guard above - is pointed at the **ten** keyed tables` and asserts **12** *(opened 2026-09-18)* | **Closed by rename.** The assertion is right; the name is what a reader skimming test output trusts, and a test whose name disagrees with its body is worse than one with no name at all |
+| C43 | **Two test-file KDocs describe an arrangement their own bodies contradict.** `RequirementTemplateRoutesTest.kt:213` carries two stacked KDoc blocks, the first saying *"Mounts the handler with no security plugin"* while the body calls `configureSecurity(testJwtConfig())` — ERT-190 made it false and it was left above the second rather than replaced. And the local `FakeReferenceData` KDoc says the shared fake "earns its keep" at ERT-430; it arrived with ERT-431 *(opened 2026-09-18 by the ERT-300 review)* | **Open, owned by the tickets that own those files.** The second is closed by **HAR-20**'s fix on ERT-250. A stale comment on a test harness is the HAR category's own subject: it tells the next reader the suite proves something it does not |
+| C42 | **Architecture §3 and §4 are stale in four places.** §3 annotates `domain/usecase/` as *"(empty — see §5)"* (there are seven) and `HealthRoutes.kt` as *"the only endpoint today"* (thirteen handlers); §4 asserts *"only `sendInvitation` accepts an `AccessPin`"*, which **C23** closed, and *"the seven notification kinds"*, which **C37** corrected to eight in three code comments — the architecture document was not in that sweep *(opened 2026-09-18 by the ERT-300 review)* | **Closed.** Four corrections with a dated note. **And it is how SEC-41 was found:** establishing which method *does* accept an `AccessPin` showed that it takes an `EmailAddress` beside it and renders the PIN into a body. A stale sentence about a control was standing in front of a missing one |
+| C41 | **The API contract miscites §8.10 for `GET /api/requirement-templates`** (§8.11 is templates; §8.10 is the link policy), **and says the reference routes are absent from Appendix B when Appendix B lists both** — contradicting the same document's *"Routes outside Appendix B"* opener, with the claim repeated in `ReferenceRoutes.kt`'s KDoc *(opened 2026-09-18 by the ERT-300 review)* | **Closed.** Both corrected in `api-contract.md` and the route KDoc. The second is the sharper one: it is a claim about a gap that was closed, so a reader chasing it finds the endpoint listed and cannot tell which document is stale |
+| C40 | **`DataModule`'s KDoc describes two bindings; there are twelve.** Written when ERT-310 and ERT-330 landed together, not revisited as ERT-320, ERT-350, ERT-410, ERT-420 and ERT-440 each added one *(opened 2026-09-18 by the ERT-300 review)* | **Closed.** The load-bearing sentence is *"Both adapters share one `DatabaseFactory`, because it is a `single`"* — the argument that makes `ExposedAppSettingsRepository`'s single-transaction audit write correct. A reader taking "both" at face value may not realise it is required of all seven |
+| C39 | **ERT-330 says `AuditEntry` defines 17 actions; it defines 25.** ERT-190 added eight, and `ExposedAuditLogTest` carries `covers all twenty-five actions` *(opened 2026-09-18 by the ERT-300 review)* | **Closed as documentation**, with the parenthetical the board already uses for *"the 12 tables (14 today)"* and *"the domain ports (10 when written; 13 today)"* |
+| C38 | **ERT-350's second criterion still reads unchecked and carried-forward, and ERT-431 implemented it.** The note says `CreateHireUseCase` "does not exist" (seven use cases do), that no shared `FakeReferenceDataRepository` exists (it does, with a contract suite), and the criterion's own text still says `NotFound` where **E8** settled 422 *(opened 2026-09-18 by the ERT-300 review)* | **Closed by ticking it**, citing `CreateHireUseCase.kt:195-212` and ERT-431, with the carry-forward note discharged rather than deleted. It is **C34's mirror image** — a false positive where C34 was a false negative — from the same mechanism the board's warning describes: *"nothing checks it"* |
 | C37 | **Three comments say the invitation is the only body-less notification, and that two of *seven* `Notifier` methods take no address.** `NotificationKind` has **eight** entries and **two** with `storesBody = false` — `RECOVERY_PIN` joined `INVITATION` when C23 split the port. The code is right in all three places and the prose is not *(opened 2026-09-18 by the second review)* | **Closed.** Corrected with a dated note in each. It is the C33 shape one epic later, and it matters more than it looks: `storesBody` exists so an eighth kind **must choose**, and the comment beside it told a reader the rule was "invitation only" |
 | C36 | **`libs.versions.toml:12` declares `kotlin = "2.4.0"` and nothing reads it.** `module.yaml`'s `settings.kotlin` names no version, so the entry binds nothing; the compiler actually in use is **2.4.10**, from the toolchain `./kotlin` pins by sha256 *(opened 2026-09-18 by the second review)* | **Open, owned by ERT-1140.** Same family as the unused R2DBC dependencies that ticket already holds: a value that lives only in prose binds nothing, and a reader would edit that line expecting the compiler to move |
 | C35 | **The first ERT-100/ERT-200 review dispositioned two of its own findings into no ticket.** TASK-37 routed SEC-35, SEC-33 and HAR-07 to tickets by number and gave **SEC-34** and **HAR-06** a sentence each; `grep -rn "SEC-34\|HAR-06" docs/backlog/` returned nothing *(opened 2026-09-18 by the second review)* | **Closed by filing both.** SEC-34 into **ERT-1175**, HAR-06 into **ERT-1140**, each with a dated note. Kept rather than quietly fixed because of what it is: the E5/E6/C22 lesson — *a gap without a number is invisible* — which that same document names, applied to its own output eight hours later |

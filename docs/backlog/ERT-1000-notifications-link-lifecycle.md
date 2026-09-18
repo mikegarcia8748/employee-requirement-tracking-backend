@@ -202,6 +202,21 @@ person by accident.
 
 **Description**
 
+
+> ### PERF-14 — `linkPolicy()` is a full-table read per call, uncached (2026-09-18, [ERT-300 review](../2026-09-18-ert-300-review.md))
+>
+> `ExposedAppSettingsRepository.storedSettings()` is `AppSettings.selectAll()` — one transaction, one
+> full-table read and nine parses, every call. The full-table read is deliberate and correct (the
+> table is shared with future Phase 2 settings, and `AppSettingMapperTest` pins that an unknown key is
+> ignored). **The finding is the absence of a recorded decision about caching**, not the query: the
+> adapter's KDoc reasons carefully about the *write* side's concurrency and says nothing about the
+> read side, which is the side with callers.
+>
+> This ticket is one of four that put it on a hot path — with ERT-640, ERT-770 and ERT-1020 — and the
+> port is already a Koin `single`, so there is a place for a cache and an obvious invalidation point
+> in `updateLinkPolicy`. Ranked Low and latent for PERF-13's reason: a cache with no hot path is a
+> guess at an invalidation strategy. Recorded in both tickets rather than given one of its own.
+
 The only Phase 1 notification driven by a clock rather than a request.
 
 A design point that keeps the sweep off the critical path: link **expiry** is evaluated lazily at
