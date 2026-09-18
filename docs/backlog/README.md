@@ -59,10 +59,12 @@ Phase 0 · depends on — · **Done**
 
 ## [ERT-200](ERT-200-test-harness.md) — Test harness
 
-Phase 0 · depends on ERT-120 · **In progress** — reopened 2026-09-18 by the
+Phase 0 · depends on ERT-120 · **Done** — reopened 2026-09-18 by the
 [ERT-100/ERT-200 review](../2026-09-18-ert-100-200-review.md), closed the same day by ERT-250 and
 ERT-260, then **reopened again** by the [ERT-300 review](../2026-09-18-ert-300-review.md), whose
-HAR-20 filed two unticked criteria against ERT-250 while leaving its status reading `Done`
+HAR-20 filed two unticked criteria against ERT-250 while leaving its status reading `Done`; closed
+again the same day by ERT-250, which deleted the second fake and made "one implementation per port"
+a build failure
 
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
@@ -70,7 +72,7 @@ HAR-20 filed two unticked criteria against ERT-250 while leaving its status read
 | [ERT-220](ERT-200-test-harness.md#ert-220--deterministic-fixedclock-and-id-token-and-pin-generators) | Deterministic `FixedClock` and id, token and PIN generators | Ticket | — | Done |
 | [ERT-230](ERT-200-test-harness.md#ert-230--domain-test-builders) | Domain test builders | Ticket | ERT-220 | Done |
 | [ERT-240](ERT-200-test-harness.md#ert-240--repository-integration-test-base-against-h2-in-postgresql-mode) | Repository integration-test base against H2 in PostgreSQL mode | Ticket | ERT-120, ERT-130 | Done |
-| [ERT-250](ERT-200-test-harness.md#ert-250--contract-tests-binding-each-ports-fake-to-its-adapter) | Contract tests binding each port's fake to its adapter | Ticket | ERT-210 | **In progress** — reopened by HAR-20 |
+| [ERT-250](ERT-200-test-harness.md#ert-250--contract-tests-binding-each-ports-fake-to-its-adapter) | Contract tests binding each port's fake to its adapter | Ticket | ERT-210 | Done |
 | [ERT-260](ERT-200-test-harness.md#ert-260--a-postgresql-ci-job-and-a-migration-applied-to-a-database-with-data) | A PostgreSQL CI job, and a migration applied to a database with data | Ticket | ERT-240, ERT-1160 | Done |
 
 ## [ERT-300](ERT-300-catalogue-policy.md) — Requirement catalogue and link policy
@@ -89,7 +91,7 @@ cannot be saved), SEC-39 and HAR-19 against ERT-310; closed again the same day b
 
 ## [ERT-400](ERT-400-hire-creation.md) — Hire creation
 
-Phase 1 · depends on ERT-300
+Phase 1 · depends on ERT-300 · **Done** — every ticket and sub-task closed 2026-09-18 with ERT-450
 
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
@@ -101,7 +103,7 @@ Phase 1 · depends on ERT-300
 | [ERT-433](ERT-400-hire-creation.md#ert-433--token-issue-digested-with-expiresat-computed-from-policy) | ↳ Token issue, digested, with `expiresAt` computed from policy | Sub-task | ERT-432 | Done |
 | [ERT-434](ERT-400-hire-creation.md#ert-434--invitation-dispatch-and-surviving-delivery-failure) | ↳ Invitation dispatch and surviving delivery failure | Sub-task | ERT-433, ERT-440 | Done |
 | [ERT-440](ERT-400-hire-creation.md#ert-440--notifier-dev-adapter-outbox-table-no-smtp) | `Notifier` dev adapter: outbox table, no SMTP | Ticket | ERT-120 | Done |
-| [ERT-450](ERT-400-hire-creation.md#ert-450--post-apiemployees-and-its-dtos) | `POST /api/employees` and its DTOs | Ticket | ERT-140, ERT-190, ERT-430 | Not started |
+| [ERT-450](ERT-400-hire-creation.md#ert-450--post-apiemployees-and-its-dtos) | `POST /api/employees` and its DTOs | Ticket | ERT-140, ERT-190, ERT-430 | Done |
 
 ## [ERT-500](ERT-500-hr-read-side.md) — HR read side
 

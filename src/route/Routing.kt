@@ -8,10 +8,12 @@ import com.pgsystem.employee.requirement.tracker.domain.port.ReferenceDataReposi
 import com.pgsystem.employee.requirement.tracker.domain.port.RequirementTemplateRepository
 import com.pgsystem.employee.requirement.tracker.domain.usecase.AuthenticateHrUserUseCase
 import com.pgsystem.employee.requirement.tracker.domain.usecase.ChangeHrPasswordUseCase
+import com.pgsystem.employee.requirement.tracker.domain.usecase.CreateHireUseCase
 import com.pgsystem.employee.requirement.tracker.domain.usecase.CreateHrUserUseCase
 import com.pgsystem.employee.requirement.tracker.domain.usecase.ResetHrPasswordUseCase
 import com.pgsystem.employee.requirement.tracker.domain.usecase.SetHrUserActiveUseCase
 import com.pgsystem.employee.requirement.tracker.route.hr.accountRoutes
+import com.pgsystem.employee.requirement.tracker.route.hr.employeeRoutes
 import com.pgsystem.employee.requirement.tracker.route.hr.referenceRoutes
 import com.pgsystem.employee.requirement.tracker.route.hr.requirementTemplateRoutes
 import com.pgsystem.employee.requirement.tracker.route.hr.signInRoutes
@@ -61,6 +63,7 @@ fun Application.configureRouting(authName: String) {
     val createHrUser by inject<CreateHrUserUseCase>()
     val setHrUserActive by inject<SetHrUserActiveUseCase>()
     val resetHrPassword by inject<ResetHrPasswordUseCase>()
+    val createHire by inject<CreateHireUseCase>()
 
     routing {
         healthRoutes()
@@ -72,6 +75,7 @@ fun Application.configureRouting(authName: String) {
             userAdminRoutes(users, createHrUser, setHrUserActive, resetHrPassword, audit, clock, ids)
             requirementTemplateRoutes(requirementTemplates)
             referenceRoutes(reference)
+            employeeRoutes(createHire)
         }
 
         // portal routes -> route/portal, added with their use cases

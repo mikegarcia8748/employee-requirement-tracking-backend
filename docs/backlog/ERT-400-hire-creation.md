@@ -1198,7 +1198,7 @@ with no live credential left sitting in the table.
 | **Parent** | ERT-400 |
 | **Type** | Ticket |
 | **Phase** | 1 |
-| **Status** | Not started |
+| **Status** | Done |
 | **Depends on** | ERT-140, ERT-190, ERT-430 |
 | **PRD** | §8.1, Appendix B |
 | **Architecture** | §3, §8, §9 |
@@ -1236,36 +1236,134 @@ leaves the server except by email.
   wondering whether the hire saved.
 
 **Acceptance criteria**
-- [ ] `[derived]` Given a valid body, then 201 is returned with the hire id and its requirement set
-- [ ] `[derived]` Given a duplicate email and no reason, then **422** is returned with a `details`
-      entry naming `duplicateReason` — not 409 (C1, settled in the API contract)
-- [ ] `[derived]` Given an invalid email, then 422 is returned naming the field
-- [ ] `[derived]` Given delivery failed, then 201 is still returned, carrying a failure indicator
-- [ ] `[derived]` Given any response from this endpoint, then it contains neither a PIN nor
-      the plaintext token
-- [ ] `[derived]` Given no credentials, then the request is refused
-- [ ] `[derived]` Given the generated spec, then the endpoint appears with its 201 and 422
+- [x] `[derived]` Given a valid body, then 201 is returned with the hire id and its requirement set
+- [x] `[derived]` Given a duplicate email and no reason, then **422** is returned with a `details`
+      entry naming `duplicateReason` — not 409 (C1, settled in the API contract). The spelling was
+      **wrong in the mapper** and C24 is closed with it; see the note below
+- [x] `[derived]` Given an invalid email, then 422 is returned naming the field
+- [x] `[derived]` Given delivery failed, then 201 is still returned, carrying a failure indicator
+- [x] `[derived]` Given any response from this endpoint, then it contains neither a PIN nor
+      the plaintext token — asserted against the token the notifier was actually handed, read back
+      out of the fake, rather than against a literal
+- [x] `[derived]` Given no credentials, then the request is refused
+- [x] `[derived]` Given the generated spec, then the endpoint appears with its 201 and 422
       contract described
+- [x] `[derived]` Given a caller who owes a password change, then the request is refused with 409 —
+      **added here**: ERT-1245's gate is per-handler, and a new route is exactly where it is forgotten
+- [x] `[derived]` Given a duplicate reason with no spaces, then the hire is created rather than a
+      user-reachable 500 — **added here**, closing C25, which this route is what made reachable
+- [x] `[derived]` Given the endpoint, then `apicontracts/HIRE_CREATION_API_CONTRACT.md` describes it
+      with request, success, failure and error samples **captured from a running server**
 
 **Tests**
 | Level | Test |
 |---|---|
 | Route | `create hire - a valid body - returns 201 with the hire id` |
-| Route | `create hire - a duplicate email with no reason - returns 422 naming the reason field` |
+| Route | `create hire - a valid body - returns the requirement set snapshotted from the catalogue` |
+| Route | `create hire - a valid body - reports the invitation as queued rather than sent` |
 | Route | `create hire - an invalid email - returns 422 naming the field` |
-| Route | `create hire - a duplicate with no reason - returns 422 naming the reason field` |
+| Route | `create hire - a duplicate email with no reason - returns 422 naming the duplicate reason field` |
 | Route | `create hire - an unknown department - returns 422 naming which id` |
+| Route | `create hire - a department id supplied as the employment type - returns 422 naming the employment type` |
 | Route | `create hire - a token minted by this application - reaches the handler` |
 | Route | `create hire - delivery failed - returns 201 carrying a failure indicator` |
 | Route | `create hire - any response - carries no pin and no plaintext token` |
 | Route | `create hire - no credentials - is refused` |
+| Route | `create hire - a caller who must change their password - is refused` |
+| Route | `api docs - the employee route is mounted - publishes its request as well as its response schema` |
+
+Added by C24 and C25, in the files that own those rules rather than in the route test:
+
+| Level | Test |
+|---|---|
+| Route | `create hire - a duplicate email with a typed reason that has no spaces - is created rather than a 500` |
+| Route | `error mapping - a reason required - returns 422 naming the body field that is missing` |
+| Mapper | `audit metadata - a long reason with no spaces under a free text key - is accepted rather than a 500` |
+| Mapper | `audit metadata - the same credential-shaped value under any other key - is still refused` |
+| Mapper | `audit metadata - a credential named by its key under the free text key - is still refused` |
+| Mapper | `audit metadata - the free text exemption - is a declared list of one rather than a pattern` |
 
 **Files**
-- create `src/route/hr/EmployeeRoutes.kt`
-- create `src/route/dto/EmployeeDto.kt`
-- create `src/route/mapper/EmployeeDtoMapper.kt`
+- create [`src/route/hr/EmployeeRoutes.kt`](../../src/route/hr/EmployeeRoutes.kt)
+- create [`src/route/dto/EmployeeDto.kt`](../../src/route/dto/EmployeeDto.kt)
+- create [`src/route/mapper/EmployeeDtoMapper.kt`](../../src/route/mapper/EmployeeDtoMapper.kt)
 - modify [`src/route/Routing.kt`](../../src/route/Routing.kt)
-- create `test/route/hr/EmployeeRoutesTest.kt`
+- create [`test/route/hr/EmployeeRoutesTest.kt`](../../test/route/hr/EmployeeRoutesTest.kt)
+- create [`apicontracts/HIRE_CREATION_API_CONTRACT.md`](../../apicontracts/HIRE_CREATION_API_CONTRACT.md),
+  modify [`apicontracts/README.md`](../../apicontracts/README.md) and the floors in
+  `test/ApiContractsTest.kt` — the new definition of done (ERT-1145), and ERT-450 is the first ticket to carry it
+- modify `src/route/mapper/AppErrorMapper.kt`, `test/route/ErrorMappingTest.kt`,
+  `docs/api-contract.md`, `src/route/dto/ApiResponse.kt` — C24
+- modify `src/data/mapper/AuditEntryMapper.kt`, `test/data/mapper/AuditEntryMapperTest.kt` — C25
 
 **Out of scope**
 - List and detail. ERT-510 and ERT-520.
+- **C26.** Nothing enforces the column widths, so an over-long name, position or address is still a
+  500 rather than a 422. Deliberately left: a length rule belongs to every string-taking use case,
+  and inventing it in one file leaves five later ones to re-invent it — the email cap belongs on
+  `EmailAddress` itself. This ticket made it reachable; the contract's *Known limits* names it and
+  the four column widths, so a client can cap the inputs in the meantime.
+
+---
+
+### Decided rather than assumed
+
+> **The response publishes `linkExpiresAt` as a flat field, not a nested link object.** `UploadLink`
+> carries `tokenHash`, `pinHash`, `failedPinCount` and nine other fields, none of which belongs on
+> the wire. A `HireLinkDto` with one field in it is an invitation to add the second, and the second
+> one someone adds will be the digest "for debugging". A flat `String` has nowhere for a token to go.
+>
+> The stronger property is that the route could not leak the plaintext token if it tried: it is
+> generated, digested and handed to the notifier **inside** the use case, and never lands on
+> `HireCreated`. The test asserts it anyway, against the token read back out of `FakeNotifier` rather
+> than against a literal — so the day someone adds the field, the test fails instead of the sample
+> quietly growing a credential.
+
+> **`invitation.status` is `QUEUED`, never `SENT`, and the DTO branches the sealed type.** ERT-434
+> made `DeliveryResult` two cases rather than a nullable `String` precisely so this mapper cannot
+> test a null; a third case would be a compile error here rather than an absent key on the wire.
+> `Sent` means durably queued — nothing transmits until ERT-1010 — and a body saying `SENT` would be
+> false for every hire created today, which is the kind of false reassurance that becomes "they never
+> got it" a week later.
+
+> **C24 resolved to `duplicateReason`, and the fix is three files rather than one.** The mapper said
+> `reason`; `details[].field` names the request body field at fault everywhere else in this API, and
+> the field on `CreateHireRequest` is `duplicateReason` — so the old spelling pointed a form at an
+> input that does not exist. `ErrorMappingTest` already pinned the field (the ticket's research said
+> it pinned only the code; it did not), so the fix was a red test first. It now also pins the **old**
+> spelling as absent, which is safe because `"field":"reason"` is not a substring of
+> `"field":"duplicateReason"` — the quote is what keeps that assertion honest.
+
+> **C25 is fixed with a declared exemption, and the negative control is half the fix.** A duplicate
+> reason of `ReplacingRecord2026ForJoseDelaCruz` is 32+ characters of mixed-case base64url, so
+> ERT-330's value tripwire read it as a credential and threw out through `ExposedAuditLog.record` —
+> **after the hire was written**. The remedy is SEC-38's, on the other side of the same guard: a
+> declared set of free-text keys (`reason`, and nothing else) exempt from the *value* check only.
+>
+> Weakening `isCredentialShaped` itself was not on the table — it is ERT-330's control and that is a
+> specification change. The alternative considered and declined was validating in
+> `CreateHireUseCase` that a reason looks like prose: it invents a business rule in one file that
+> five later string-taking use cases would re-invent, and it would refuse a legitimate one-word
+> reason such as a ticket number.
+>
+> **The guard's own KDoc is what licenses this**: it calls the value rule *"a tripwire, not a
+> control"* and rests it on *"a reason is prose"*. For text a human types freely that premise is
+> false, and the tripwire cannot protect the field in any case — one space defeats it. The key
+> denylist, which is the control, still runs on every entry, so `reason_pin` gets no relief from
+> sitting beside `reason`. Three tests hold the shape: the exempt key accepts the value, the same
+> value under `note`/`email`/`duplicateOf` is still refused, and the exempt list is asserted to be
+> **exactly** `{"reason"}` so a derived list cannot replace it.
+
+> **The route test's template fixture had to be rearranged before it proved anything.** Its first
+> draft used two templates whose `sortOrder`, name and id orders all agreed, so a route that re-sorted
+> by name or by id produced the identical body — the arrangement ERT-320, ERT-350, ERT-410 and ERT-420
+> each shipped without. It was noticed only because this branch had just finished writing HAR-20's
+> version of the same lesson one level up. The catalogue now orders NBI before Birth while the names
+> and ids order them the other way, and a `sortedBy { it.name }` mutation in the DTO mapper was
+> applied and killed.
+
+> **Every sample in the contract was captured from a running server, with one exception that says so.**
+> The `FAILED` invitation body is not reproducible on demand — the only way to produce it is for the
+> outbox insert itself to fail — so its shape is pinned by a route test and the contract's *Known
+> limits* records that it was not observed. Inventing a plausible one and setting it beside the
+> captured ones would have been the single thing `ApiContractsTest` cannot check.

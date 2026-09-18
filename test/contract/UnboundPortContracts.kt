@@ -46,7 +46,8 @@ import kotlin.test.assertFails
  *
  * ── TRIPWIRE, NOT A BUG ─────────────────────────────────────────────────────────────────────────
  * WHEN AN ADAPTER FOR ONE OF THESE LANDS: add a second concrete subclass beside the fake's, named
- * `Exposed<Port>ContractTest` — the name matters, see `ArchitectureTest.contract coverage`. Do NOT
+ * `Exposed<Port>ContractTest` — the name matters, see `ArchitectureTest.test discovery - every
+ * class holding a test - is named so the scan discovers it`. Do NOT
  * delete the suite and do NOT move its assertions into the adapter's own test class: a rule asserted
  * against one implementation is the state this ticket exists to end.
  * ═══════════════════════════════════════════════════════════════════════════════════════════════

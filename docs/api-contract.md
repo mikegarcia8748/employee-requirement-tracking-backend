@@ -155,7 +155,7 @@ into a status so no route invents its own. Defined in ERT-140.
 | `ValidationFailed(errors)` | **422** | one `details` entry per field, same shape as above |
 | `NotFound(code, entity)` | **404** | |
 | `Conflict(code, detail)` | **409** | the locked-upload case of §8.7 |
-| `ReasonRequired(code, action)` | **422** | a `details` entry naming the `reason` field; `action` is not on the wire |
+| `ReasonRequired(code, action)` | **422** | a `details` entry naming the `duplicateReason` field — the body field a form must fill, corrected from `reason` by ERT-450 (C24); `action` is not on the wire |
 | `Denied` | **404** | the shared denied body, **identical in every instance** |
 | `AuthenticationFailed` | **401** | the shared sign-in failure body, **identical in every instance**. HR-side only |
 | `Forbidden` | **403** | the shared role-refusal body; it never names the role required |

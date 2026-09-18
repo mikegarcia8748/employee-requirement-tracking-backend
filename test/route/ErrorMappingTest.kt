@@ -84,16 +84,25 @@ class ErrorMappingTest {
     }
 
     @Test
-    fun `error mapping - a reason required - returns 422 asking for a reason`() = testApplication {
+    fun `error mapping - a reason required - returns 422 naming the body field that is missing`() = testApplication {
         // The action the reason is *for* is not on the wire: the code already implies it, and what
-        // the client has to do is collect a `reason`, which the detail names directly.
+        // the client has to do is fill a body field, which the detail names directly.
+        //
+        // C24, settled by ERT-450: the field is `duplicateReason`, not `reason`. `details[].field`
+        // names the request body field a client must populate everywhere else in this API, and the
+        // field on `CreateHireRequest` really is `duplicateReason` -- so the old spelling pointed a
+        // form at an input that does not exist. Three documents disagreed; this is the one that
+        // decides, because it is the only one the build reads.
         withErrorRoutes()
 
         val response = client.get("/test/reason-required")
 
         response.status shouldBe HttpStatusCode.UnprocessableEntity
         response.bodyAsText() shouldContain "\"code\":\"duplicate_email.reason_required\""
-        response.bodyAsText() shouldContain "\"field\":\"reason\""
+        response.bodyAsText() shouldContain "\"field\":\"duplicateReason\""
+        // The old spelling, pinned as absent so C24 cannot quietly come back. It is not a substring
+        // of the new one -- the quote before `reason` is what keeps this assertion honest.
+        response.bodyAsText() shouldNotContain "\"field\":\"reason\""
         response.bodyAsText() shouldNotContain "create_hire"
     }
 

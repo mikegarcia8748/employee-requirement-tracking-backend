@@ -33,6 +33,25 @@ fun String.withoutComments(): String =
         .lineSequence()
         .joinToString("\n") { it.substringBefore("//") }
 
+/**
+ * The same text with every string literal emptied (ERT-250, HAR-20).
+ *
+ * A guard that reads declarations out of source has one blind spot the comment stripper does not
+ * cover: `ArchitectureTest` carries its own synthetic fixtures as string literals, so a sweep over
+ * `test/` reads `"class X : SomePort {"` as a real declaration and reports the guard's own negative
+ * control as a violation. Excluding that one file was the alternative and was declined -- it is a
+ * hole keyed on a filename, and the next test to embed a fixture reopens it.
+ *
+ * Raw strings first, because a `"""` block may contain single quotes that the second pattern would
+ * otherwise pair across. The second pattern refuses to cross a newline, so an unbalanced quote left
+ * behind by some other stripper spoils at most one line rather than swallowing a file — a Kotlin
+ * single-line literal cannot contain a raw newline, so nothing legitimate is lost. Both are replaced
+ * by an empty literal rather than deleted, so a declaration is never joined to the token after it.
+ */
+fun String.withoutStringLiterals(): String =
+    replace(Regex("\"\"\".*?\"\"\"", RegexOption.DOT_MATCHES_ALL), "\"\"")
+        .replace(Regex("\"(\\\\.|[^\"\\\\\\n])*\""), "\"\"")
+
 private val sourceRoot: File
     get() = generateSequence(File(".").absoluteFile) { it.parentFile }
         .first { File(it, "module.yaml").exists() }

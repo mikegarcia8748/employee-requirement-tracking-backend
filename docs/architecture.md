@@ -97,7 +97,7 @@ src/
     crypto/ time/ id/     BcryptHasher, SystemClock, SecureRandom generators
 
   route/                  thin HTTP adapters
-    HealthRoutes.kt       health; see hr/ for the thirteen handlers mounted today
+    HealthRoutes.kt       health; see hr/ for the eleven handlers mounted today
     hr/ portal/           handlers, split by audience and auth model
     dto/                  @Serializable wire types — the OpenAPI schema source
     mapper/               dto ↔ domain
