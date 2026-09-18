@@ -198,9 +198,11 @@ class MigrationTest {
     }
 
     @Test
-    fun `identifier generation - the guard above - is pointed at the ten keyed tables`() {
-        // app_settings is keyed by name and template_assignments by a composite; the other eleven
+    fun `identifier generation - the guard above - is pointed at the twelve keyed tables`() {
+        // app_settings is keyed by name and template_assignments by a composite; the other twelve
         // carry a generated identifier. Without this, the filter above could pass on an empty list.
+        // The name said "ten" until 2026-09-18 while the assertion said 12 (C32) -- the assertion
+        // tracked reality throughout, and the name is what a reader skimming test output trusts.
         allTables.filterIsInstance<IdTable<*>>().size shouldBe 12
     }
 

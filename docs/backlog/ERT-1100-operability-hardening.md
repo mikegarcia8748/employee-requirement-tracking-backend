@@ -99,6 +99,17 @@ No portal token reaches a log line, and a future call site that would change tha
       the architecture test fails the build
 - [ ] `[derived]` Given a non-portal path, then the URI is still logged in full — the redaction is
       scoped, not blanket, or every 404 becomes undiagnosable
+- [ ] `[derived]` Given a route mounted under `src/route/portal/` whose path does not sit beneath the
+      prefix the redaction matches, then the architecture test fails the build **(SEC-35, added
+      2026-09-18)**
+
+> **The redaction is narrower than it reads (SEC-35, [2026-09-18](../2026-09-18-ert-100-200-review.md)).**
+> It is a literal `path.startsWith("/api/portal/")`, so a portal route mounted anywhere else is logged
+> in full; and it reads `call.request.path()`, which excludes the query string, so a token arriving as
+> a parameter is outside its reach. Nothing ties `src/route/portal/` to that prefix — `ArchitectureTest`
+> guards what a portal DTO may declare and what a portal route may import, and not where one mounts.
+> The shared function this ticket already extracts is the right place for both; the criterion above is
+> what stops the prefix and the route tree drifting apart.
 
 **Tests**
 | Level | Test |
@@ -310,6 +321,19 @@ build does not use.
 - [ ] `[derived]` Given the README, then it advertises no feature that is not present
 - [ ] `[derived]` Given `libs.versions.toml` and `module.yaml`, then no r2dbc dependency remains and
       the build still passes
+- [ ] `[derived]` Given `module.yaml`, then `ktor.server.sessions` is either installed or removed —
+      it is declared and `install(Sessions)` appears nowhere **(HAR-07, added 2026-09-18)**
+- [ ] `[derived]` Given MockK, then either a test uses it or it is removed **and** the four documents
+      that name it as a house convention are corrected **(HAR-07, added 2026-09-18)**
+
+> **MockK is a convention with no instances (HAR-07,
+> [2026-09-18](../2026-09-18-ert-100-200-review.md)).** `CLAUDE.md`, architecture §10, ERT-200's
+> Description and ERT-210's Out of scope all say tests use *"`kotlin.test` with Kotest assertions and
+> **MockK**"*. `grep -rl io.mockk test/` returns nothing, and ERT-200's own opening paragraph observed
+> the same thing before the epic started — only the `kotlinx-coroutines-test` half changed. Decide
+> which way, because a reader who follows `CLAUDE.md` reaches for a tool this suite has never used.
+> `ktor.server.sessions` is the same shape, and **ERT-620 deliberately keeps it uninstalled** — so if
+> it stays, that ticket's reasoning is why, and this ticket should say so rather than remove it.
 
 **Files**
 - modify [`README.md`](../../README.md), [`libs.versions.toml`](../../libs.versions.toml), [`module.yaml`](../../module.yaml)
@@ -513,6 +537,21 @@ attempt is unchanged.
 - [ ] `[derived]` Given the bcrypt cost, then it is read from the environment and a value below 12 is
       refused rather than accepted
 - [ ] `[derived]` Given the existing timing-uniformity tests, then all of them still pass
+- [ ] `[derived]` Given the limiter's key, then it is the attempted **address** — or, if a source
+      address is used at all, it comes from a decided trusted-hop count rather than from the peer
+      socket **(SEC-33, added 2026-09-18)**
+
+> **The source IP in the audit trail is the load balancer's (SEC-33,
+> [2026-09-18](../2026-09-18-ert-100-200-review.md)).** `AuthRoutes.kt:56-59` records
+> `call.request.local.remoteAddress` and documents why — `X-Forwarded-For` is caller-controlled, which
+> is correct for a server a client reaches directly. On Cloud Run the peer is always the Google front
+> end, so the column holds one value for every caller. That matters twice here: a limiter keyed on
+> that address limits **every HR user at once and the attacker not at all**, and ERT-1185's alerting
+> cannot tell a burst from one source apart from Monday morning. The fix is not "trust XFF" — it is
+> `ForwardedHeaders` with a decided trusted-hop count, in **one helper** that this ticket and
+> **ERT-610** both call, because the second call site is where a per-route decision diverges. Note
+> while there that `ip varchar(64)` must hold one address, not a header chain. **Not measured** —
+> confirm with `select ip from audit_logs` against UAT before keying anything on that column.
 
 **Tests**
 | Level | Test |
@@ -680,3 +719,191 @@ Someone finds out.
 **Out of scope**
 - Application code. If this needs a code change, the event is not being logged and that is a
   different ticket.
+
+---
+
+## ERT-1190 — Index the baseline schema
+
+| | |
+|---|---|
+| **Parent** | ERT-1100 |
+| **Type** | Ticket |
+| **Phase** | Cross-cutting — **before ERT-610 and ERT-1020** |
+| **Status** | Not started |
+| **Depends on** | ERT-120 |
+| **PRD** | §6.6, §8.12, §8.13, §11 |
+| **Architecture** | §7, §14 |
+
+**Description**
+
+`V1__baseline.sql` declares thirteen tables and creates **two** plain indexes — `employees_email` and
+`audit_logs_entity_id` — plus the two `token_hash` uniques and the primary keys. Neither PostgreSQL
+nor Exposed creates an index for a foreign key, so every other access path in the schema is a
+sequential scan.
+
+**The contrast inside this repository is what makes it an omission rather than a house style.**
+`V6__notification_outbox.sql` (ERT-440) indexes its foreign key *and* the column its poller filters
+by. A later ticket knew to do it; the baseline did not.
+
+Unindexed, and on a path something already written or already ticketed will take:
+
+| Column(s) | Read by | Grows with |
+|---|---|---|
+| `employee_requirements.employee_id` | `requirementsOf` — the checklist read | ~14 rows per hire |
+| `submissions.employee_requirement_id` | the per-requirement version history | uploads |
+| `upload_links.employee_id` | `findActiveForEmployee` | hires |
+| `upload_links.status`, `expires_at`, `idle_expires_at` | **ERT-1020's expiry sweep**, which scans for work | hires |
+| `portal_sessions.upload_link_id` | `findActiveForLink` | sessions |
+| **`portal_access_logs.upload_link_id` + `timestamp`** | **§6.6's `countRecentFailures`** | **every portal request, forever** |
+| `audit_logs.timestamp`, `actor_user_id` | §8.13's exception report | every action, forever |
+| `employees.department_id`, `employment_type_id`, `packet_status` | ERT-510's HR list | hires |
+
+**The `portal_access_logs` row is the one to read twice.** It is append-only by design, it is the
+fastest-growing table in the schema, and `countRecentFailures(linkId, since)` is the query that
+decides §6.6's lockout and auto-suspend. That makes it a security control whose cost rises with the
+log it reads, on the unauthenticated portal path — the same shape as SEC-19, reached from the schema
+instead of from the algorithm.
+
+**Why now.** An index is a pure addition, safe under architecture §14's backward-compatibility rule,
+and free against an empty table. `CREATE INDEX` against a large table is a different operation with a
+different conversation about locks. **Land it before ERT-610 and ERT-1020**, which are the first
+readers.
+
+**Goal**
+
+Every access path the schema already has a reader for is served by an index, and the portal's
+anomaly counter does not scan the log it counts.
+
+**Stories**
+- As an operator, I want the §6.6 lockout counter to cost the same in month twenty-four as in month
+  one, so that the control does not quietly become the slowest thing on the portal path.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given the migrated schema, then every foreign-key column named above carries an
+      index
+- [ ] Given `portal_access_logs`, then `(upload_link_id, timestamp)` is one composite index rather
+      than two singles — the table is insert-heavy and the query is always both
+- [ ] `[derived]` Given the migration, then `statementsRequiredToActualizeScheme(*allTables)` is still
+      empty, so `Tables.kt` declares the same indexes
+- [ ] `[derived]` Given `MigrationTest`, then its SQL-file count moves from 7 deliberately rather
+      than being discovered as a failure
+- [ ] `[derived]` Given the same migration, then it applies cleanly on both H2 in PostgreSQL mode and
+      PostgreSQL
+
+**Tests**
+| Level | Test |
+|---|---|
+| Repository | `schema indexes - the migrated schema - every foreign key column carries an index` |
+| Repository | `schema indexes - portal_access_logs - carries one composite index over link and timestamp` |
+| Repository | `schema drift - the new indexes - Exposed reports no pending statements` |
+
+**Files**
+- create `resources/db/migration/V8__indexes.sql`
+- modify [`src/data/db/table/Tables.kt`](../../src/data/db/table/Tables.kt) — declare the same indexes
+- modify [`test/data/db/MigrationTest.kt`](../../test/data/db/MigrationTest.kt) — the file count, and
+  the two new assertions
+
+**Out of scope**
+- Indexing every column named in the table above. Pick against the readers that exist; an index on a
+  column nothing filters by is write cost with no return.
+- Partitioning `portal_access_logs` or `audit_logs`. Both grow without bound and both will want it
+  eventually; neither wants it at zero rows.
+
+**Folded in**
+
+TASK-26 from the [2026-09-17 bottleneck audit](../2026-09-17-bottleneck-audit.md) scopes PERF-08's
+`lower(email)` functional index to *"the next migration that happens anyway"*. This is that
+migration, and the index is additive, so it lands here.
+
+---
+
+## ERT-1195 — Prove the fail-closed controls abort a boot
+
+| | |
+|---|---|
+| **Parent** | ERT-1100 |
+| **Type** | Ticket |
+| **Phase** | Cross-cutting — **Phase 1 exit checklist** |
+| **Status** | Not started |
+| **Depends on** | ERT-1120, ERT-1160 |
+| **PRD** | §12 |
+| **Architecture** | §14 |
+
+**Description**
+
+Five controls refuse to start outside dev: `JWT_SECRET`, `TOKEN_PEPPER` (which also enforces a
+32-character floor), `DATABASE_URL`, `PORTAL_BASE_URL`, and the HR bootstrap when `users` is empty.
+Every one of them is tested **only as a pure function**, with the environment handed in as a
+parameter.
+
+That parameterisation was right and it is what made the rules testable at all — ERT-150, ERT-160 and
+ERT-190 each record the reason: *a JVM test cannot unset an environment variable in its own process*.
+What is missing is the other half, and **ERT-160's own scope note says so**:
+
+> *"What is proven is that the refusal fires, not that it aborts the boot — the boot path is covered
+> only by the eager resolution in `configureKoin()` being on the same line as `install(Koin)`. Verify
+> the real thing by hand with `APP_ENV=prod JWT_SECRET=… ./kotlin run`."*
+
+Five controls rest on a hand-verification, and a hand-verification is a control that runs when
+somebody remembers — which is the argument ERT-1160 already made for having CI at all. Worse,
+**nothing in this project ever runs in production mode**: `module.yaml` sets `APP_ENV: dev` for the
+whole test JVM, and `build.yml`'s container smoke test passes `-e APP_ENV=dev` explicitly.
+
+A refactor that moves the eager `getKoin().get<TokenDigest>()` out of `configureKoin()`, reorders
+`rootModule()`, or wraps a `check()` in a `runCatching` would leave every pure-function test green
+and ship a permissive deployment. That is SEC-17's shape exactly: one variable, no signal, permissive
+by default.
+
+**The fix costs one step, because the infrastructure already exists.** `build.yml`'s `image` job
+already runs the container and curls `/health`. A second `docker run` at `APP_ENV=production` with
+nothing else set turns five hand-verification notes into a guard.
+
+**Also here, because it is the same function and the same rule.** `DatabaseConfig.fromEnvironment`
+reads `password ?: ""` — the one configuration reader in `src/` that does not treat blank as unset,
+against ERT-160 Decided-2's house idiom — and `user?.takeUnless(String::isBlank) ?: "sa"`, carrying
+H2's default into the PostgreSQL path. SEC-18 fixed `DATABASE_URL` in ERT-1241 and left the
+credential pair beside it untouched. It fails closed (PostgreSQL refuses `sa` with no password), so
+the cost is a confusing startup error rather than an open database — but it is the exact credential
+SEC-18's own impact paragraph named.
+
+**Goal**
+
+Removing any one of the five refusals turns CI red, and every configuration reader treats blank as
+unset.
+
+**Stories**
+- As an operator, I want a deployment that has lost a secret to fail visibly rather than come up
+  looking healthy, and I want CI to be what guarantees that rather than someone's memory.
+
+**Acceptance criteria**
+- [ ] `[derived]` Given the container is run with `APP_ENV=production` and nothing else set, then it
+      exits non-zero and logs a refusal naming the missing variable
+- [ ] `[derived]` Given any one of the five `check(devMode)` calls is removed, then CI fails
+- [ ] `[derived]` Given `DATABASE_PASSWORD=""`, then it is treated as unset, matching every other
+      reader
+- [ ] `[derived]` Given `DATABASE_USER=""` outside dev with a PostgreSQL URL, then startup refuses
+      rather than falling back to `sa`
+- [ ] `[derived]` Given a URL that is neither H2 nor PostgreSQL, then the driver choice is refused by
+      name rather than silently falling back to `org.h2.Driver`
+
+**Tests**
+| Level | Test |
+|---|---|
+| CI | `production boot - no secrets set - the container exits non-zero naming the variable` |
+| Use case | `database config - a blank database password - is treated as unset` |
+| Use case | `database config - a postgres url with no user outside dev - refuses to start` |
+| Use case | `database config - a url naming neither engine - is refused by name` |
+
+**Files**
+- modify [`.github/workflows/build.yml`](../../.github/workflows/build.yml) — the second `docker run`
+- modify [`src/data/db/DatabaseFactory.kt`](../../src/data/db/DatabaseFactory.kt) — the credential
+  pair and the driver choice
+- modify [`test/data/db/DatabaseConfigTest.kt`](../../test/data/db/DatabaseConfigTest.kt)
+- modify [`docs/deployment.md`](../deployment.md) — name the five controls the smoke test covers
+
+**Out of scope**
+- Replacing the pure-function tests. This adds the boot-level half; ERT-160's and ERT-1120's
+  unit-level tests stay, because they are what makes each rule's *content* testable.
+- `APP_ENV` in the test JVM. It stays `dev` — `module.yaml` already explains that this is a real
+  environment variable rather than a test-only backdoor, and the in-process suite could not assert
+  these refusals in any case. The second process is the point.

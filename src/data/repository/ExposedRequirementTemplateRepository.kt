@@ -34,6 +34,12 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
 class ExposedRequirementTemplateRepository(private val factory: DatabaseFactory) :
     RequirementTemplateRepository {
 
+    /**
+     * Does **not** filter by `is_active` — only [findActiveForEmploymentType] does.
+     *
+     * The Phase 2 admin screen has to be able to open a template it has just deactivated, and a
+     * `findById` that hid one would make that impossible for the one caller that needs it.
+     */
     override suspend fun findById(id: EntityId): RequirementTemplate? = factory.transaction {
         RequirementTemplates.selectAll()
             .where { RequirementTemplates.id eq id.value }
@@ -41,12 +47,6 @@ class ExposedRequirementTemplateRepository(private val factory: DatabaseFactory)
             ?.toRequirementTemplate()
     }
 
-    /**
-     * Does **not** filter by `is_active` — only [findActiveForEmploymentType] does.
-     *
-     * The Phase 2 admin screen has to be able to open a template it has just deactivated, and a
-     * `findById` that hid one would make that impossible for the one caller that needs it.
-     */
     override suspend fun findActiveForEmploymentType(
         employmentTypeId: EntityId,
     ): List<RequirementTemplate> = factory.transaction {

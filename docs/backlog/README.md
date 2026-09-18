@@ -19,7 +19,7 @@ Phase 0 · depends on — · **Done**
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
 | [ERT-110](ERT-100-foundations.md#ert-110--wire-databasefactory-into-the-application-lifecycle) | Wire `DatabaseFactory` into the application lifecycle | Ticket | — | Done |
-| [ERT-120](ERT-100-foundations.md#ert-120--flyway-baseline-migration-for-the-12-tables-plus-a-schema-drift-test) | Flyway baseline migration for the 12 tables, plus a schema-drift test | Ticket | ERT-110 | Done |
+| [ERT-120](ERT-100-foundations.md#ert-120--flyway-baseline-migration-for-the-12-tables-plus-a-schema-drift-test) | Flyway baseline migration for the 12 tables (14 today), plus a schema-drift test | Ticket | ERT-110 | Done |
 | [ERT-130](ERT-100-foundations.md#ert-130--seed-reference-data-and-app_setting-defaults-with-bounds) | Seed reference data and `app_setting` defaults with bounds | Ticket | ERT-120 | Done |
 | [ERT-140](ERT-100-foundations.md#ert-140--map-apperror-to-http-status-in-statuspages) | Map `AppError` to HTTP status in `StatusPages` | Ticket | — | Done |
 | [ERT-145](ERT-100-foundations.md#ert-145--a-uniform-response-envelope-for-api) | A uniform response envelope for `/api` | Ticket | ERT-140 | Done |
@@ -33,14 +33,17 @@ Phase 0 · depends on — · **Done**
 
 ## [ERT-200](ERT-200-test-harness.md) — Test harness
 
-Phase 0 · depends on ERT-120 · **Done**
+Phase 0 · depends on ERT-120 · **In progress** — reopened 2026-09-18 by the
+[ERT-100/ERT-200 review](../2026-09-18-ert-100-200-review.md)
 
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
-| [ERT-210](ERT-200-test-harness.md#ert-210--in-memory-fakes-for-the-10-domain-ports) | In-memory fakes for the 10 domain ports | Ticket | — | Done |
+| [ERT-210](ERT-200-test-harness.md#ert-210--in-memory-fakes-for-the-10-domain-ports) | In-memory fakes for the domain ports (10 when written; 13 today) | Ticket | — | Done |
 | [ERT-220](ERT-200-test-harness.md#ert-220--deterministic-fixedclock-and-id-token-and-pin-generators) | Deterministic `FixedClock` and id, token and PIN generators | Ticket | — | Done |
 | [ERT-230](ERT-200-test-harness.md#ert-230--domain-test-builders) | Domain test builders | Ticket | ERT-220 | Done |
 | [ERT-240](ERT-200-test-harness.md#ert-240--repository-integration-test-base-against-h2-in-postgresql-mode) | Repository integration-test base against H2 in PostgreSQL mode | Ticket | ERT-120, ERT-130 | Done |
+| [ERT-250](ERT-200-test-harness.md#ert-250--contract-tests-binding-each-ports-fake-to-its-adapter) | Contract tests binding each port's fake to its adapter | Ticket | ERT-210 | Not started |
+| [ERT-260](ERT-200-test-harness.md#ert-260--a-postgresql-ci-job-and-a-migration-applied-to-a-database-with-data) | A PostgreSQL CI job, and a migration applied to a database with data | Ticket | ERT-240, ERT-1160 | Not started |
 
 ## [ERT-300](ERT-300-catalogue-policy.md) — Requirement catalogue and link policy
 
@@ -166,6 +169,8 @@ Cross-cutting · depends on —
 | [ERT-1175](ERT-1100-operability-hardening.md#ert-1175--security-headers-hsts-and-a-request-body-limit) | Security headers, HSTS, and a request body limit | Ticket | ERT-1120 | Not started |
 | [ERT-1180](ERT-1100-operability-hardening.md#ert-1180--dependency-and-image-scanning-with-an-sbom) | Dependency and image scanning, with an SBOM | Ticket | ERT-1160 | Not started |
 | [ERT-1185](ERT-1100-operability-hardening.md#ert-1185--alert-on-the-audit-trail-that-already-exists) | Alert on the audit trail that already exists | Ticket | ERT-1250, ERT-1260 | Not started |
+| [ERT-1190](ERT-1100-operability-hardening.md#ert-1190--index-the-baseline-schema) | Index the baseline schema | Ticket | ERT-120 | Not started |
+| [ERT-1195](ERT-1100-operability-hardening.md#ert-1195--prove-the-fail-closed-controls-abort-a-boot) | Prove the fail-closed controls abort a boot | Ticket | ERT-1120, ERT-1160 | Not started |
 
 
 ## [ERT-1200](ERT-1200-deployment.md) — Environments, containerisation and deployment

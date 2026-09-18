@@ -157,7 +157,9 @@ A fresh database reaches the full 12-table schema by running migrations, and CI 
 
 **Acceptance criteria**
 - [x] `[derived]` Given an empty database, when the application starts, then all 12 tables in
-      `allTables` exist
+      `allTables` exist — **`allTables` is now 14** (ERT-190's `users`, ERT-440's
+      `notification_outbox`), and `MigrationTest`'s anti-vacuity assertion tracks the real number.
+      The criterion is corrected rather than rewritten *(2026-09-18)*
 - [x] `[derived]` Given `portal_sessions`, then it carries a unique `token_hash` column. The table as
       defined today has none, so a session cookie would have to carry the primary key — storing live
       session bearer tokens in plaintext. Adding the column now is free; adding it later is a
@@ -186,6 +188,14 @@ A fresh database reaches the full 12-table schema by running migrations, and CI 
 - create `resources/db/migration/V1__baseline.sql` — the 12 tables, indexes and foreign keys
 - modify `src/plugin/Database.kt` — run Flyway before the pool is handed out
 - create `test/data/db/MigrationTest.kt`
+
+> **Found 2026-09-18 (HAR-05): every criterion above is about a *fresh* database, and so is every
+> test.** The idempotence test proves the *runner* is idempotent; the drift test proves the
+> *destination* matches `Tables.kt`. Nothing migrates a database that already holds rows — so
+> `V4__hr_users.sql`, which drops and re-adds four actor columns, one of them `not null` with no
+> default, shipped green. Against a populated table that is either a hard failure or a silent
+> discard. **ERT-260 carries the test**, and ERT-1220/1230 made "a database with rows in it" a real
+> place.
 
 **Out of scope**
 - Seed data — that is ERT-130.

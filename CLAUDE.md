@@ -75,7 +75,9 @@ its tests hunting for what the happy path hid, and each finding becomes a new fa
 
 > **Verified constraint: Amper 0.12.0 does not discover Kotest specs.** A deliberately-failing
 > `BehaviorSpec` was silently skipped under 5.9.1 and 6.0.3. Use `kotlin.test` (`@Test`, discovered
-> by JUnit 5) with **Kotest assertions** (`shouldBe`) and **MockK**. Never `BehaviorSpec` or any
+> by JUnit 5) with **Kotest assertions** (`shouldBe`). MockK is declared and, as of 2026-09-18, used
+> by **no test** — reach for a fake before a mock; ERT-1140 decides whether it stays (HAR-07). Never
+> `BehaviorSpec` or any
 > other Kotest spec style — it will pass vacuously.
 
 Name tests `<rule> - <scenario> - <outcome>`:
@@ -88,7 +90,7 @@ A failing test should say which business rule broke without opening the file.
 
 | Level | Where | Covers |
 |---|---|---|
-| Use case | `test/domain/usecase/` | every business rule, exhaustively — the bulk of the suite |
+| Use case | `test/domain/usecase/` | every business rule, exhaustively — **where business rules are proven**, and where the suite's weight belongs as Phase 1 lands (14% of 689 today; `test/data/` is 37%) |
 | Plugin | `test/plugin/` | a startup rule, as a pure function — see `bootstrapDecision` |
 | Repository | `test/data/repository/` | real SQL against H2 in PostgreSQL mode |
 | Route | `test/route/` | wiring, status codes, serialization — never a decision |

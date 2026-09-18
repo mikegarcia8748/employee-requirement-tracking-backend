@@ -866,6 +866,25 @@ nothing useful. The `Notifier` shape enforces this; this sub-task must not work 
       structurally guaranteed by the `Notifier` signature
 - [ ] `[derived]` Given a successful creation, then an audit entry records the creating actor and
       timestamp
+- [ ] Given the **queue insert itself** fails, then the failure indicator still reaches HR — there is
+      no outbox row to derive it from **(HAR-02, added 2026-09-18)**
+
+> **The failure indicator has a hole, and this is the ticket that has to answer it (HAR-02,
+> [2026-09-18](../2026-09-18-ert-100-200-review.md)).** `NotificationOutbox`'s KDoc says the §8.1
+> delivery-failure indicator is *"derived from the latest row for a hire"*. But `OutboxNotifier.queue`
+> wraps the whole write in `runCatching`, so when the **insert** is what fails it returns
+> `DeliveryResult.Failed` and writes **nothing** — there is no latest row, and the indicator derived
+> from it cannot see the failure at all. The `Failed` value reaching this use case is the only
+> evidence that exists, so whatever carries it to HR has to come from here rather than from the table.
+>
+> Two options, and both are this ticket's to weigh: persist the failure on the **employee** record
+> (a column, or an audit row with a known action, which §8.1's retry action can then read), or have
+> `OutboxNotifier` write a `FAILED` row through a second, narrower path that cannot itself be the
+> thing that failed. The first is simpler and does not pretend the queue holds something it does not.
+>
+> Related and already settled elsewhere: **ERT-250 removes `FakeNotifier`'s throwing failure mode**,
+> which models a path `OutboxNotifier` structurally cannot produce. Write this sub-task's tests
+> against `DeliveryResult.Failed`, never against an exception.
 
 **Tests**
 | Level | Test |
@@ -873,6 +892,7 @@ nothing useful. The `Notifier` shape enforces this; this sub-task must not work 
 | Use case | `invitation - a hire is created - sends one invitation carrying the link and no pin` |
 | Use case | `invitation - delivery fails - the hire and its link still exist` |
 | Use case | `invitation - delivery fails - the result reports the failure so HR can retry` |
+| Use case | `invitation - the outbox insert itself fails - HR still sees the failure` |
 | Use case | `hire creation - a successful creation - records an audit entry naming the actor` |
 
 ---
