@@ -39,11 +39,17 @@ import com.pgsystem.employee.requirement.tracker.domain.port.RejectedItem
  * that returned `DomainResult.Err` would be modelling a path the real adapter does not have"* — and
  * this was that warning, inverted, in the fake beside it.
  *
- * **What is still open, and is not this fake's to answer:** `OutboxNotifier` returns `Failed` and
- * writes **nothing** when the insert is what failed, while this fake records the attempt and exposes
- * it as [failed]. `NotificationOutbox`'s KDoc says §8.1's delivery-failure indicator is derived from
- * the latest row for a hire — so that indicator cannot see a queue-insert failure at all. **ERT-434
- * owns that question** and its block carries it.
+ * **The question this fake used to leave open is answered (HAR-02, closed by ERT-434).**
+ * `OutboxNotifier` returns `Failed` and writes **nothing** when the insert is what failed, while
+ * this fake records the attempt and exposes it as [failed] — so §8.1's delivery-failure indicator,
+ * which `NotificationOutbox`'s KDoc derives from the latest row for a hire, could not see a
+ * queue-insert failure at all. It no longer has to: `CreateHireUseCase` writes an
+ * `AuditAction.INVITATION_DELIVERY_FAILED` row from the `Failed` value itself, so the evidence
+ * exists whether or not an outbox row does.
+ *
+ * The divergence in *this* fake is therefore harmless and stays: recording the attempt is more
+ * generous than the adapter, and no rule now depends on the attempt having been recorded. What a
+ * test must never do is assert that a failed send left a row behind — the adapter leaves none.
  *
  * ### Recording the token and PIN is what makes an end-to-end test possible
  *

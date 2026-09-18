@@ -26,6 +26,8 @@ import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeReferenceData
 import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeRequirementTemplateRepository
 import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeUploadLinkRepository
 import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeAppSettingsRepository
+import com.pgsystem.employee.requirement.tracker.domain.model.Employee
+import com.pgsystem.employee.requirement.tracker.domain.port.DeliveryResult
 import com.pgsystem.employee.requirement.tracker.testdata.fake.FakeNotifier
 import com.pgsystem.employee.requirement.tracker.testdata.FixedTokenGenerator
 import com.pgsystem.employee.requirement.tracker.data.crypto.HmacTokenDigest
@@ -38,6 +40,7 @@ import com.pgsystem.employee.requirement.tracker.core.error.DomainResult
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
@@ -47,12 +50,12 @@ import kotlin.test.Test
 import kotlin.test.assertFailsWith
 
 /**
- * Hire creation, first sub-task (ERT-431, PRD §8.1).
+ * Hire creation, all four sub-tasks (ERT-431 to ERT-434, PRD §8.1).
  *
  * Covers the rules that decide whether a hire may be created at all — the email is well formed, both
  * reference ids exist, and a duplicate against an **active** hire carries a typed justification —
- * and, since ERT-432, the requirement set copied onto the hire from the catalogue. The link and its
- * expiry are ERT-433 and the invitation ERT-434, so a hire created here still has no link.
+ * the requirement set copied onto the hire from the catalogue (ERT-432), the link and its stored
+ * expiry (ERT-433), and the invitation with its delivery indicator (ERT-434).
  *
  * ### Two id traps this file is arranged around
  *
@@ -281,10 +284,17 @@ class CreateHireUseCaseTest {
     fun `hire creation - a unique email - carries no anomaly flag and records no override`() = runTest {
         // The anti-coincidence half of the two duplicate tests above. Without it, a use case that
         // set SHARED_EMAIL on every hire and recorded an override every time passes both of them.
+        //
+        // An EXACT list rather than a `shouldNotContain`, which is what makes it keep earning its
+        // keep as the class grows: ERT-434 added two more rows to the happy path, and this line is
+        // where an unasked-for third would show up. It is also the assertion that a SUCCESSFUL
+        // delivery records no INVITATION_DELIVERY_FAILED row -- the break "audit the failure
+        // unconditionally" dies here rather than needing a test of its own.
         val created = useCase(createHire(email = "maria.santos@example.com")).ok()
 
         created.employee.anomalyFlags.shouldBeEmpty()
-        audit.entries.map { it.action } shouldBe listOf(AuditAction.HIRE_CREATED)
+        audit.entries.map { it.action } shouldBe
+            listOf(AuditAction.HIRE_CREATED, AuditAction.LINK_ISSUED)
     }
 
     @Test
@@ -776,6 +786,154 @@ class CreateHireUseCaseTest {
         result shouldBe DomainResult.Err(policyError)
         nothingHappened()
     }
+
+    // ── The invitation (ERT-434, PRD §8.1, §8.9) ────────────────────────────────────────────────
+
+    @Test
+    fun `invitation - a hire is created - sends one invitation carrying the link and no pin`() = runTest {
+        val created = useCase(createHire(email = "maria.santos@example.com")).ok()
+
+        notifier.invitations shouldHaveSize 1
+        val invitation = notifier.invitationTo(created.employee.email).shouldNotBeNull()
+
+        // The sharp assertion, and the one nothing else in the suite makes: the token that was
+        // EMAILED is the token that was STORED. Drawing a second token for the message compiles,
+        // passes every other test here, and produces an invitation whose link opens nothing.
+        tokenDigest.digest(invitation.linkToken) shouldBe uploadLinks.saved.single().tokenHash
+
+        // "no pin" is structural -- Sent.Invitation has no pin field, mirroring the port, which is
+        // the compile-time half of §8.9. This is the behavioural half: nothing else was sent.
+        notifier.sentOfType<FakeNotifier.Sent.RecoveryPin>().shouldBeEmpty()
+        created.delivery shouldBe DeliveryResult.Sent
+    }
+
+    @Test
+    fun `invitation - a hire is created - the invitation is sent after the link is stored`() = runTest {
+        // An invitation sent before `uploadLinks.save` carries a live credential for a row that may
+        // never exist. The fake records the attempt either way, so ordering is the only observable.
+        uploadLinks.failure.failEveryCall()
+
+        assertFailsWith<IllegalStateException> { useCase(createHire(email = "maria.santos@example.com")) }
+
+        notifier.attempts.shouldBeEmpty()
+    }
+
+    @Test
+    fun `invitation - delivery fails - the hire and its link still exist`() = runTest {
+        // §8.1 from the other side: a Failed result must not roll the creation back. The use case
+        // returns Ok, and every artefact written before the send is still there.
+        notifier.failNextSend("SMTP unavailable")
+
+        val created = useCase(createHire(email = "maria.santos@example.com")).ok()
+
+        employees.created.single() shouldBe created.employee
+        employees.savedRequirementBatches.single() shouldHaveSize 3
+        uploadLinks.saved.single() shouldBe created.link
+        created.employee.anomalyFlags.shouldBeEmpty()
+    }
+
+    @Test
+    fun `invitation - delivery fails - the result reports the failure so HR can retry`() = runTest {
+        notifier.failNextSend("SMTP unavailable")
+
+        val created = useCase(createHire(email = "maria.santos@example.com")).ok()
+
+        created.delivery shouldBe DeliveryResult.Failed("SMTP unavailable")
+    }
+
+    @Test
+    fun `invitation - the outbox insert itself fails - HR still sees the failure`() = runTest {
+        // HAR-02, and the reason this row exists at all. `NotificationOutbox`'s KDoc says §8.1's
+        // delivery-failure indicator is derived from the latest outbox row for a hire -- but when
+        // the INSERT is what failed, `OutboxNotifier` writes nothing, so there is no latest row and
+        // the indicator cannot see the failure at all.
+        //
+        // FakeNotifier cannot tell a failed insert from a failed transport: both are
+        // DeliveryResult.Failed, which is ERT-250's whole argument and why the fake's throwing mode
+        // was removed. So the ARRANGEMENT here is the same as the test above; what differs is the
+        // assertion. What makes this test real is that the evidence is written by the USE CASE, so
+        // it exists in the case where the outbox holds nothing whatsoever.
+        notifier.failNextSend("ExposedSQLException")
+
+        val created = useCase(createHire(email = "maria.santos@example.com")).ok()
+
+        val failure = audit.entriesFor(AuditAction.INVITATION_DELIVERY_FAILED).single()
+        failure.entityId shouldBe created.employee.id
+        failure.entity shouldBe Employee.AUDIT_ENTITY
+        failure.actorUserId shouldBe Fixtures.HR_USER_ID
+        failure.timestamp shouldBe FixedClock.DEFAULT
+        failure.metadata shouldBe mapOf(
+            "email" to created.employee.email.value,
+            "reason" to "ExposedSQLException",
+        )
+    }
+
+    @Test
+    fun `invitation - delivery fails - the invitation is still recorded as attempted`() = runTest {
+        // A failed send that was never attempted and a failed send that was are different faults,
+        // and only one of them is retryable. `attempts` holds both; `delivered` holds neither.
+        notifier.failNextSend("SMTP unavailable")
+
+        useCase(createHire(email = "maria.santos@example.com")).ok()
+
+        notifier.attempts shouldHaveSize 1
+        notifier.delivered.shouldBeEmpty()
+    }
+
+    @Test
+    fun `invitation - delivery fails - the audit reason names the failure and not the token`() = runTest {
+        // The credential guard on audit metadata is a tripwire rather than a control, so this is
+        // the belt. `OutboxNotifier` already pins its reason to a bare exception type -- see
+        // `outbox notifier - a failed write of an invitation - reports only the exception type`.
+        notifier.failNextSend("ExposedSQLException")
+
+        useCase(createHire(email = "maria.santos@example.com")).ok()
+
+        val reason = audit.entriesFor(AuditAction.INVITATION_DELIVERY_FAILED).single().metadata.getValue("reason")
+        reason shouldBe "ExposedSQLException"
+        audit.entries.none { entry -> entry.metadata.values.any { "token-" in it } } shouldBe true
+    }
+
+    @Test
+    fun `invitation - a hire is created - records the link issue in the audit trail`() = runTest {
+        // LINK_ISSUED has existed in the enum since ERT-330 and was written by no production code:
+        // ERT-433 issued the link and never audited it, and no criterion asked it to. Closed here
+        // because this is the ticket that opens the same method to add the failure row.
+        val created = useCase(createHire(email = "maria.santos@example.com")).ok()
+
+        val issued = audit.entriesFor(AuditAction.LINK_ISSUED).single()
+        issued.entityId shouldBe created.employee.id
+        issued.actorUserId shouldBe Fixtures.HR_USER_ID
+        issued.timestamp shouldBe FixedClock.DEFAULT
+        issued.metadata.getValue("linkId") shouldBe created.link.id.value
+
+        // The audit row must not become a second place the credential lives.
+        issued.metadata.values.none { "token-" in it } shouldBe true
+    }
+
+    @Test
+    fun `invitation - the failure audit write also fails - the failure surfaces rather than a silently unrecorded delivery failure`() =
+        runTest {
+            // Wrapping the failure row in a runCatching is the tempting mistake: the hire already
+            // exists, so swallowing looks like resilience. It is not -- it destroys the only record
+            // that the invitation never went out, and HR sees a hire that looks fully dispatched.
+            // The use case's standing rule is that an audit failure surfaces (see the test below),
+            // and catching it HERE specifically would be a new, unargued divergence from the two
+            // audit rows written a few lines above it.
+            //
+            // TARGETED at the delivery-failure row, and that matters. Arming `failEveryCall` throws
+            // on the FIRST audit write instead, so the use case never reaches this one and the test
+            // passes whether the row is swallowed or not -- which is exactly how a `runCatching`
+            // here survived the first mutation pass.
+            notifier.failNextSend("SMTP unavailable")
+            audit.failOn(AuditAction.INVITATION_DELIVERY_FAILED)
+
+            assertFailsWith<IllegalStateException> { useCase(createHire(email = "maria.santos@example.com")) }
+
+            // The hire, its checklist and its link were all written before the audit row was lost.
+            employees.created.shouldHaveSize(1)
+            uploadLinks.saved.shouldHaveSize(1)
+        }
 
     // ── There is no transaction here, and there cannot be one ──────────────────────────────────
 

@@ -186,6 +186,19 @@ person by accident.
   > an authenticated endpoint: one invocation whichever instance answers, and no always-on-CPU
   > dependency at all. Evaluate that before building an in-process timer.
 
+> **Read before replacing `OutboxNotifier`'s failure reason (added 2026-09-18 by ERT-434).** That
+> reason now reaches an **audit metadata value**: `CreateHireUseCase` writes it into an
+> `INVITATION_DELIVERY_FAILED` row. `AuditEntryMapper.refuseCredentials` throws
+> `IllegalArgumentException` on a value that is credential-shaped — 32+ characters of mixed-case
+> base64url with a digit — and that throw would land **after the hire already exists**, which is
+> C25's trap reached through a new door.
+>
+> Today it cannot fire: `outbox notifier - a failed write of an invitation - reports only the
+> exception type, not its message` pins the reason to `^[A-Za-z]+$`, and a letters-only string can
+> never be credential-shaped because the rule requires a digit. **An SMTP transport's error string
+> has no such guarantee.** Keep the whitelist, or map the transport's error onto a bounded set — and
+> add a test, because the tripwire must not be weakened to accommodate it.
+
 ---
 
 ## ERT-1020 — Expiry sweep: idle and absolute clocks, one warning if incomplete

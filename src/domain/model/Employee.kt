@@ -3,6 +3,7 @@ package com.pgsystem.employee.requirement.tracker.domain.model
 import com.pgsystem.employee.requirement.tracker.core.value.EmailAddress
 import com.pgsystem.employee.requirement.tracker.core.value.EntityId
 import com.pgsystem.employee.requirement.tracker.core.value.PersonId
+import com.pgsystem.employee.requirement.tracker.domain.port.DeliveryResult
 import java.time.Instant
 
 /** A hired person being onboarded. Created by HR, individually or via CSV import (PRD 5). */
@@ -69,6 +70,13 @@ data class Employee(
  * derived from the latest outbox row, and that "a column would be a second copy of a fact the outbox
  * already owns, and the two would drift the first time a retry succeeded".
  *
+ * **E4's derivation has one hole, and [delivery] is half of the answer (HAR-02).** When the outbox
+ * *insert* is what failed, `OutboxNotifier` writes nothing — so there is no latest row to derive
+ * from, and the `DeliveryResult` value is the only evidence in existence. It reaches HR twice:
+ * synchronously through this field, which ERT-450 renders into the 201 body, and durably through an
+ * [AuditAction.INVITATION_DELIVERY_FAILED] row the use case writes. The outbox still records what
+ * was *queued*; the audit row records what *failed*. Neither is a copy of the other.
+ *
  * The alternative — return [Employee] now and widen the signature at ERT-434 — is what ERT-430 split
  * itself into sub-tasks to avoid, and it would additionally force ERT-450's route to make a second
  * repository call for the requirement set, which the dependency rule forbids.
@@ -82,8 +90,8 @@ data class Employee(
  * |---|---|
  * | ERT-431 | `employee` |
  * | ERT-432 | `requirements` — **landed** |
- * | ERT-433 | the `UploadLink` — safe to expose, since it holds a digest and never a plaintext token |
- * | ERT-434 | whether the invitation was delivered |
+ * | ERT-433 | `link` — **landed**; safe to expose, since it holds a digest and never a plaintext token |
+ * | ERT-434 | `delivery` — **landed** |
  */
 data class HireCreated(
     val employee: Employee,
@@ -99,6 +107,26 @@ data class HireCreated(
      */
     val requirements: RequirementSet,
     val link: UploadLink,
+    /**
+     * Whether the invitation reached the outbox (ERT-434, §8.1).
+     *
+     * [DeliveryResult] rather than a `Boolean`, because §8.1 asks for a failure indicator **and** a
+     * retry action, and the reason is what HR is shown. Rather than a nullable `String`, because a
+     * two-case sealed type is what lets ERT-450 branch exhaustively instead of testing a null.
+     *
+     * `Sent` means **durably queued**, not delivered — `OutboxNotifier`'s own KDoc is explicit, and
+     * nothing transmits until ERT-1010 drains the table. The retry for a failed *invitation* is
+     * ERT-1030's `resend-link`, never `OutboxNotifier.retry`, which refuses an invitation loudly
+     * because its body was never stored.
+     *
+     * **This is the first reference from `domain/model` to `domain/port`, and it is deliberate.**
+     * Both are the same layer so no dependency rule is touched, and `HireCreated` is a use-case
+     * result living here on the `HrSession` precedent rather than a persisted model — a result may
+     * speak a port's vocabulary. Moving [DeliveryResult] into `domain/model` was the alternative and
+     * was declined: it describes what a `Notifier` did, and relocating it would churn six files for
+     * no behavioural gain.
+     */
+    val delivery: DeliveryResult,
 )
 
 /**

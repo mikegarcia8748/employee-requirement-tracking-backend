@@ -19,6 +19,7 @@ import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
 import java.time.Instant
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * `Notifier` as a durable outbox, with no transport behind it (ERT-440, PRD §8.9).
@@ -261,13 +262,27 @@ class OutboxNotifier(
      * A failure here is returned as [DeliveryResult.Failed] rather than thrown, because §8.1 requires
      * the hire to survive a failed invitation: `CreateHireUseCase` must see a value it can report,
      * not an exception that unwinds the creation it has just completed.
+     *
+     * **A cancellation is not a delivery failure, and is re-thrown (SEC-37, 2026-09-18).** This was
+     * one `runCatching`, which catches [Throwable] — so a cancelled request came back as
+     * `Failed("CancellationException")`, ERT-434 recorded a delivery failure and offered HR a retry
+     * for a request nobody was waiting for, and structured concurrency lost a cancellation it was
+     * entitled to. On Cloud Run a client disconnect or an instance drain is the realistic producer.
+     *
+     * **Narrowing the catch to [Exception] does not fix it on its own**, which is why both clauses
+     * are here: on the JVM `CancellationException` extends `IllegalStateException`, so it *is* an
+     * `Exception` and the narrowing alone changes nothing. The narrowing is still worth having —
+     * `runCatching` also turned an `OutOfMemoryError` into a delivery failure.
+     *
+     * `NotifierContract` cannot catch this class of defect: it asserts that a failure is a *value*,
+     * which is exactly what the bug did. `OutboxNotifierTest` holds the test that can.
      */
     private suspend fun queue(
         kind: NotificationKind,
         to: EmailAddress?,
         employee: Employee,
         message: RenderedMessage,
-    ): DeliveryResult = runCatching {
+    ): DeliveryResult = try {
         val now = clock.now()
         val rowId = ids.newEntityId()
 
@@ -286,7 +301,11 @@ class OutboxNotifier(
         }
 
         DeliveryResult.Sent
-    }.getOrElse { failure ->
+    } catch (cancellation: CancellationException) {
+        // Must come first: CancellationException IS an Exception on the JVM, so the clause below
+        // would otherwise swallow it exactly as `runCatching` did. See this method's KDoc.
+        throw cancellation
+    } catch (failure: Exception) {
         // The message, never the body: a failed INSERT can echo the row it was given, and for an
         // invitation that row is the one place a live link exists in this process.
         DeliveryResult.Failed(failure::class.simpleName ?: "write failed")

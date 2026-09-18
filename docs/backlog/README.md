@@ -30,6 +30,13 @@ page and may not open `CLAUDE.md`.
 > to `main`, its own block read `Completed` — which is not one of the four values above — and this
 > row still read `Not started`. Both are corrected. The rule is the one thing holding these in step
 > and nothing checks it; noted here because the next instance will look the same.
+>
+> **And the next instance looked exactly the same (2026-09-18).** The ERT-300 review's task plan says
+> "**ERT-250 reopened**" and files two unticked HAR-20 criteria into its block — while the block's
+> Status row, this board row and the epic line all still read `Done`. Found while closing ERT-310,
+> by reading the review rather than the board. All four are corrected. **That is twice in one day,
+> and the second time the drift was introduced by the document that exists to catch drift** — a
+> review can reopen a ticket in prose and leave every status field saying otherwise.
 
 ## [ERT-100](ERT-100-foundations.md) — Runtime foundations
 
@@ -52,9 +59,10 @@ Phase 0 · depends on — · **Done**
 
 ## [ERT-200](ERT-200-test-harness.md) — Test harness
 
-Phase 0 · depends on ERT-120 · **Done** — reopened 2026-09-18 by the
-[ERT-100/ERT-200 review](../2026-09-18-ert-100-200-review.md), closed again the same day by
-ERT-250 and ERT-260
+Phase 0 · depends on ERT-120 · **In progress** — reopened 2026-09-18 by the
+[ERT-100/ERT-200 review](../2026-09-18-ert-100-200-review.md), closed the same day by ERT-250 and
+ERT-260, then **reopened again** by the [ERT-300 review](../2026-09-18-ert-300-review.md), whose
+HAR-20 filed two unticked criteria against ERT-250 while leaving its status reading `Done`
 
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
@@ -62,18 +70,18 @@ ERT-250 and ERT-260
 | [ERT-220](ERT-200-test-harness.md#ert-220--deterministic-fixedclock-and-id-token-and-pin-generators) | Deterministic `FixedClock` and id, token and PIN generators | Ticket | — | Done |
 | [ERT-230](ERT-200-test-harness.md#ert-230--domain-test-builders) | Domain test builders | Ticket | ERT-220 | Done |
 | [ERT-240](ERT-200-test-harness.md#ert-240--repository-integration-test-base-against-h2-in-postgresql-mode) | Repository integration-test base against H2 in PostgreSQL mode | Ticket | ERT-120, ERT-130 | Done |
-| [ERT-250](ERT-200-test-harness.md#ert-250--contract-tests-binding-each-ports-fake-to-its-adapter) | Contract tests binding each port's fake to its adapter | Ticket | ERT-210 | Done |
+| [ERT-250](ERT-200-test-harness.md#ert-250--contract-tests-binding-each-ports-fake-to-its-adapter) | Contract tests binding each port's fake to its adapter | Ticket | ERT-210 | **In progress** — reopened by HAR-20 |
 | [ERT-260](ERT-200-test-harness.md#ert-260--a-postgresql-ci-job-and-a-migration-applied-to-a-database-with-data) | A PostgreSQL CI job, and a migration applied to a database with data | Ticket | ERT-240, ERT-1160 | Done |
 
 ## [ERT-300](ERT-300-catalogue-policy.md) — Requirement catalogue and link policy
 
-Phase 1 · depends on ERT-130, ERT-240 · **In progress** — reopened 2026-09-18 by the
+Phase 1 · depends on ERT-130, ERT-240 · **Done** — reopened 2026-09-18 by the
 [ERT-300 review](../2026-09-18-ert-300-review.md), which found SEC-38 (two of the nine §6.4 settings
-cannot be saved), SEC-39 and HAR-19 against ERT-310
+cannot be saved), SEC-39 and HAR-19 against ERT-310; closed again the same day by ERT-310
 
 | ID | Title | Type | Depends on | Status |
 |---|---|---|---|---|
-| [ERT-310](ERT-300-catalogue-policy.md#ert-310--appsettingsrepository-adapter-with-64-bounds-enforcement) | `AppSettingsRepository` adapter with §6.4 bounds enforcement | Ticket | ERT-130, ERT-240 | In progress |
+| [ERT-310](ERT-300-catalogue-policy.md#ert-310--appsettingsrepository-adapter-with-64-bounds-enforcement) | `AppSettingsRepository` adapter with §6.4 bounds enforcement | Ticket | ERT-130, ERT-240 | Done |
 | [ERT-320](ERT-300-catalogue-policy.md#ert-320--requirementtemplaterepository-adapter) | `RequirementTemplateRepository` adapter | Ticket | ERT-130, ERT-240 | Done |
 | [ERT-330](ERT-300-catalogue-policy.md#ert-330--auditlog-adapter) | `AuditLog` adapter | Ticket | ERT-240 | Done |
 | [ERT-340](ERT-300-catalogue-policy.md#ert-340--get-apirequirement-templates) | `GET /api/requirement-templates` | Ticket | ERT-140, ERT-320 | Done |
@@ -87,11 +95,11 @@ Phase 1 · depends on ERT-300
 |---|---|---|---|---|
 | [ERT-410](ERT-400-hire-creation.md#ert-410--employeerepository-adapter-and-rowdomain-mapper) | `EmployeeRepository` adapter and row↔domain mapper | Ticket | ERT-190, ERT-240 | Done |
 | [ERT-420](ERT-400-hire-creation.md#ert-420--uploadlinkrepository-adapter-resolved-by-token-hash) | `UploadLinkRepository` adapter, resolved by token hash | Ticket | ERT-160, ERT-240 | Done |
-| [ERT-430](ERT-400-hire-creation.md#ert-430--createhireusecase) | `CreateHireUseCase` | Ticket | ERT-190, ERT-210, ERT-230, ERT-310, ERT-320, ERT-350, ERT-410, ERT-420, ERT-440 | In progress |
+| [ERT-430](ERT-400-hire-creation.md#ert-430--createhireusecase) | `CreateHireUseCase` | Ticket | ERT-190, ERT-210, ERT-230, ERT-310, ERT-320, ERT-350, ERT-410, ERT-420, ERT-440 | Done |
 | [ERT-431](ERT-400-hire-creation.md#ert-431--email-validation-and-duplicate-on-active-with-typed-reason) | ↳ Email validation and duplicate-on-active with typed reason | Sub-task | ERT-210, ERT-230 | Done |
 | [ERT-432](ERT-400-hire-creation.md#ert-432--requirement-set-snapshot-from-the-template-catalogue) | ↳ Requirement-set snapshot from the template catalogue | Sub-task | ERT-431 | Done |
 | [ERT-433](ERT-400-hire-creation.md#ert-433--token-issue-digested-with-expiresat-computed-from-policy) | ↳ Token issue, digested, with `expiresAt` computed from policy | Sub-task | ERT-432 | Done |
-| [ERT-434](ERT-400-hire-creation.md#ert-434--invitation-dispatch-and-surviving-delivery-failure) | ↳ Invitation dispatch and surviving delivery failure | Sub-task | ERT-433, ERT-440 | Not started |
+| [ERT-434](ERT-400-hire-creation.md#ert-434--invitation-dispatch-and-surviving-delivery-failure) | ↳ Invitation dispatch and surviving delivery failure | Sub-task | ERT-433, ERT-440 | Done |
 | [ERT-440](ERT-400-hire-creation.md#ert-440--notifier-dev-adapter-outbox-table-no-smtp) | `Notifier` dev adapter: outbox table, no SMTP | Ticket | ERT-120 | Done |
 | [ERT-450](ERT-400-hire-creation.md#ert-450--post-apiemployees-and-its-dtos) | `POST /api/employees` and its DTOs | Ticket | ERT-140, ERT-190, ERT-430 | Not started |
 

@@ -288,6 +288,13 @@ object AuditLogs : EntityIdTable("audit_logs") {
  * **[employeeId] is not nullable**, which is what lets §8.1's delivery-failure indicator be *derived*
  * from the latest row for a hire (E4) rather than needing a column on `employees` that something has
  * to remember to update.
+ *
+ * **That derivation has exactly one hole, and it is covered elsewhere (HAR-02).** When the INSERT
+ * below is itself what fails, `OutboxNotifier` writes no row at all — so there is no latest row and
+ * nothing to derive from. `CreateHireUseCase` therefore records an
+ * `AuditAction.INVITATION_DELIVERY_FAILED` row from the `DeliveryResult.Failed` value it is handed,
+ * which is the only evidence that exists in that case. The two are not copies of one fact: this
+ * table records what was **queued**, the audit row records what **failed**.
  */
 object NotificationOutbox : EntityIdTable("notification_outbox") {
     val kind = varchar("kind", 32)

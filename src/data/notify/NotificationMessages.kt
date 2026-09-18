@@ -18,9 +18,15 @@ data class RenderedMessage(val subject: String, val body: String)
  * useful. That is the `Notifier` interface's own rule one layer down, and it is why
  * [PortalBaseUrl.linkTo] is reachable from exactly one function here.
  *
- * **No message contains a PIN.** The recovery PIN travels by phone or in person and never by email
- * (§6.6) — it is the first genuinely out-of-band factor the design has. See [OutboxNotifier.sendInvitation]
- * for what happens to the one the port still hands it.
+ * **One message contains a PIN, and four documents say none may — SEC-41, open.** PRD §12, PRD §5,
+ * architecture §12 invariant 4 and `CLAUDE.md` invariant 4 all state that a recovery PIN is *never*
+ * emailed: it travels by phone or in person, and being out-of-band is the entire reason it exists
+ * after the 2026-09-16 access-model reversal (§6.6). [recoveryPin] nonetheless renders `pin.value`
+ * into a body. **Nothing calls it** — ERT-650 would be the first — and the finding **gates that
+ * ticket**, which must either delete the rendering or amend §12. Do not add a caller meanwhile.
+ *
+ * `sendInvitation` is clean: C23 split the port, so it takes no [AccessPin] at all and the one the
+ * KDoc used to describe no longer reaches this class.
  */
 class NotificationMessages(private val portalBaseUrl: PortalBaseUrl) {
 

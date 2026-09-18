@@ -22,13 +22,35 @@ class FakeAuditLog : AuditLog {
     val failure = FakeFailure()
 
     private val recorded = mutableListOf<AuditEntry>()
+    private var failingAction: Pair<AuditAction, Throwable>? = null
 
     /** Everything recorded, oldest first. A copy — the caller cannot append through it. */
     val entries: List<AuditEntry> get() = recorded.toList()
 
     override suspend fun record(entry: AuditEntry) {
         failure.check()
+        failingAction?.let { (action, thrown) -> if (entry.action == action) throw thrown }
         recorded += entry
+    }
+
+    /**
+     * Fail the write of one [action] and let every other row through (ERT-434).
+     *
+     * [FakeFailure] offers "the next call" and "every call", and neither can express *"the third
+     * audit write throws"* — which is the case a use case writing several rows actually needs.
+     * `failEveryCall` throws on the **first** write, so a test using it to prove that a later row's
+     * loss surfaces proves nothing: the use case never reaches that row. That is how the swallowed
+     * `INVITATION_DELIVERY_FAILED` write survived its first mutation.
+     *
+     * A path the real adapter genuinely has, rather than an invented one: `audit_logs` inserts one
+     * row per call, so a constraint violation or a lost connection can take one write and not the
+     * one before it.
+     */
+    fun failOn(
+        action: AuditAction,
+        with: Throwable = IllegalStateException("The fake was asked to fail the $action write"),
+    ) {
+        failingAction = action to with
     }
 
     /**

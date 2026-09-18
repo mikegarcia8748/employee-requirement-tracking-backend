@@ -1,6 +1,6 @@
 # Delivery roadmap
 
-**Next ticket: [ERT-434 — Invitation dispatch and surviving delivery failure](backlog/ERT-400-hire-creation.md#ert-434--invitation-dispatch-and-surviving-delivery-failure)**
+**Next ticket: [ERT-450 — `POST /api/employees` and its DTOs](backlog/ERT-400-hire-creation.md#ert-450--post-apiemployees-and-its-dtos)**
 — the deployment track's remaining ticket,
 [ERT-1260](backlog/ERT-1200-deployment.md#ert-1260--gcp-foundation-identity-federation-registry-network-database-secrets),
 is the one piece of work in this project that needs something outside the repository: a GCP project
@@ -28,11 +28,21 @@ and an Owner.
 > breaks applied with `sed` silently matched nothing, the suite was green, and the guard looked
 > broken. **A mutation not confirmed to have landed is not a mutation.**
 
-> **Read HAR-02's second half before writing ERT-434.** `OutboxNotifier` returns `Failed` and writes
-> **nothing** when the insert is what failed, so §8.1's delivery-failure indicator — which
-> `NotificationOutbox`'s KDoc says is derived from the latest row for a hire — cannot see a
-> queue-insert failure at all. ERT-250 closed the fake's half of that finding and its block states
-> the open question plainly; ERT-434 owns the answer.
+> **ERT-430 is closed, and ERT-450 is a thin route over a use case that now decides everything.**
+> Two things to read before writing it. **C25 is still open and is ERT-450's** — a typed duplicate
+> reason with no spaces is credential-shaped and becomes a user-reachable 500. ERT-310's SEC-38 fix
+> deliberately did **not** touch it: that is the same guard's *value*-side rule, and weakening a
+> tripwire is a specification change. And the 201 body's delivery indicator is
+> `HireCreated.delivery`, a two-case `DeliveryResult` where `Sent` means **durably queued** rather
+> than delivered — nothing transmits until ERT-1010.
+
+> **HAR-02 is answered (2026-09-18, ERT-434), and the answer is recorded where the question was
+> asked.** `OutboxNotifier` returns `Failed` and writes **nothing** when the insert is what failed,
+> so §8.1's delivery-failure indicator — which `NotificationOutbox`'s KDoc derived from the latest
+> row for a hire — could not see a queue-insert failure at all. `CreateHireUseCase` now writes an
+> `AuditAction.INVITATION_DELIVERY_FAILED` row from the `Failed` value itself, so the evidence
+> exists whether or not an outbox row does. The outbox records what was *queued*; the audit row
+> records what *failed*. A column on `employees` was the alternative and **E4 forbids it**.
 
 > **2026-09-18 — ERT-100 and ERT-200 were reviewed against their own implementation, and ERT-200 is
 > reopened.** [The findings](2026-09-18-ert-100-200-review.md) continue the house numbering from
@@ -106,15 +116,35 @@ and an Owner.
 > **No new ticket numbers.** ERT-310 is reopened with SEC-38, SEC-39 and HAR-19; everything else folds
 > into ERT-250, ERT-520, ERT-620, ERT-650, ERT-734, ERT-1020 and ERT-1190. Four documentation
 > contradictions (C40, C41, C42) were fixed in the review's own branch.
+>
+> **Closed 2026-09-18: SEC-38, SEC-39 and HAR-19 are fixed and ERT-310 is `Done` again.** The three
+> landed together because HAR-19's contract test is what reproduces SEC-38 — written first, confirmed
+> **red on the adapter and green on the fake**, then green on both. Twelve deliberate breaks, none
+> surviving.
+>
+> **The fix has a twist the review did not see.** It asks for an exemption *"derived from
+> `LinkPolicySetting.entries`"* and, in the same paragraph, for a test where a tenth colliding
+> setting *"fails the build the day it is added"*. Those cannot both hold: a derived exemption
+> exempts the tenth setting the instant it exists, and the guard passes vacuously forever. That is
+> the vacuity trap ERT-320, ERT-350, ERT-410, ERT-420 and ERT-431 each recorded — **the sixth
+> instance, and the first written into the remedy for one of the others.** The word carrying the
+> answer is *declared*: the two colliding settings are listed one by one, typed, beside the enum.
+> Deriving the list was applied as a mutation and killed.
+>
+> **HAR-20 remains open and ERT-250's status was wrong.** The review's task plan says "ERT-250
+> reopened" and filed two unticked criteria into its block, while the block, the board row and the
+> ERT-200 epic line all still read `Done` — C34's shape, one day later, introduced by the document
+> that exists to catch it. All four are corrected; ERT-250 now reads `In progress`.
 
 > **[ERT-146](backlog/ERT-100-foundations.md#ert-146--a-request-with-no-content-type-is-415-and-every-body-taking-route-publishes-its-schema)
-> jumped the queue on 2026-09-17 and is Done**, which is why ERT-433 is still the next ticket rather
-> than the one after it. `POST /api/auth/login` answered a user-reachable **500** to a request with
+> jumped the queue on 2026-09-17 and is Done**, which is why ERT-433 was the next ticket at the
+> time rather than the one after it. `POST /api/auth/login` answered a user-reachable **500** to a request with
 > no `Content-Type` — which is the only kind Swagger UI could send it, because no POST route in the
 > project published a request schema. A 673-test suite was green throughout: every route test sets
 > `contentType(...)`, so none of them ever sent the request that breaks. Read C28, and the ticket.
 
-> **ERT-433 owes two decisions in writing before it writes code.** **C23** is its to settle:
+> **ERT-433 owed two decisions in writing before it wrote code, and both were made — its block
+> carries them as closed (2026-09-17).** **C23** was its to settle:
 > `Notifier.sendInvitation` still *requires* an `AccessPin`, and since 2026-09-16 the invitation must
 > carry none — the parameter is what makes "only the invitation may carry a credential" a
 > compile-time property, so removing it weakens a real guard, and three options are on the table with
@@ -844,6 +874,60 @@ ERT-410 inside a test written to prevent it, ERT-420 in two such tests, ERT-440 
 contain" assertion, ERT-431 in the harness. ERT-1145 found it in **the mutation itself**: a break not
 confirmed to have landed proves nothing, and a green suite under one is evidence of nothing at all.
 
+**ERT-433 issued the link, and it never got a section here — this is it, written late.** Every
+ticket from ERT-410 on has a narrative paragraph; ERT-433 landed on 2026-09-17 and produced none,
+and two notes near the top of this file went on describing it as upcoming work with decisions owed.
+Both are corrected. The ticket settled **C23** by splitting the port — `sendInvitation` takes no
+`AccessPin`, and a separate `sendRecoveryPin` does — which keeps "only one message may carry a
+credential" a compile-time property rather than a review checklist item, and gives ERT-650 the
+method it needs. It also settled that `AppSettingsRepository.linkPolicy()`'s `Err` is **propagated,
+never recovered from**: `LinkPolicy`'s Kotlin defaults are identical to the seeded rows, so a silent
+fallback returns exactly what a correct read returns and no behavioural test could tell them apart.
+
+**And one thing it did not do was noticed a day later: the link was issued and never audited.**
+`AuditAction.LINK_ISSUED` has existed since ERT-330 and a grep finds it in the enum and one test
+fixture — no production code at all. No criterion asked for the row, so nothing was red and nothing
+was wrong; the gap simply had no owner, which is this file's own recurring lesson about prose having
+no status field. ERT-434 wrote it, because it was already editing that method.
+
+**ERT-310 was reopened and closed again, and ERT-434 closed ERT-400's use case. The suite went from
+851 tests to 876, green on H2 and on real PostgreSQL both.**
+
+Four things were decided rather than assumed, and three bind later tickets:
+
+- **SEC-38's exemption is a *declared* list, not a derived one, and the distinction is the whole
+  fix.** Two of the nine §6.4 settings could never be saved: `updateLinkPolicy` derives its audit
+  metadata keys from the setting key, and the credential guard refuses any key containing `pin`. The
+  review asked for an exemption "derived from `LinkPolicySetting.entries`" *and* for a test that
+  fails the build when a tenth colliding setting is added — which cannot both hold, because a
+  derived exemption exempts the tenth setting the moment it exists. **The sixth instance of this
+  project's vacuity lesson, and the first inside the remedy for one of the others.** The two
+  colliding settings are now listed one by one, typed, beside the enum; deriving them was applied as
+  a mutation and killed by three independent tests.
+- **The exemption skips the key check only, and `C25` is untouched.** `isCredentialShaped` still runs
+  on every value. C25 is the same guard's *value*-side false positive, it is still open, and it is
+  **ERT-450's** — which is the next ticket, so read it before writing the route.
+- **SEC-39's three cross-field rules run on the read path, so a hand-edited database now fails
+  loudly.** `extend_on_rejection_days` could push a live link to 97 days against a ceiling settable
+  to 7, because V3 asserted the rule as a property of a static cap. That is the only change here a
+  live deployment can notice; the seed passes all five rules, so an untouched database is unaffected.
+- **HAR-02 is answered with an audit row rather than a second write path**, and **SEC-37's second
+  suggested remedy does not work.** The review offers "re-throw `CancellationException` **or** catch
+  `Exception` rather than `Throwable`" — but on the JVM `CancellationException` extends
+  `IllegalStateException` and *is* an `Exception`, so the second alone changes nothing. Verified by
+  mutation. Both are in place; only the re-throw is the fix.
+
+**The vacuity lesson got an eighth instance, and this one was in a *fake* rather than in a test.**
+The test proving that a lost `INVITATION_DELIVERY_FAILED` row surfaces used
+`audit.failure.failEveryCall()` — which throws on the **first** audit write, so the use case never
+reached the row under test and a `runCatching` around it **passed the suite**. `FakeFailure` offers
+"next call" and "every call", and neither can say "the third write throws". `FakeAuditLog` grew
+`failOn(action)`, which models a path the adapter genuinely has since `audit_logs` inserts one row
+per call. ERT-320 found vacuity in a seed, ERT-350 in a seeded row, ERT-410 inside a test written to
+prevent it, ERT-420 in two such tests, ERT-440 in a "does not contain" assertion, ERT-431 in the
+harness, ERT-1145 in the mutation itself — and ERT-434 **in the fake's failure vocabulary**. The
+instrument that finds the bug has now been the bug four times.
+
 ---
 
 ## Phases
@@ -1099,7 +1183,7 @@ ERT-100/ERT-200 review**.
 | E1 | §7.2 asked for thumbnails on the review screen; §8.6 forbids the portal returning a preview | **Closed.** §8.6 wins; PRD v0.5 amended §7.2. The API contract keeps a note so a reader of an older §7.2 does not re-file it |
 | E2 | The upload MIME allowlist was never stated | **Closed as Q21.** JPEG, PNG, HEIC, HEIF, PDF — sniffed, configurable. PRD §12, ERT-732 |
 | E3 | A duplicate-email override silently froze retention, because `retentionFrozen` derived from `anomalyFlags.isNotEmpty()` | **Closed in prose, still unlanded in code.** Freezes on the four evidentiary flags only; `SHARED_EMAIL` and `SEPARATION_OF_DUTIES` do not. PRD §7.1, ERT-734, invariant 8. **PRD owner to ratify.** **ERT-431 gave `SHARED_EMAIL` its first producer (2026-09-17)**, so ERT-734 now has a real record to exercise — and a hire created past a duplicate has its retention frozen today, contrary to the contract |
-| E4 | §8.1 required an invite-delivery-failure indicator; §11 modelled no column | **Closed.** Derived from the latest outbox row, with the audit log as history — better than the audit-log-only guess, which predated ERT-440's outbox being settled |
+| E4 | §8.1 required an invite-delivery-failure indicator; §11 modelled no column | **Closed.** Derived from the latest outbox row, with the audit log as history — better than the audit-log-only guess, which predated ERT-440's outbox being settled **Sharpened 2026-09-18 by ERT-434 (HAR-02):** the derivation holds except when the outbox INSERT is itself what failed, which writes no row at all — there `CreateHireUseCase`'s `INVITATION_DELIVERY_FAILED` audit row is the only evidence. The outbox records what was queued, the audit row what failed; a column on `employees` is still forbidden. |
 | E5 | Malware scanning was a P0 control with no library, no owner and no question number | **Converted to Q22 + ERT-1150.** ClamAV via `clamd`, Engineering / Security, Phase 1 exit. Still a named exit risk, but now one with a gate |
 | E6 | No object-storage target chosen, and the PRD asked no question about it | **Closed as Q20.** GCP Cloud Storage; filesystem for dev. The port's shape now matches presign-with-a-TTL |
 | E7 | The audit said 14 findings; the dispositions listed SEC-01…SEC-15 | **Closed.** Five Mediums, not four; 15 findings. Corrected in the audit with a dated note, and in PRD §0 and architecture §1 |

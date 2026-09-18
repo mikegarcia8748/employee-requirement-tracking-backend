@@ -60,6 +60,25 @@ enum class AuditAction {
 
     DUPLICATE_EMAIL_OVERRIDDEN,
     LINK_ISSUED,
+
+    /**
+     * The invitation did not reach the outbox (ERT-434, HAR-02, PRD §8.1).
+     *
+     * **A separate action rather than an outcome in [HIRE_CREATED]'s metadata**, for the reason
+     * [SIGN_IN_FAILED] is separate from [SIGN_IN_SUCCEEDED] and [DUPLICATE_EMAIL_OVERRIDDEN] is its
+     * own row: "which hires did the invitation never reach" is a filter on `action`, not a
+     * substring scan of every creation row's unindexed JSON.
+     *
+     * It exists because `OutboxNotifier` writes **nothing** when the outbox insert is what failed,
+     * so §8.1's delivery-failure indicator — which `NotificationOutbox`'s KDoc derives from the
+     * latest row for a hire — cannot see that case at all. The `DeliveryResult.Failed` value
+     * reaching `CreateHireUseCase` is the only evidence that exists, and this row is where it is
+     * kept. A column on `employees` was the alternative and E4 forbids it: it would be a second
+     * copy of a fact the outbox already owns, and the two would drift the first time a retry
+     * succeeded.
+     */
+    INVITATION_DELIVERY_FAILED,
+
     LINK_EXTENDED,
     LINK_REVOKED,
     LINK_SUSPENDED,
