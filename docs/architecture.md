@@ -357,7 +357,7 @@ enumeration oracle.
 
 | Level | Where | Covers |
 |---|---|---|
-| Use case | `test/domain/usecase/` | every business rule, exhaustively. The bulk of the suite. |
+| Use case | `test/domain/usecase/` | every business rule, exhaustively. **Where business rules are proven**, and where the weight belongs as Phase 1 lands. |
 | Architecture | `test/ArchitectureTest.kt` | the dependency rule, as a build failure |
 | Route | `test/*Test.kt` | wiring, status codes, serialization — never a decision |
 | Fakes & builders | `test/testdata/` | in-memory ports, `FixedClock`, sample data |
@@ -371,6 +371,15 @@ tried; a deliberately-failing `BehaviorSpec` was silently skipped under the defa
 zero tests even when selected explicitly by class. This matters because an undiscovered spec is
 indistinguishable from a passing one — the probe was written to fail precisely so the difference was
 visible.
+
+**Measured 2026-09-18 (HAR-08): use-case tests are 14% of 689, not the bulk.** `test/data/` is 37%
+and `test/testdata/` — the harness testing itself — is 20%, more than the domain it serves. That is
+what a Phase-0-heavy codebase should look like with seven use cases and thirteen tables, and the row
+above now states the intent rather than describing the suite. ERT-450 onward is where it becomes
+true.
+
+**MockK is declared and used by no test**, as of the same review. Reach for a fake before a mock;
+ERT-1140 decides whether the dependency stays.
 
 So tests use `kotlin.test` (`@Test`, discovered by JUnit 5) with **Kotest assertions**
 (`shouldBe`, `shouldBeEmpty`) and **MockK**, which work normally as libraries. BDD structure comes

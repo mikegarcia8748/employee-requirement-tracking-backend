@@ -6,6 +6,38 @@
 is the one piece of work in this project that needs something outside the repository: a GCP project
 and an Owner. Take ERT-433 unless that exists.
 
+> **2026-09-18 — ERT-100 and ERT-200 were reviewed against their own implementation, and ERT-200 is
+> reopened.** [The findings](2026-09-18-ert-100-200-review.md) continue the house numbering from
+> SEC-30, PERF-09 and C28, and introduce **HAR-** for a third category: the test harness disagreeing
+> with the code it stands in for. **Neither 2026-09-17 audit looked at ERT-200 at all**, and both
+> excluded index design — which is where most of this lives.
+>
+> Nothing here changes the **Next ticket** pointer. Three findings gate work already in the queue and
+> should be read before the ticket they gate:
+>
+> | Finding | Gates | Ticket |
+> |---|---|---|
+> | **HAR-04** — `PortalSession` has no `tokenHash`, but the column is `NOT NULL UNIQUE`, so `save` has no source for it | **ERT-620**, as a compile error inside its adapter | criteria added to ERT-620 |
+> | **PERF-10** — the baseline schema indexes almost none of its foreign keys, including `portal_access_logs (upload_link_id, timestamp)`, which §6.6's lockout counter reads on the unauthenticated portal path | **ERT-610, ERT-1020** — after them it is the same work against tables with rows | **ERT-1190** |
+> | **HAR-02** — `OutboxNotifier` returns `Failed` and writes **nothing** when the insert is what failed, so §8.1's indicator, *"derived from the latest row"*, cannot see it | **ERT-434 — the next ticket** | criteria added to ERT-434 |
+>
+> The largest finding is **HAR-01**: nothing keeps a port, its fake and its adapter in step, and six
+> divergences are live. Two compose into one that matters — `FakeHrUserRepository` permits two
+> accounts on one address and signs the first in, while the adapter's `singleOrNull` returns **null**,
+> so a fake-backed sign-in test can be green in a state where production refuses every sign-in for
+> that address. **ERT-250** is a contract suite per port rather than six patches, for the reason
+> ERT-146 and ERT-1245 both give: the guard is the deliverable. **ERT-260** finally gives ERT-240's
+> unowned *"a Postgres CI job, worth adding before launch"* a number — the project's own E5/E6/C22
+> lesson, applied everywhere except to its test harness. **ERT-1195** turns five hand-verified
+> fail-closed controls into a CI step, since nothing in this project has ever booted in production
+> mode: `module.yaml` sets `APP_ENV: dev` for the whole test JVM and the container smoke test passes
+> `-e APP_ENV=dev`.
+>
+> **Two candidate findings were investigated and dropped**, and the review says so rather than
+> omitting them: password length policy (`PasswordPolicy`, 12 characters to 72 bytes, tested) and the
+> cross-field `app_setting` bounds the V3 seed deferred (`crossFieldErrors()` implements both). The
+> suite was **689 tests, 13.75 s, green** before and after.
+
 > **[ERT-146](backlog/ERT-100-foundations.md#ert-146--a-request-with-no-content-type-is-415-and-every-body-taking-route-publishes-its-schema)
 > jumped the queue on 2026-09-17 and is Done**, which is why ERT-433 is still the next ticket rather
 > than the one after it. `POST /api/auth/login` answered a user-reachable **500** to a request with
@@ -100,7 +132,7 @@ decision register, and the pointer above. Each session updates that pointer on t
 
 | | |
 |---|---|
-| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of 10 in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **seven Exposed adapters, an outbox notifier and a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data, HR accounts, **hires with their requirement sets**, **upload links resolved by token digest** and **a durable notification outbox** · **seven use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin, and **hire creation with its snapshotted requirement set**) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
+| Built | `core/` value objects and error types · 13 domain models with status logic · 13 ports · 13 Exposed tables · bcrypt for PINs, an HMAC token digest, clock and secure generators · a use case tracer behind `TRACE_USECASES`, with per-request correlation · 6 Ktor plugins · generated OpenAPI · an architecture test that fails the build on a layer violation, **on a portal DTO leaking document content**, or **on an untraced use case** · a test harness of **13** in-memory fakes, an advanceable `FixedClock`, deterministic generators and a builder per domain model · a `RepositoryTestBase` giving one migrated, seeded, isolated H2 database per test · **seven Exposed adapters, an outbox notifier and a JWT issuer, bound and resolved by a wiring test** — the §6.4 link policy, the append-only audit trail, the requirement catalogue, the reference data, HR accounts, **hires with their requirement sets**, **upload links resolved by token digest** and **a durable notification outbox** · **seven use cases** (sign-in, change password, create/activate/reset a user, bootstrap the first admin, and **hire creation with its snapshotted requirement set**) · **the real HR auth scheme**: local `users`, two roles, bcrypt, tokens signed against a row, a bootstrap admin that refuses to start a non-dev deployment with no way in, and `testdata/HrTokens` minting a token any route test can present |
 | Empty | `route/portal/` |
 | Mapping | one `AppError` → HTTP mapping in `route/mapper/`, so a route returns a domain failure and makes no decision |
 | Endpoints | `/health`, `/openapi`, `/swagger`, `/metrics` · `POST /api/auth/login` (the only public `/api` route) · `/api/auth/change-password`, `/api/auth/me` · four `HR_ADMIN`-only routes under `/api/users` · three HR reads — `/api/requirement-templates`, `/api/departments`, `/api/employment-types`. Appendix B specifies the rest. |
@@ -882,7 +914,8 @@ Now a real epic with real tickets: [ERT-1100](backlog/ERT-1100-operability-harde
 Found while writing the backlog, and extended by a full cross-document sweep on 2026-09-16. **Every
 row is kept, resolved or not** — the history is the point, and a deleted row is one a future reader
 re-files. E1–E8 came from the first pass; C1–C22 from the sweep, of which the ones still worth
-tracking are listed.
+tracking are listed; C23–C28 were opened by the tickets that hit them; **C29–C33 by the 2026-09-18
+ERT-100/ERT-200 review**.
 
 | # | Issue | Resolution |
 |---|---|---|
@@ -917,6 +950,11 @@ tracking are listed.
 | C27 | **A catalogue that is entirely optional produces the record the empty-catalogue guard exists to prevent.** ERT-432 refuses an employment type with no active templates, because a hire at zero of zero required documents is *complete* and passes straight through the §8.5 validation loop with nothing uploaded. The guard asks `isEmpty()` — and an employment type whose templates are all `isRequired = false` has exactly that property while passing it *(opened 2026-09-17 by ERT-432's review step)* | **Open, owned by the Phase 2 admin-catalogue epic (§8.10, §8.11).** Deliberately not tightened at hire creation: the defect is in the **catalogue**, not in the hire, and the remedy is the admin screen refusing to publish an all-optional assignment — refusing at creation would block HR for something only an admin can fix, one hire at a time, late. Unreachable today: the V2 seed cross-joins all fourteen templates and ten are required. It becomes reachable the moment **Q2**'s real checklist replaces the seed, or the Phase 2 screen ships. `CreateHireUseCaseTest` **pins today's behaviour** with a named test on ERT-431's C25 precedent, so the trap is visible rather than discovered in production |
 
 | C28 | **The API contract required every route to declare its *response* schema and said nothing about its *request* schema — and the generator infers neither.** All five POST routes carried `describe { }` blocks with `responses { }` and no `requestBody { }`, so Swagger UI rendered no body editor and its "Try it out" sent `POST /api/auth/login` with no body and no `Content-Type`. ContentNegotiation then skipped every converter, `receive` threw a `ContentTransformationException` — an `IOException`, not a `BadRequestException` — and `StatusPages` answered **500**. The suite was green throughout, because every route test sets `contentType(...)` and so never sent a request without one *(opened 2026-09-17 by manual Swagger testing)* | **Closed as ERT-146.** Both halves are one defect and neither alone fixes it. 415 rather than 422, matching Ktor's own `defaultExceptionStatusCode`, so a client can tell "fix your header" from "fix your body". The handler registers the parent `ContentTransformationException`, because `UnsupportedMediaTypeException` is the identical mistake against the `receiveMultipart()` handler ERT-710 writes. The five `describe { }` blocks are not the deliverable: an `ArchitectureTest` guard now fails the build on a handler that reads a body without publishing its schema, and was checked against the pre-fix tree rather than only against a synthetic offender |
+| C29 | **C15 settled that `findActiveForLink` grows a `now` parameter; the fake still tells the reader it is open.** ERT-620 carries the criterion, correctly and unchecked. `FakePortalSessionRepository`'s KDoc says *"ERT-620 should decide whether the port grows a `now`"* — and the fake is the file a use-case author reads *(opened 2026-09-18 by the ERT-100/ERT-200 review)* | **Open, owned by ERT-620.** Deliberately **not** the E3 shape: this is documentation that predates a decision, not a decision nobody landed. One KDoc edit closes it, and ERT-620's criteria now name it |
+| C30 | **Port count, for the second time.** ERT-200, ERT-210 and the board say **10** domain ports; the *Where the code is* table below says "13 ports" and "a test harness of **10** in-memory fakes" in one sentence; there are **13** of each, and `FakesTest`'s "every fake is constructible" acceptance test constructs **11**. **C9 closed this exact drift once**, as a documentation fix *(opened 2026-09-18)* | **Corrected here and in the four documents; guarded by ERT-250.** A count in prose has nothing holding it, which is why one correction did not hold. The deliverable is the `ArchitectureTest` port-coverage guard, not a third recount |
+| C31 | ERT-120's title and its board row say "the **12** tables"; `MigrationTest` asserts `allTables.size shouldBe 14` *(opened 2026-09-18)* | **Closed.** Corrected in ERT-120 and on the board with a dated note. The assertion tracked reality throughout; only the prose did not |
+| C32 | `MigrationTest`'s guard is named `identifier generation - the guard above - is pointed at the **ten** keyed tables` and asserts **12** *(opened 2026-09-18)* | **Closed by rename.** The assertion is right; the name is what a reader skimming test output trusts, and a test whose name disagrees with its body is worse than one with no name at all |
+| C33 | `ExposedRequirementTemplateRepository.kt:44-49` — the KDoc reading *"Does **not** filter by `is_active` — only `findActiveForEmploymentType` does"* sits above `findActiveForEmploymentType`, the method it contrasts *with*, rather than above `findById`, the method it describes *(opened 2026-09-18)* | **Closed.** Moved |
 
 **Still open, and deliberately so:** the PRD has **no owner**. E3's ratification, and any future
 contradiction between two P0 sections, route to a role nobody holds. Escalated 2026-09-16, due

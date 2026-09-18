@@ -193,6 +193,29 @@ stored.
       trail
 - [ ] `[derived]` Given `findActiveForLink`, then it returns every session **not explicitly ended**,
       and the port grows a `now` parameter so that lapsed sessions can be excluded
+- [ ] Given `save`, then the token digest reaches `portal_sessions.token_hash` — decide whether
+      `PortalSession` carries the field or `save` takes it beside the session, and record which
+      **(HAR-04, added 2026-09-18)**
+- [ ] `[derived]` Given `FakePortalSessionRepository`, then its KDoc no longer says the `now` question
+      is open — C15 settled it on 2026-09-16 **(C29, added 2026-09-18)**
+
+> **The port cannot express what the Description above assumes (HAR-04,
+> [2026-09-18](../2026-09-18-ert-100-200-review.md)).** This ticket says the session token is *"stored
+> as an ERT-160 digest in `portal_sessions.token_hash`"*, and the Files list already says
+> `Repositories.kt` must change because `findActive` resolves by session id and must resolve by
+> digest. That is one half. The other half has no slot anywhere: `PortalSession` is
+> `(id, uploadLinkId, startedAt, expiresAt, ip, userAgent, endedAt)` and `save(session: PortalSession)`
+> takes nothing else, so the `NOT NULL UNIQUE` column has no source and the adapter cannot be written.
+>
+> **689 tests do not notice**, because `FakePortalSessionRepository` mirrors the model and has no
+> column to fill, and the schema-drift test compares `Tables.kt` to the SQL — which do agree. It is the
+> model and the table that do not, and nothing compares those.
+>
+> The house pattern points at the second option. `UploadLink` carries its digest because the link *is*
+> the credential's record; a session's digest is what the adapter needs in order to store it, not what
+> the portal needs in order to read it — the same shape as `findByTokenHash` taking a hash, and as
+> `Notifier.sendRecoveryPin` being the only method that accepts an `AccessPin`. **Decide it before the
+> adapter, not as a compile error inside it.**
 
 > **`findActiveForLink` could not mean what this criterion used to say (C15, settled 2026-09-16).**
 > It read "returns every live session", but the port signature hands it no clock — compare
